@@ -1,0 +1,52 @@
+{
+  "name": "bundesk",
+  "version": "0.1.0",
+  "description": "Fast Bun framework for building, running, integrating, and updating local web apps as desktop applications.",
+  "type": "module",
+  "bin": {
+    "bundesk": "./src/cli.ts"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "src",
+    "docs",
+    "README.md",
+    "README.zh-CN.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "pack:check": "bun pm pack --dry-run"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/liooil/bundesk.git"
+  },
+  "bugs": {
+    "url": "https://github.com/liooil/bundesk/issues"
+  },
+  "homepage": "https://github.com/liooil/bundesk#readme",
+  "keywords": [
+    "bun",
+    "desktop",
+    "executable",
+    "windows",
+    "bundler"
+  ],
+  "license": "MIT",
+  "engines": {
+    "bun": ">=1.3.14"
+  },
+  "dependencies": {
+    "@xmldom/xmldom": "^0.8.12",
+    "@zip.js/zip.js": "^2.8.26",
+    "resedit": "^3.0.2"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14",
+    "typescript": "~5.9.3"
+  }
+}

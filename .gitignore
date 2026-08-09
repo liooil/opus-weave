@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.exe
+*.app
+bun.lockb
+.generated/
+vendor/bundesk/node_modules/
+vendor/bundesk/.generated/

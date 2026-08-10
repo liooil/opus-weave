@@ -19,11 +19,19 @@ export interface ComputerKeyMapping {
   layout: Record<string, number>
 }
 
+export interface ComputerKeyAssignment {
+  key: string
+  semitoneOffset: number
+  note: number
+}
+
 /** Default 2-octave row mapping: Z..M (white keys) + S..L (black keys). */
 const DEFAULT_LAYOUT: Record<string, number> = {
   z: 0, s: 1, x: 2, d: 3, c: 4, v: 5, g: 6, b: 7, h: 8, n: 9, j: 10, m: 11,
   q: 12, '2': 13, w: 14, '3': 15, e: 16, r: 17, '5': 18, t: 19, '6': 20, y: 21, '7': 22, u: 23,
 }
+
+const DEFAULT_LAYOUT_ENTRIES = Object.entries(DEFAULT_LAYOUT).sort((left, right) => left[1] - right[1])
 
 export interface KeyToMidiResult {
   note: number
@@ -55,8 +63,21 @@ export class MappingEngine {
     return this.baseNote + offset + this.octaveShift
   }
 
+  /** Current computer-key assignments in ascending pitch order. */
+  listComputerKeyAssignments(): ComputerKeyAssignment[] {
+    return DEFAULT_LAYOUT_ENTRIES.map(([key, semitoneOffset]) => ({
+      key,
+      semitoneOffset,
+      note: this.baseNote + semitoneOffset + this.octaveShift,
+    }))
+  }
+
   shiftOctave(delta: number): void {
-    this.octaveShift += delta * 12
+    const lowestOffset = DEFAULT_LAYOUT_ENTRIES[0]![1]
+    const highestOffset = DEFAULT_LAYOUT_ENTRIES[DEFAULT_LAYOUT_ENTRIES.length - 1]![1]
+    const minimumShift = Math.ceil((-this.baseNote - lowestOffset) / 12) * 12
+    const maximumShift = Math.floor((127 - this.baseNote - highestOffset) / 12) * 12
+    this.octaveShift = Math.max(minimumShift, Math.min(maximumShift, this.octaveShift + delta * 12))
   }
 
   get currentOctaveShift(): number {

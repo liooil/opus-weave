@@ -5,31 +5,33 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="theme-color" content="#0b0c10" />
   <title>OpusWeave Studio</title>
+  <link rel="icon" href="./assets/app-icon.svg" type="image/svg+xml" />
+  <link rel="icon" href="./assets/app-icon-32.png" type="image/png" sizes="32x32" />
+  <link rel="apple-touch-icon" href="./assets/app-icon-256.png" />
   <link rel="stylesheet" href="./app.css" />
 </head>
 <body>
   <div class="app-shell">
     <header class="topbar">
       <div class="brand">
-        <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+        <img class="brand-mark" src="./assets/app-icon.svg" alt="" aria-hidden="true" />
         <div>
           <h1>OpusWeave</h1>
           <p data-i18n="brand.subtitle">Performance workstation</p>
         </div>
       </div>
-      <div class="topbar-center" aria-hidden="true">
-        <span class="active" data-i18n="nav.play">Play</span>
-        <span data-i18n="nav.shape">Shape</span>
-        <span data-i18n="nav.connect">Connect</span>
-      </div>
+      <nav class="topbar-center" data-i18n-aria-label="nav.workspace" aria-label="Workspace sections">
+        <a href="#live-panel" data-nav-target="live-panel" data-i18n="nav.play">Play</a>
+        <a href="#playback-panel" data-nav-target="playback-panel" data-i18n="nav.shape">Shape</a>
+        <a href="#midi-panel" data-nav-target="midi-panel" data-i18n="nav.connect">Connect</a>
+      </nav>
       <div class="session-controls">
-        <label class="language-picker">
-          <span class="sr-only" data-i18n="language.label">Interface language</span>
-          <select id="language-select" data-i18n-aria-label="language.label">
-            <option value="en">EN</option>
-            <option value="zh-CN">中文</option>
-          </select>
-        </label>
+        <button id="language-toggle" class="language-toggle" type="button" title="Switch to Chinese" aria-label="Switch to Chinese">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="9"></circle>
+            <path d="M3 12h18M12 3c2.4 2.5 3.7 5.5 3.7 9s-1.3 6.5-3.7 9M12 3c-2.4 2.5-3.7 5.5-3.7 9s1.3 6.5 3.7 9"></path>
+          </svg>
+        </button>
         <div class="session-state"><span class="state-dot"></span><span data-i18n="session.local">Local session</span></div>
       </div>
     </header>
@@ -106,16 +108,42 @@
           <div class="section-heading inline-heading">
             <div><span class="eyebrow" data-i18n="section.instrument">Instrument</span><h2 data-i18n="section.livePerformance">Live performance</h2></div>
             <div class="performance-controls">
-              <span class="stepper-label" data-i18n="live.octave">Octave</span>
-              <button id="oct-down" class="stepper">−</button>
-              <strong id="oct-label">0</strong>
-              <button id="oct-up" class="stepper">+</button>
-              <label class="velocity-field"><span data-i18n="live.velocity">Velocity</span><input id="key-velocity" type="number" min="1" max="127" value="100" /></label>
+              <div class="performance-control-group">
+                <span class="stepper-label" data-i18n="live.octave">Octave</span>
+                <button id="oct-down" class="stepper" data-i18n-title="live.octaveDownControl" data-i18n-aria-label="live.octaveDownControl" title="Lower octave (A)" aria-label="Lower octave (A)">−</button>
+                <strong id="oct-label">0</strong>
+                <button id="oct-up" class="stepper" data-i18n-title="live.octaveUpControl" data-i18n-aria-label="live.octaveUpControl" title="Raise octave (K)" aria-label="Raise octave (K)">+</button>
+              </div>
+              <div class="performance-control-group">
+                <span class="stepper-label" data-i18n="live.velocity">Velocity</span>
+                <button id="velocity-down" class="stepper" data-i18n-title="live.velocityDownControl" data-i18n-aria-label="live.velocityDownControl" title="Decrease velocity (F)" aria-label="Decrease velocity (F)">−</button>
+                <input id="key-velocity" class="velocity-input" type="number" min="1" max="127" value="100" data-i18n-aria-label="live.velocity" aria-label="Velocity" />
+                <button id="velocity-up" class="stepper" data-i18n-title="live.velocityUpControl" data-i18n-aria-label="live.velocityUpControl" title="Increase velocity (4)" aria-label="Increase velocity (4)">+</button>
+              </div>
             </div>
           </div>
           <div id="live-notes" class="live-notes"><span class="notes-placeholder" data-i18n="live.notesPlaceholder">Played notes appear here</span></div>
+          <div class="computer-map" aria-labelledby="computer-map-title">
+            <div class="computer-map-head">
+              <strong id="computer-map-title" data-i18n="live.computerMap">Computer keyboard map</strong>
+              <div class="computer-map-actions">
+                <div class="map-shortcuts" aria-label="Performance shortcuts">
+                  <span><kbd>A</kbd><kbd>K</kbd><span data-i18n="live.octaveShortcut">octave</span></span>
+                  <span><kbd>F</kbd><kbd>4</kbd><span data-i18n="live.velocityShortcut">velocity</span></span>
+                </div>
+                <button id="toggle-computer-map" class="map-toggle" data-i18n-title="live.collapseMap" data-i18n-aria-label="live.collapseMap" title="Collapse keyboard map" aria-label="Collapse keyboard map" aria-expanded="true">⌃</button>
+              </div>
+            </div>
+            <div id="computer-map-content" class="computer-map-content">
+              <div id="computer-key-map" class="qwerty-map"></div>
+              <div class="keyboard-bridge" aria-hidden="true">
+                <span class="bridge-label" data-i18n="live.mappingBridge">key → note</span>
+                <svg id="keyboard-links" class="keyboard-links"></svg>
+              </div>
+            </div>
+          </div>
           <div class="keyboard-frame"><div id="virtual-keyboard"></div></div>
-          <p class="hint keyboard-hint" data-i18n="live.keyboardHint">Computer keys Z–M, S–L and Q–U play notes. Focused inputs ignore shortcuts.</p>
+          <p class="hint keyboard-hint" data-i18n="live.keyboardHint">Shortcuts are disabled while an input or selector is focused.</p>
         </section>
 
         <div class="module-grid">
@@ -127,7 +155,7 @@
             <label class="drop-zone">
               <input id="sf-file" type="file" accept=".sf2,.sf3,.sfogg" />
               <span class="drop-icon">SF</span>
-              <span class="built-in-badge" data-i18n="sound.builtInIncluded">Built-in Micro GM</span>
+              <span class="built-in-badge" data-i18n="sound.builtInIncluded">FreePiano-style mda Piano + Micro GM</span>
               <strong data-i18n="sound.load">Load another SoundFont</strong>
               <small data-i18n="sound.formats">Optional: SF2, SF3 or SFOGG</small>
             </label>

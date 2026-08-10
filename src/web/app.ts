@@ -7,14 +7,16 @@ import { SpessaSynthEngine } from '../audio/spessa-synth-engine.ts'
 import { WebMidiManager, type MidiManagerState } from '../midi/web-midi-manager.ts'
 import { MidiRecorder, takeToMidi, type RecordedTake } from '../domain/midi/midi-recorder.ts'
 import { applyTrackMutes, importMidi, inspectMidi, type MidiInspection } from '../domain/midi/midi-import.ts'
-import { MappingEngine, noteName } from '../domain/devices/mapping-engine.ts'
+import { MappingEngine, noteName, type ComputerKeyAssignment } from '../domain/devices/mapping-engine.ts'
 import { MidiLearn } from '../domain/midi-learn.ts'
 import { findProfileForPort, overrideControl, type DeviceProfile } from '../domain/devices/device-profile.ts'
 import { midiplusTinyPlusProfile } from '../domain/devices/midiplus-tiny-plus.ts'
 import { VirtualKeyboard } from './components/virtual-keyboard.ts'
+import { enableHorizontalPointerScroll } from './components/horizontal-pointer-scroll.ts'
 import type { BasicMIDI } from 'spessasynth_core'
 import { resolveLocale, setLocale, t, translateDocument, type TranslationValues } from './i18n.ts'
-import builtInSoundFontUrl from './assets/opusweave-micro-gm.sf2' with { type: 'file' }
+import builtInGmSoundFontUrl from './assets/opusweave-micro-gm.sf2' with { type: 'file' }
+import freePianoSoundFontUrl from './assets/freepiano-mda-piano.sf2' with { type: 'file' }
 
 // ─── DOM helpers ─────────────────────────────────────────────────────────────
 
@@ -69,15 +71,23 @@ function showError(msg: string): void {
   box.hidden = false
 }
 
-const localeSelect = $<HTMLSelectElement>('language-select')
+const localeButton = $<HTMLButtonElement>('language-toggle')
 const initialLocale = resolveLocale(window.localStorage.getItem('opusweave.locale') ?? navigator.language)
 setLocale(initialLocale)
-localeSelect.value = initialLocale
 translateDocument()
 retranslateTrackedCopy()
+updateLanguageToggleCopy()
 
-localeSelect.addEventListener('change', () => {
-  const locale = resolveLocale(localeSelect.value)
+function updateLanguageToggleCopy(): void {
+  const key = document.documentElement.lang === 'en'
+    ? 'language.switchToChinese'
+    : 'language.switchToEnglish'
+  localeButton.title = t(key)
+  localeButton.setAttribute('aria-label', t(key))
+}
+
+localeButton.addEventListener('click', () => {
+  const locale = document.documentElement.lang === 'en' ? 'zh-CN' : 'en'
   setLocale(locale)
   window.localStorage.setItem('opusweave.locale', locale)
   translateDocument()
@@ -86,7 +96,65 @@ localeSelect.addEventListener('change', () => {
   renderTrackList()
   renderLearnBindings()
   populatePresets()
+  renderComputerKeyMap()
+  updateComputerMapToggleCopy()
+  updateLanguageToggleCopy()
 })
+
+const workspaceNavLinks = [...document.querySelectorAll<HTMLAnchorElement>('[data-nav-target]')]
+let navigationLockUntil = 0
+let navigationFrame = 0
+
+function setActiveWorkspaceNavigation(targetId: string): void {
+  for (const link of workspaceNavLinks) {
+    const active = link.dataset.navTarget === targetId
+    link.classList.toggle('active', active)
+    if (active) link.setAttribute('aria-current', 'location')
+    else link.removeAttribute('aria-current')
+  }
+}
+
+function updateWorkspaceNavigation(): void {
+  if (performance.now() < navigationLockUntil) return
+  const headerBottom = document.querySelector<HTMLElement>('.topbar')?.getBoundingClientRect().bottom ?? 0
+  const targetIds = window.innerWidth <= 820
+    ? ['midi-panel', 'playback-panel', 'live-panel']
+    : ['playback-panel', 'live-panel']
+  let closestId = targetIds[0]!
+  let closestDistance = Number.POSITIVE_INFINITY
+
+  for (const id of targetIds) {
+    const target = document.getElementById(id)
+    if (!target) continue
+    const rect = target.getBoundingClientRect()
+    if (rect.bottom <= headerBottom) continue
+    const distance = Math.abs(rect.top - headerBottom - 12)
+    if (distance < closestDistance) {
+      closestDistance = distance
+      closestId = id
+    }
+  }
+  setActiveWorkspaceNavigation(closestId)
+}
+
+function scheduleWorkspaceNavigationUpdate(): void {
+  cancelAnimationFrame(navigationFrame)
+  navigationFrame = requestAnimationFrame(updateWorkspaceNavigation)
+}
+
+for (const link of workspaceNavLinks) {
+  link.addEventListener('click', (event) => {
+    const targetId = link.dataset.navTarget!
+    const target = document.getElementById(targetId)
+    if (!target) return
+    event.preventDefault()
+    navigationLockUntil = performance.now() + 700
+    setActiveWorkspaceNavigation(targetId)
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  })
+}
+window.addEventListener('scroll', scheduleWorkspaceNavigationUpdate, { passive: true })
+window.addEventListener('resize', scheduleWorkspaceNavigationUpdate)
 
 function fmtTime(secs: number): string {
   if (!Number.isFinite(secs) || secs < 0) secs = 0
@@ -109,7 +177,7 @@ function downloadBuffer(buf: ArrayBuffer, name: string, mime: string): void {
 
 let engine: SpessaSynthEngine | null = null
 let builtInSoundFontPromise: Promise<void> | null = null
-const BUILT_IN_SOUND_FONT_NAME = 'OpusWeave Micro GM'
+const BUILT_IN_SOUND_FONT_NAME = 'FreePiano mda Piano + OpusWeave Micro GM'
 let loadedMidi: BasicMIDI | null = null
 let loadedInspection: MidiInspection | null = null
 const mutedTracks = new Set<number>()
@@ -142,10 +210,10 @@ try {
 
 const midiManager = new WebMidiManager(window.localStorage)
 
-// Virtual keyboard — starts at the TINY+ range, widens when a MIDI loads.
+// Full MIDI keyboard; the viewport follows the two octaves mapped to QWERTY.
 const keyboard = new VirtualKeyboard($('virtual-keyboard'), {
-  minNote: 36,
-  maxNote: 67,
+  minNote: 0,
+  maxNote: 127,
   onNoteOn: (note) => handleMidiMessage(new Uint8Array([0x90, note, mapping.fixedVelocity]), performance.now()),
   onNoteOff: (note) => handleMidiMessage(new Uint8Array([0x80, note, 0x40]), performance.now()),
 })
@@ -154,7 +222,7 @@ const keyboard = new VirtualKeyboard($('virtual-keyboard'), {
 
 async function ensureEngine(): Promise<SpessaSynthEngine> {
   if (engine) return engine
-  engine = new SpessaSynthEngine(undefined, '/spessasynth_processor.min.js', {
+  engine = new SpessaSynthEngine(undefined, new URL('./spessasynth_processor.min.js', document.baseURI).href, {
     onPlaybackTime: (time, duration) => {
       $<HTMLProgressElement>('progress').value = duration > 0 ? (time / duration) * 1000 : 0
       $<HTMLSpanElement>('playback-time').textContent = `${fmtTime(time)} / ${fmtTime(duration)}`
@@ -163,7 +231,12 @@ async function ensureEngine(): Promise<SpessaSynthEngine> {
       setPlaybackUi(false)
       setTranslatedStatus('midi-status', 'playback.finished', {}, 'ok')
     },
-    onPlaybackState: (playing) => setPlaybackUi(playing),
+    onPlaybackState: (playing) => {
+      clearPlaybackNotes()
+      setPlaybackUi(playing)
+    },
+    onPlaybackNoteOn: (_channel, note) => updatePlaybackNote(note, true),
+    onPlaybackNoteOff: (_channel, note) => updatePlaybackNote(note, false),
     onSoundFontLoaded: (info) => {
       setTranslatedText('st-soundfont', 'sound.summary', { name: info.name, count: info.presetCount })
     },
@@ -185,12 +258,12 @@ async function ensureEngine(): Promise<SpessaSynthEngine> {
   midiLearn.register({
     id: 'octave-up',
     label: t('params.octaveUp'),
-    apply: () => { mapping.shiftOctave(1); updateOctaveLabel() },
+    apply: () => changeOctave(1),
   })
   midiLearn.register({
     id: 'octave-down',
     label: t('params.octaveDown'),
-    apply: () => { mapping.shiftOctave(-1); updateOctaveLabel() },
+    apply: () => changeOctave(-1),
   })
   return engine
 }
@@ -294,6 +367,36 @@ function appendMonitorLine(data: Uint8Array): void {
 // ─── Live notes display ──────────────────────────────────────────────────────
 
 const liveNotes = new Map<number, { el: HTMLElement; count: number }>()
+const playbackNotes = new Map<number, number>()
+
+function refreshPianoNote(note: number): void {
+  keyboard.setPressed(note, liveNotes.has(note) || (playbackNotes.get(note) ?? 0) > 0)
+}
+
+function refreshComputerKeysForNote(note: number): void {
+  for (const assignment of mapping.listComputerKeyAssignments()) {
+    if (assignment.note === note) setComputerKeyActive(assignment.key)
+  }
+}
+
+function updatePlaybackNote(note: number, pressed: boolean): void {
+  const count = playbackNotes.get(note) ?? 0
+  if (pressed) playbackNotes.set(note, count + 1)
+  else if (count <= 1) playbackNotes.delete(note)
+  else playbackNotes.set(note, count - 1)
+  refreshPianoNote(note)
+  refreshComputerKeysForNote(note)
+}
+
+function clearPlaybackNotes(): void {
+  if (playbackNotes.size === 0) return
+  const notes = [...playbackNotes.keys()]
+  playbackNotes.clear()
+  for (const note of notes) {
+    refreshPianoNote(note)
+    refreshComputerKeysForNote(note)
+  }
+}
 
 function updateLiveNotes(data: Uint8Array): void {
   const status = data[0]! & 0xf0
@@ -310,7 +413,7 @@ function updateLiveNotes(data: Uint8Array): void {
     }
     entry.count++
     entry.el.textContent = `${noteName(note)} ${note} · v${vel}`
-    keyboard.setPressed(note, true)
+    refreshPianoNote(note)
   } else if (status === 0x80 || (status === 0x90 && vel === 0)) {
     const entry = liveNotes.get(note)
     if (entry) {
@@ -318,9 +421,9 @@ function updateLiveNotes(data: Uint8Array): void {
       if (entry.count === 0) {
         entry.el.remove()
         liveNotes.delete(note)
-        keyboard.setPressed(note, false)
       }
     }
+    refreshPianoNote(note)
   }
 }
 
@@ -445,10 +548,20 @@ function detectProfile(state: MidiManagerState): void {
 async function loadBuiltInSoundFont(): Promise<void> {
   setTranslatedStatus('sf-status', 'sound.builtInLoading', {}, 'warn')
   try {
-    const response = await fetch(builtInSoundFontUrl)
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const [gmResponse, pianoResponse] = await Promise.all([
+      fetch(builtInGmSoundFontUrl),
+      fetch(freePianoSoundFontUrl),
+    ])
+    if (!gmResponse.ok) throw new Error(`Micro GM: HTTP ${gmResponse.status}`)
+    if (!pianoResponse.ok) throw new Error(`mda Piano: HTTP ${pianoResponse.status}`)
     const e = await ensureEngine()
-    const info = await e.loadSoundBank(await response.arrayBuffer(), BUILT_IN_SOUND_FONT_NAME)
+    await e.loadSoundBank(await pianoResponse.arrayBuffer(), 'FreePiano mda Piano')
+    const info = await e.addSoundBankLayer(
+      await gmResponse.arrayBuffer(),
+      'micro-gm-fallback',
+      BUILT_IN_SOUND_FONT_NAME,
+      false,
+    )
     setTranslatedText('st-audio', 'status.readyAudio')
     setTranslatedStatus('sf-status', 'sound.builtInReady', { count: info.presetCount }, 'ok')
     populatePresets()
@@ -522,8 +635,6 @@ $<HTMLInputElement>('midi-file').addEventListener('change', async (ev) => {
     renderTrackList()
     const tempo = loadedInspection.tempos[0]?.bpm ?? 120
     $<HTMLSpanElement>('playback-tempo').textContent = `♩ ${tempo} BPM`
-    const range = loadedInspection.tracks.flatMap((t) => (t.minNote !== null && t.maxNote !== null ? [t.minNote, t.maxNote] : []))
-    if (range.length >= 2) keyboard.setRange(Math.min(...range), Math.max(...range))
     setTranslatedStatus('midi-status', 'playback.loaded', {
       file: file.name,
       duration: fmtTime(loadedInspection.durationSeconds),
@@ -658,14 +769,257 @@ $('btn-record-export').addEventListener('click', () => {
 // ─── Computer keyboard (MappingEngine) ───────────────────────────────────────
 
 const TEXT_INPUT: Record<string, true> = { INPUT: true, TEXTAREA: true, SELECT: true }
+const VELOCITY_STEP = 10
+const activeComputerNotes = new Map<string, Uint8Array>()
+const pointerComputerKeys = new Set<string>()
+const computerKeycaps = new Map<string, HTMLElement>()
+
+const QWERTY_ROWS = [
+  ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '='],
+  ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']'],
+  ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', "'"],
+  ['z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '/'],
+] as const
+let keyboardMapInitialized = false
+let keyboardLinkFrame = 0
+const COMPUTER_MAP_PREFERENCE_KEY = 'opusweave.computer-map.visibility'
+let computerMapExpanded = true
+
+function updateComputerMapToggleCopy(): void {
+  const button = $<HTMLButtonElement>('toggle-computer-map')
+  const key = computerMapExpanded ? 'live.collapseMap' : 'live.expandMap'
+  button.dataset.i18nTitle = key
+  button.dataset.i18nAriaLabel = key
+  button.title = t(key)
+  button.setAttribute('aria-label', t(key))
+  button.setAttribute('aria-expanded', String(computerMapExpanded))
+  button.textContent = computerMapExpanded ? '⌃' : '⌄'
+}
+
+function setComputerMapExpanded(expanded: boolean, persist = false): void {
+  computerMapExpanded = expanded
+  $<HTMLDivElement>('computer-map-content').hidden = !expanded
+  updateComputerMapToggleCopy()
+  if (persist) {
+    window.localStorage.setItem(COMPUTER_MAP_PREFERENCE_KEY, expanded ? 'expanded' : 'collapsed')
+  }
+  if (expanded) requestAnimationFrame(scheduleKeyboardLinks)
+  else ($('keyboard-links') as unknown as SVGSVGElement).innerHTML = ''
+}
+
+async function detectHardwareKeyboard(): Promise<boolean | null> {
+  const keyboardApi = (navigator as Navigator & {
+    keyboard?: { getLayoutMap?: () => Promise<{ size: number }> }
+  }).keyboard
+  if (keyboardApi?.getLayoutMap) {
+    try {
+      return (await keyboardApi.getLayoutMap()).size > 0
+    } catch {
+      // Permission or platform limitation; continue with input-capability hints.
+    }
+  }
+  if (window.matchMedia('(any-pointer: fine)').matches) return true
+  if (navigator.maxTouchPoints > 0 && window.matchMedia('(any-pointer: coarse)').matches) return false
+  return null
+}
+
+async function initializeComputerMapDisclosure(): Promise<void> {
+  const preference = window.localStorage.getItem(COMPUTER_MAP_PREFERENCE_KEY)
+  if (preference === 'expanded' || preference === 'collapsed') {
+    setComputerMapExpanded(preference === 'expanded')
+    return
+  }
+  const detected = await detectHardwareKeyboard()
+  setComputerMapExpanded(detected ?? true)
+}
+
+function renderComputerKeyMap(): void {
+  computerKeycaps.clear()
+  const root = $<HTMLDivElement>('computer-key-map')
+  root.innerHTML = ''
+  const assignments = new Map(mapping.listComputerKeyAssignments().map((assignment) => [assignment.key, assignment]))
+  const actionLabels: Record<string, { label: string; velocity?: boolean }> = {
+    a: { label: t('live.octaveDownKey') },
+    k: { label: t('live.octaveUpKey') },
+    f: { label: t('live.velocityDownKey'), velocity: true },
+    '4': { label: t('live.velocityUpKey'), velocity: true },
+  }
+
+  for (const rowKeys of QWERTY_ROWS) {
+    const row = document.createElement('div')
+    row.className = 'qwerty-row'
+    for (const keyName of rowKeys) {
+      const assignment = assignments.get(keyName)
+      const action = actionLabels[keyName]
+      const keycap = document.createElement('span')
+      keycap.className = 'computer-keycap'
+      keycap.dataset.key = keyName
+
+      if (assignment) {
+        const pitchClass = ((assignment.note % 12) + 12) % 12
+        if ([1, 3, 6, 8, 10].includes(pitchClass)) keycap.classList.add('accidental')
+        keycap.dataset.note = String(assignment.note)
+        keycap.title = `${keyName.toUpperCase()} → ${noteName(assignment.note)} (${assignment.note})`
+        if (isComputerKeyVisuallyActive(keyName)) keycap.classList.add('active')
+      } else if (action) {
+        keycap.classList.add('action')
+        if (action.velocity) keycap.classList.add('velocity-action')
+        keycap.title = action.label
+      } else {
+        keycap.classList.add('unmapped')
+      }
+
+      const key = document.createElement('kbd')
+      key.textContent = keyName.toUpperCase()
+      const detail = document.createElement('small')
+      detail.textContent = assignment ? noteName(assignment.note) : (action?.label ?? '—')
+      keycap.append(key, detail)
+      row.appendChild(keycap)
+      computerKeycaps.set(keyName, keycap)
+    }
+    root.appendChild(row)
+  }
+  scheduleKeyboardLinks()
+}
+
+function scheduleKeyboardLinks(): void {
+  cancelAnimationFrame(keyboardLinkFrame)
+  keyboardLinkFrame = requestAnimationFrame(updateKeyboardLinks)
+}
+
+function updateKeyboardLinks(): void {
+  const svg = $('keyboard-links') as unknown as SVGSVGElement
+  svg.innerHTML = ''
+  if (!computerMapExpanded) return
+  const bridgeRect = svg.getBoundingClientRect()
+  if (bridgeRect.width === 0 || bridgeRect.height === 0) return
+  const pianoRect = $<HTMLDivElement>('virtual-keyboard').getBoundingClientRect()
+  svg.setAttribute('viewBox', `0 0 ${bridgeRect.width} ${bridgeRect.height}`)
+
+  for (const assignment of mapping.listComputerKeyAssignments()) {
+    const keycap = computerKeycaps.get(assignment.key)
+    const pianoKey = document.querySelector<HTMLElement>(`#virtual-keyboard [data-note="${assignment.note}"]`)
+    if (!keycap || !pianoKey) continue
+    const from = keycap.getBoundingClientRect()
+    const to = pianoKey.getBoundingClientRect()
+    const pianoCenter = to.left + to.width / 2
+    if (pianoCenter < pianoRect.left || pianoCenter > pianoRect.right) continue
+
+    const x1 = from.left + from.width / 2 - bridgeRect.left
+    const x2 = pianoCenter - bridgeRect.left
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+    path.setAttribute('d', `M ${x1} 0 C ${x1} ${bridgeRect.height * 0.55}, ${x2} ${bridgeRect.height * 0.45}, ${x2} ${bridgeRect.height}`)
+    if (isComputerKeyVisuallyActive(assignment.key)) path.classList.add('active')
+    svg.appendChild(path)
+  }
+}
+
+function syncPianoToComputerMap(behavior: ScrollBehavior): void {
+  const assignments = mapping.listComputerKeyAssignments()
+  const minNote = assignments[0]!.note
+  const maxNote = assignments[assignments.length - 1]!.note
+  keyboard.setMappedRange(minNote, maxNote)
+  requestAnimationFrame(() => {
+    keyboard.scrollToRange(minNote, maxNote, behavior)
+    scheduleKeyboardLinks()
+  })
+}
+
+function isComputerKeyVisuallyActive(key: string): boolean {
+  const note = mapping.keyToNote(key)
+  return activeComputerNotes.has(key)
+    || pointerComputerKeys.has(key)
+    || (note !== null && (playbackNotes.get(note) ?? 0) > 0)
+}
+
+function setComputerKeyActive(key: string): void {
+  computerKeycaps.get(key)?.classList.toggle('active', isComputerKeyVisuallyActive(key))
+  scheduleKeyboardLinks()
+}
+
+function releaseComputerNotes(): void {
+  const timestamp = performance.now()
+  const heldNotes = [...activeComputerNotes]
+  activeComputerNotes.clear()
+  for (const [key, message] of heldNotes) {
+    handleMidiMessage(message, timestamp)
+    setComputerKeyActive(key)
+  }
+}
+
+function changeOctave(delta: number): void {
+  releaseComputerNotes()
+  mapping.shiftOctave(delta)
+  updateOctaveLabel()
+}
+
+function updateOctaveLabel(): void {
+  const octaves = mapping.currentOctaveShift / 12
+  $<HTMLSpanElement>('oct-label').textContent = octaves > 0 ? `+${octaves}` : String(octaves)
+  renderComputerKeyMap()
+  syncPianoToComputerMap(keyboardMapInitialized ? 'smooth' : 'auto')
+  keyboardMapInitialized = true
+}
+
+function setKeyboardVelocity(value: number): void {
+  mapping.setVelocity(value)
+  $<HTMLInputElement>('key-velocity').value = String(mapping.fixedVelocity)
+}
+
+function changeKeyboardVelocity(delta: number): void {
+  setKeyboardVelocity(mapping.fixedVelocity + delta)
+}
+
+function startComputerPointerNote(key: string): (() => void) | undefined {
+  const message = mapping.keyDownMessage(key)
+  if (!message) return undefined
+  const noteOff = new Uint8Array([0x80 | (message[0]! & 0x0f), message[1]!, 0x40])
+  let released = false
+  pointerComputerKeys.add(key)
+  setComputerKeyActive(key)
+  handleMidiMessage(message, performance.now())
+  return () => {
+    if (released) return
+    released = true
+    handleMidiMessage(noteOff, performance.now())
+    pointerComputerKeys.delete(key)
+    setComputerKeyActive(key)
+  }
+}
+
+function activateComputerMapControl(key: string): boolean {
+  switch (key) {
+    case 'a': changeOctave(-1); return true
+    case 'k': changeOctave(1); return true
+    case 'f': changeKeyboardVelocity(-VELOCITY_STEP); return true
+    case '4': changeKeyboardVelocity(VELOCITY_STEP); return true
+    default: return false
+  }
+}
 
 window.addEventListener('keydown', (ev) => {
   const target = ev.target as HTMLElement
   if (TEXT_INPUT[target.tagName]) return
+
+  const plainShortcut = !ev.ctrlKey && !ev.metaKey && !ev.altKey
+  if (plainShortcut && (ev.code === 'KeyA' || ev.code === 'KeyK')) {
+    ev.preventDefault()
+    if (!ev.repeat) changeOctave(ev.code === 'KeyA' ? -1 : 1)
+    return
+  }
+  if (plainShortcut && (ev.code === 'KeyF' || ev.code === 'Digit4')) {
+    ev.preventDefault()
+    changeKeyboardVelocity(ev.code === 'KeyF' ? -VELOCITY_STEP : VELOCITY_STEP)
+    return
+  }
   if (ev.repeat) return
-  const msg = mapping.keyDownMessage(ev.key.toLowerCase())
+
+  const key = ev.key.toLowerCase()
+  const msg = mapping.keyDownMessage(key)
   if (msg) {
     ev.preventDefault()
+    activeComputerNotes.set(key, new Uint8Array([0x80 | (msg[0]! & 0x0f), msg[1]!, 0x40]))
+    setComputerKeyActive(key)
     handleMidiMessage(msg, performance.now())
   }
 })
@@ -673,25 +1027,39 @@ window.addEventListener('keydown', (ev) => {
 window.addEventListener('keyup', (ev) => {
   const target = ev.target as HTMLElement
   if (TEXT_INPUT[target.tagName]) return
-  const msg = mapping.keyUpMessage(ev.key.toLowerCase())
-  if (msg) handleMidiMessage(msg, performance.now())
+  const key = ev.key.toLowerCase()
+  const msg = activeComputerNotes.get(key)
+  if (!msg) return
+  ev.preventDefault()
+  activeComputerNotes.delete(key)
+  setComputerKeyActive(key)
+  handleMidiMessage(msg, performance.now())
 })
 
-$('oct-up').addEventListener('click', () => {
-  mapping.shiftOctave(1)
-  updateOctaveLabel()
-})
-$('oct-down').addEventListener('click', () => {
-  mapping.shiftOctave(-1)
-  updateOctaveLabel()
-})
+window.addEventListener('blur', releaseComputerNotes)
+$<HTMLDivElement>('computer-key-map').addEventListener('scroll', scheduleKeyboardLinks)
+$<HTMLDivElement>('virtual-keyboard').addEventListener('scroll', scheduleKeyboardLinks)
+window.addEventListener('resize', scheduleKeyboardLinks)
 
-function updateOctaveLabel(): void {
-  $<HTMLSpanElement>('oct-label').textContent = String(mapping.currentOctaveShift / 12)
-}
+enableHorizontalPointerScroll($<HTMLDivElement>('computer-key-map'), {
+  targetSelector: '.computer-keycap',
+  onHoldStart: (target) => startComputerPointerNote(target.dataset.key ?? ''),
+  onTap: (target) => {
+    const key = target.dataset.key ?? ''
+    if (activateComputerMapControl(key)) return
+    const release = startComputerPointerNote(key)
+    if (release) window.setTimeout(release, 160)
+  },
+})
+$('toggle-computer-map').addEventListener('click', () => setComputerMapExpanded(!computerMapExpanded, true))
+
+$('oct-up').addEventListener('click', () => changeOctave(1))
+$('oct-down').addEventListener('click', () => changeOctave(-1))
+$('velocity-up').addEventListener('click', () => changeKeyboardVelocity(VELOCITY_STEP))
+$('velocity-down').addEventListener('click', () => changeKeyboardVelocity(-VELOCITY_STEP))
 
 $<HTMLInputElement>('key-velocity').addEventListener('change', (ev) => {
-  mapping.setVelocity(Number((ev.target as HTMLInputElement).value))
+  setKeyboardVelocity(Number((ev.target as HTMLInputElement).value))
 })
 
 // ─── MIDI Learn ──────────────────────────────────────────────────────────────
@@ -749,6 +1117,8 @@ renderLearnBindings()
 updateOctaveLabel()
 setPlaybackUi(false)
 renderMidiState(midiManager.getState())
+requestAnimationFrame(updateWorkspaceNavigation)
+void initializeComputerMapDisclosure()
 builtInSoundFontPromise = loadBuiltInSoundFont()
 void builtInSoundFontPromise
 

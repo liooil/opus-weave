@@ -1,0 +1,34 @@
+# Third-party notices
+
+OpusWeave is licensed under Apache-2.0. This file lists the third-party
+software it depends on and their licenses.
+
+## Runtime dependencies
+
+| Package | License | Notes |
+|---|---|---|
+| [spessasynth_lib](https://github.com/spessasus/spessasynth_lib) | Apache-2.0 | Browser MIDI synthesis (SF2/SF3) — license file: `node_modules/spessasynth_lib/LICENSE` |
+| [spessasynth_core](https://github.com/spessasus/spessasynth_core) | Apache-2.0 | MIDI file I/O and builder — license file: `node_modules/spessasynth_core/LICENSE` |
+| [@modelcontextprotocol/sdk](https://github.com/modelcontextprotocol/typescript-sdk) | MIT | MCP server SDK — `node_modules/@modelcontextprotocol/sdk/package.json` |
+| [zod](https://github.com/colinhacks/zod) | MIT | Schema validation — `node_modules/zod/package.json` |
+| [bundesk](https://github.com/liooil/bundesk) | MIT | Desktop window/server framework, vendored at `vendor/bundesk` (not on npm; local path dependency) — `vendor/bundesk/LICENSE` |
+| [@types/bun](https://github.com/oven-sh/bun) | MIT | TypeScript types (dev) |
+
+## Optional external tools (not bundled, not distributed)
+
+| Tool | License | Used for |
+|---|---|---|
+| [FluidSynth](https://github.com/FluidSynth/fluidsynth) | GPL-2.0-or-later (library: LGPL-2.1-or-later) | Optional offline MIDI→WAV rendering. OpusWeave only invokes the system `fluidsynth` binary as a subprocess; it is never installed or distributed by this project. Users who install it are responsible for its license terms. |
+
+## SoundFont notice
+
+OpusWeave does not bundle any SoundFont. SoundFonts are user-supplied files
+(.sf2 / .sf3 / .sfogg); users are responsible for ensuring they have the
+right to use the SoundFonts they load.
+
+## Trademarks
+
+OpusWeave is an independent project and is not affiliated with or endorsed by
+FreePiano, MIDIPLUS, the MIDI Association, or any SoundFont trademark holder.
+Product and company names mentioned in this project may be trademarks of
+their respective owners.

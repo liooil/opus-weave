@@ -5,8 +5,9 @@
   "type": "module",
   "private": true,
   "scripts": {
+    "opusweave": "bun src/main.ts",
     "dev": "bun src/main.ts",
-    "dev:mcp": "bun src/mcp.ts",
+    "dev:mcp": "bun src/main.ts mcp",
     "smoke": "bun src/main.ts --smoke",
     "build": "bun src/build.ts",
     "typecheck": "tsc --noEmit",

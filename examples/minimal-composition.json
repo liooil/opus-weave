@@ -1,0 +1,33 @@
+{
+  "title": "OpusWeave Minimal",
+  "ppq": 480,
+  "tempos": [{ "beat": 0, "bpm": 120 }],
+  "timeSignatures": [{ "beat": 0, "numerator": 4, "denominator": 4 }],
+  "tracks": [
+    {
+      "name": "Piano",
+      "channel": 0,
+      "program": 0,
+      "volume": 100,
+      "pan": 64,
+      "notes": [
+        { "startBeat": 0, "durationBeats": 1, "pitch": 60, "velocity": 96 },
+        { "startBeat": 1, "durationBeats": 1, "pitch": 64, "velocity": 96 },
+        { "startBeat": 2, "durationBeats": 1, "pitch": 67, "velocity": 96 },
+        { "startBeat": 3, "durationBeats": 2, "pitch": 72, "velocity": 100 }
+      ],
+      "controlChanges": [],
+      "pitchBends": []
+    },
+    {
+      "name": "Bass",
+      "channel": 1,
+      "program": 33,
+      "notes": [
+        { "startBeat": 0, "durationBeats": 4, "pitch": 45, "velocity": 90 }
+      ],
+      "controlChanges": [],
+      "pitchBends": []
+    }
+  ]
+}

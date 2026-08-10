@@ -4,5 +4,6 @@ dist/
 *.app
 bun.lockb
 .generated/
+tmp/
 vendor/bundesk/node_modules/
 vendor/bundesk/.generated/

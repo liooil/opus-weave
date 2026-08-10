@@ -188,14 +188,20 @@ export class SpessaSynthEngine implements SynthEngine {
     }
   }
 
-  async playMidi(data: ArrayBuffer, fileName?: string): Promise<void> {
+  async playMidi(data: ArrayBuffer, fileName?: string, startSeconds = 0): Promise<void> {
     await this.ensureReady()
     const seq = this.sequencer!
     if (this.ctx.state === 'suspended') await this.ctx.resume()
     seq.loadNewSongList([{ binary: data, fileName: fileName ?? 'song.mid' }])
+    if (startSeconds > 0) seq.currentTime = startSeconds
     this.playbackActive = true
     this.callbacks.onPlaybackState?.(true)
     seq.play()
+  }
+
+  getPlaybackPosition(): { seconds: number; duration: number } {
+    const seq = this.sequencer
+    return { seconds: seq?.currentTime ?? 0, duration: seq?.midiData?.duration ?? 0 }
   }
 
   pause(): void {

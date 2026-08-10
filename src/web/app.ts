@@ -6,7 +6,8 @@
 import { SpessaSynthEngine } from '../audio/spessa-synth-engine.ts'
 import { WebMidiManager, type MidiManagerState } from '../midi/web-midi-manager.ts'
 import { MidiRecorder, takeToMidi, type RecordedTake } from '../domain/midi/midi-recorder.ts'
-import { applyTrackMutes, importMidi, inspectMidi, type MidiInspection } from '../domain/midi/midi-import.ts'
+import { applyTrackMutes, createMidiTempoMap, importMidi, inspectMidi, type MidiInspection } from '../domain/midi/midi-import.ts'
+import { getArrangementNotes, replaceArrangementRange } from '../domain/midi/midi-arrangement.ts'
 import { MappingEngine, noteName, type ComputerKeyAssignment } from '../domain/devices/mapping-engine.ts'
 import { MidiLearn } from '../domain/midi-learn.ts'
 import { findProfileForPort, overrideControl, type DeviceProfile } from '../domain/devices/device-profile.ts'
@@ -93,7 +94,7 @@ localeButton.addEventListener('click', () => {
   translateDocument()
   retranslateTrackedCopy()
   renderMidiState(midiManager.getState())
-  renderTrackList()
+  renderArrangement()
   renderLearnBindings()
   populatePresets()
   renderComputerKeyMap()
@@ -101,60 +102,28 @@ localeButton.addEventListener('click', () => {
   updateLanguageToggleCopy()
 })
 
-const workspaceNavLinks = [...document.querySelectorAll<HTMLAnchorElement>('[data-nav-target]')]
-let navigationLockUntil = 0
-let navigationFrame = 0
+const workspaceTabs = [...document.querySelectorAll<HTMLButtonElement>('[data-page-target]')]
+const workspacePages = [...document.querySelectorAll<HTMLElement>('[data-workspace-page]')]
 
-function setActiveWorkspaceNavigation(targetId: string): void {
-  for (const link of workspaceNavLinks) {
-    const active = link.dataset.navTarget === targetId
-    link.classList.toggle('active', active)
-    if (active) link.setAttribute('aria-current', 'location')
-    else link.removeAttribute('aria-current')
+function showWorkspacePage(pageId: string): void {
+  for (const page of workspacePages) {
+    const active = page.dataset.workspacePage === pageId
+    page.hidden = !active
+    page.classList.toggle('active', active)
   }
-}
-
-function updateWorkspaceNavigation(): void {
-  if (performance.now() < navigationLockUntil) return
-  const headerBottom = document.querySelector<HTMLElement>('.topbar')?.getBoundingClientRect().bottom ?? 0
-  const targetIds = window.innerWidth <= 820
-    ? ['midi-panel', 'playback-panel', 'live-panel']
-    : ['playback-panel', 'live-panel']
-  let closestId = targetIds[0]!
-  let closestDistance = Number.POSITIVE_INFINITY
-
-  for (const id of targetIds) {
-    const target = document.getElementById(id)
-    if (!target) continue
-    const rect = target.getBoundingClientRect()
-    if (rect.bottom <= headerBottom) continue
-    const distance = Math.abs(rect.top - headerBottom - 12)
-    if (distance < closestDistance) {
-      closestDistance = distance
-      closestId = id
-    }
+  for (const tab of workspaceTabs) {
+    const active = tab.dataset.pageTarget === pageId
+    tab.classList.toggle('active', active)
+    if (active) tab.setAttribute('aria-current', 'page')
+    else tab.removeAttribute('aria-current')
   }
-  setActiveWorkspaceNavigation(closestId)
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+  if (pageId === 'studio') requestAnimationFrame(scheduleKeyboardLinks)
 }
 
-function scheduleWorkspaceNavigationUpdate(): void {
-  cancelAnimationFrame(navigationFrame)
-  navigationFrame = requestAnimationFrame(updateWorkspaceNavigation)
+for (const tab of workspaceTabs) {
+  tab.addEventListener('click', () => showWorkspacePage(tab.dataset.pageTarget!))
 }
-
-for (const link of workspaceNavLinks) {
-  link.addEventListener('click', (event) => {
-    const targetId = link.dataset.navTarget!
-    const target = document.getElementById(targetId)
-    if (!target) return
-    event.preventDefault()
-    navigationLockUntil = performance.now() + 700
-    setActiveWorkspaceNavigation(targetId)
-    target.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  })
-}
-window.addEventListener('scroll', scheduleWorkspaceNavigationUpdate, { passive: true })
-window.addEventListener('resize', scheduleWorkspaceNavigationUpdate)
 
 function fmtTime(secs: number): string {
   if (!Number.isFinite(secs) || secs < 0) secs = 0
@@ -183,6 +152,19 @@ let loadedInspection: MidiInspection | null = null
 const mutedTracks = new Set<number>()
 let take: RecordedTake | null = null
 let playingTake = false
+
+interface TimelineSelection {
+  trackIndex: number
+  startTick: number
+  endTick: number
+}
+
+let timelineSelection: TimelineSelection | null = null
+let selectedTrackIndex = 0
+let timelineBeatWidth = 64
+let replacementTimer: number | undefined
+let replacementRecording: { selection: TimelineSelection; durationMs: number } | null = null
+let playbackPositionFrame = 0
 
 const recorder = new MidiRecorder()
 const mapping = new MappingEngine()
@@ -223,17 +205,18 @@ const keyboard = new VirtualKeyboard($('virtual-keyboard'), {
 async function ensureEngine(): Promise<SpessaSynthEngine> {
   if (engine) return engine
   engine = new SpessaSynthEngine(undefined, new URL('./spessasynth_processor.min.js', document.baseURI).href, {
-    onPlaybackTime: (time, duration) => {
-      $<HTMLProgressElement>('progress').value = duration > 0 ? (time / duration) * 1000 : 0
-      $<HTMLSpanElement>('playback-time').textContent = `${fmtTime(time)} / ${fmtTime(duration)}`
-    },
+    onPlaybackTime: (time, duration) => renderPlaybackPosition(time, duration),
     onPlaybackEnded: () => {
       setPlaybackUi(false)
       setTranslatedStatus('midi-status', 'playback.finished', {}, 'ok')
+      updateTimelinePlayhead(0, 0)
+      if (replacementRecording) window.setTimeout(finishReplacementRecording, 0)
     },
     onPlaybackState: (playing) => {
       clearPlaybackNotes()
       setPlaybackUi(playing)
+      if (playing) startPlaybackPositionUpdates()
+      else stopPlaybackPositionUpdates()
     },
     onPlaybackNoteOn: (_channel, note) => updatePlaybackNote(note, true),
     onPlaybackNoteOff: (_channel, note) => updatePlaybackNote(note, false),
@@ -260,12 +243,34 @@ async function ensureEngine(): Promise<SpessaSynthEngine> {
     label: t('params.octaveUp'),
     apply: () => changeOctave(1),
   })
+
   midiLearn.register({
     id: 'octave-down',
     label: t('params.octaveDown'),
     apply: () => changeOctave(-1),
   })
   return engine
+}
+function renderPlaybackPosition(time: number, duration: number): void {
+  $<HTMLProgressElement>('progress').value = duration > 0 ? (time / duration) * 1000 : 0
+  $<HTMLSpanElement>('playback-time').textContent = `${fmtTime(time)} / ${fmtTime(duration)}`
+  updateTimelinePlayhead(time, duration)
+}
+
+function startPlaybackPositionUpdates(): void {
+  cancelAnimationFrame(playbackPositionFrame)
+  const update = (): void => {
+    const position = engine?.getPlaybackPosition()
+    if (!position) return
+    renderPlaybackPosition(position.seconds, position.duration)
+    if (!$<HTMLButtonElement>('btn-pause').disabled) playbackPositionFrame = requestAnimationFrame(update)
+  }
+  playbackPositionFrame = requestAnimationFrame(update)
+}
+
+function stopPlaybackPositionUpdates(): void {
+  cancelAnimationFrame(playbackPositionFrame)
+  playbackPositionFrame = 0
 }
 
 function setPlaybackUi(playing: boolean): void {
@@ -620,30 +625,58 @@ $('btn-panic').addEventListener('click', () => {
   })
 })
 
-// ─── MIDI player ─────────────────────────────────────────────────────────────
+// ─── Arrangement timeline ───────────────────────────────────────────────────
+
+function arrangementTotalTicks(): number {
+  if (!loadedMidi || !loadedInspection) return 0
+  return Math.max(loadedMidi.lastVoiceEventTick, Math.round(loadedInspection.durationBeats * (loadedMidi.timeDivision || 480)))
+}
+
+function arrangementTrackName(trackIndex: number): string {
+  const track = loadedInspection?.tracks[trackIndex]
+  return track?.name || t('playback.track', { index: trackIndex })
+}
+
+function refreshArrangementInspection(): void {
+  if (!loadedMidi) return
+  const data = loadedMidi.writeMIDI()
+  loadedMidi = importMidi(data, loadedMidi.fileName)
+  loadedInspection = inspectMidi(data, loadedMidi.fileName)
+  $<HTMLButtonElement>('btn-export-arrangement').disabled = false
+  renderArrangement()
+  setPlaybackUi(false)
+}
 
 $<HTMLInputElement>('midi-file').addEventListener('change', async (ev) => {
   const file = (ev.target as HTMLInputElement).files?.[0]
   if (!file) return
+  if (replacementRecording) finishReplacementRecording()
   setTranslatedStatus('midi-status', 'playback.loading', { file: file.name }, 'warn')
   try {
     const buf = await file.arrayBuffer()
     loadedMidi = importMidi(buf, file.name)
     loadedInspection = inspectMidi(buf, file.name)
     mutedTracks.clear()
+    timelineSelection = null
+    selectedTrackIndex = loadedInspection.tracks.find((track) => track.noteCount > 0)?.index ?? 0
     $<HTMLSpanElement>('st-file').textContent = file.name
-    renderTrackList()
+    $<HTMLButtonElement>('btn-export-arrangement').disabled = false
     const tempo = loadedInspection.tempos[0]?.bpm ?? 120
     $<HTMLSpanElement>('playback-tempo').textContent = `♩ ${tempo} BPM`
-    setTranslatedStatus('midi-status', 'playback.loaded', {
-      file: file.name,
-      duration: fmtTime(loadedInspection.durationSeconds),
-    }, 'ok')
+    renderArrangement()
+    setTranslatedStatus('midi-status', 'playback.loaded', { file: file.name, duration: fmtTime(loadedInspection.durationSeconds) }, 'ok')
     setPlaybackUi(false)
   } catch (err) {
     setTranslatedStatus('midi-status', 'playback.error', { error: err instanceof Error ? err.message : String(err) }, 'err')
   }
 })
+
+function renderArrangement(): void {
+  renderTrackList()
+  renderTimeline()
+  updateTimelineSelection()
+  $('arranger-grid').classList.toggle('has-midi', Boolean(loadedMidi))
+}
 
 function renderTrackList(): void {
   const list = $<HTMLDivElement>('track-list')
@@ -651,63 +684,263 @@ function renderTrackList(): void {
   if (!loadedInspection) return
   for (const track of loadedInspection.tracks) {
     const row = document.createElement('div')
-    row.className = `track-row${mutedTracks.has(track.index) ? ' muted' : ''}`
+    row.className = `track-header${track.index === selectedTrackIndex ? ' selected' : ''}${mutedTracks.has(track.index) ? ' muted' : ''}`
+    row.dataset.trackIndex = String(track.index)
+    row.addEventListener('click', () => selectArrangementTrack(track.index))
+
     const muteBtn = document.createElement('button')
     muteBtn.className = 'mute-btn'
-    muteBtn.textContent = t(mutedTracks.has(track.index) ? 'playback.unmute' : 'playback.mute')
-    muteBtn.addEventListener('click', () => {
+    muteBtn.textContent = 'M'
+    muteBtn.title = t(mutedTracks.has(track.index) ? 'playback.unmute' : 'playback.mute')
+    muteBtn.addEventListener('click', (event) => {
+      event.stopPropagation()
       if (mutedTracks.has(track.index)) mutedTracks.delete(track.index)
       else mutedTracks.add(track.index)
       renderTrackList()
     })
-    const name = document.createElement('span')
-    name.className = 'track-name'
-    name.textContent = track.name || t('playback.track', { index: track.index })
+
+    const copy = document.createElement('div')
+    copy.className = 'track-header-copy'
+    const name = document.createElement('strong')
+    name.textContent = arrangementTrackName(track.index)
     const meta = document.createElement('span')
-    meta.className = 'track-meta'
-    meta.textContent = t('playback.trackMeta', {
-      channels: track.channels.join(',') || '—',
-      program: track.program ?? '—',
-      notes: track.noteCount,
-      cc: track.hasControlChanges ? ' cc' : '',
-      pitchBend: track.hasPitchBend ? ' pb' : '',
-    })
-    row.append(muteBtn, name, meta)
+    meta.textContent = `${track.noteCount} notes · ch ${track.channels.join(',') || '—'}`
+    copy.append(name, meta)
+    row.append(muteBtn, copy)
     list.appendChild(row)
   }
 }
 
-$('btn-play').addEventListener('click', async () => {
-  if (!loadedMidi) return
-  try {
-    const e = await ensureEngine()
-    let source = loadedMidi
-    if (mutedTracks.size > 0) source = applyTrackMutes(loadedMidi, mutedTracks)
-    await e.playMidi(source.writeMIDI(), loadedMidi.fileName ?? 'song.mid')
-    setPlaybackUi(true)
-  } catch (err) {
-    setTranslatedStatus('midi-status', 'playback.playError', { error: err instanceof Error ? err.message : String(err) }, 'err')
+function renderTimeline(): void {
+  const content = $<HTMLDivElement>('timeline-content')
+  const ruler = $<HTMLDivElement>('timeline-ruler')
+  const tracks = $<HTMLDivElement>('timeline-tracks')
+  ruler.innerHTML = ''
+  tracks.innerHTML = ''
+  if (!loadedMidi || !loadedInspection) {
+    content.style.width = '100%'
+    return
   }
+
+  const ppq = loadedMidi.timeDivision || 480
+  const totalBeats = Math.max(16, Math.ceil(arrangementTotalTicks() / ppq) + 1)
+  const width = totalBeats * timelineBeatWidth
+  content.style.width = `${width}px`
+  content.style.setProperty('--beat-width', `${timelineBeatWidth}px`)
+
+  for (let beat = 0; beat <= totalBeats; beat++) {
+    const marker = document.createElement('div')
+    marker.className = `ruler-beat${beat % 4 === 0 ? ' bar' : ''}`
+    marker.style.left = `${beat * timelineBeatWidth}px`
+    if (beat % 4 === 0) {
+      const label = document.createElement('span')
+      label.textContent = String(beat / 4 + 1)
+      marker.appendChild(label)
+    }
+    ruler.appendChild(marker)
+  }
+
+  for (const track of loadedInspection.tracks) {
+    const lane = document.createElement('div')
+    lane.className = `timeline-track${track.index === selectedTrackIndex ? ' selected' : ''}`
+    lane.dataset.trackIndex = String(track.index)
+    const notes = getArrangementNotes(loadedMidi, track.index)
+    const minNote = track.minNote ?? 0
+    const pitchSpan = Math.max(1, (track.maxNote ?? minNote) - minNote)
+    for (const note of notes) {
+      const block = document.createElement('span')
+      block.className = 'timeline-note'
+      block.style.left = `${(note.startTick / ppq) * timelineBeatWidth}px`
+      block.style.width = `${Math.max(3, ((note.endTick - note.startTick) / ppq) * timelineBeatWidth)}px`
+      block.style.top = `${7 + (1 - (note.note - minNote) / pitchSpan) * 40}px`
+      block.title = `${noteName(note.note)} · ${note.startTick / ppq}–${note.endTick / ppq}`
+      lane.appendChild(block)
+    }
+    tracks.appendChild(lane)
+  }
+}
+
+function selectArrangementTrack(trackIndex: number): void {
+  selectedTrackIndex = trackIndex
+  if (timelineSelection) timelineSelection = { ...timelineSelection, trackIndex }
+  renderArrangement()
+}
+
+function tickFromTimelinePointer(clientX: number): number {
+  if (!loadedMidi) return 0
+  const rect = $<HTMLDivElement>('timeline-content').getBoundingClientRect()
+  const beat = Math.max(0, (clientX - rect.left) / timelineBeatWidth)
+  const snappedBeat = Math.round(beat * 4) / 4
+  return Math.min(arrangementTotalTicks(), Math.round(snappedBeat * (loadedMidi.timeDivision || 480)))
+}
+
+let selectionDrag: { trackIndex: number; anchorTick: number } | null = null
+$<HTMLDivElement>('timeline-tracks').addEventListener('pointerdown', (event) => {
+  if (!loadedMidi || event.button !== 0 || replacementRecording) return
+  const lane = (event.target as HTMLElement).closest<HTMLElement>('.timeline-track')
+  if (!lane) return
+  const trackIndex = Number(lane.dataset.trackIndex)
+  selectedTrackIndex = trackIndex
+  const anchorTick = tickFromTimelinePointer(event.clientX)
+  selectionDrag = { trackIndex, anchorTick }
+  lane.setPointerCapture(event.pointerId)
+  timelineSelection = { trackIndex, startTick: anchorTick, endTick: anchorTick + Math.max(1, Math.round((loadedMidi.timeDivision || 480) / 4)) }
+  renderTrackList()
+  for (const track of document.querySelectorAll<HTMLElement>('.timeline-track')) {
+    track.classList.toggle('selected', Number(track.dataset.trackIndex) === trackIndex)
+  }
+  updateTimelineSelection()
+})
+$<HTMLDivElement>('timeline-tracks').addEventListener('pointermove', (event) => {
+  if (!selectionDrag || !loadedMidi) return
+  const tick = tickFromTimelinePointer(event.clientX)
+  const step = Math.max(1, Math.round((loadedMidi.timeDivision || 480) / 4))
+  timelineSelection = tick < selectionDrag.anchorTick
+    ? { trackIndex: selectionDrag.trackIndex, startTick: tick, endTick: selectionDrag.anchorTick }
+    : { trackIndex: selectionDrag.trackIndex, startTick: selectionDrag.anchorTick, endTick: Math.max(selectionDrag.anchorTick + step, tick) }
+  updateTimelineSelection()
+})
+window.addEventListener('pointerup', () => { selectionDrag = null })
+$<HTMLDivElement>('timeline-viewport').addEventListener('scroll', (event) => {
+  const viewport = event.currentTarget as HTMLDivElement
+  $<HTMLDivElement>('track-list').style.transform = `translateY(${-viewport.scrollTop}px)`
 })
 
+function updateTimelineSelection(): void {
+  const overlay = $<HTMLDivElement>('timeline-selection')
+  const clearButton = $<HTMLButtonElement>('btn-clear-range')
+  const replaceButton = $<HTMLButtonElement>('btn-replace-range')
+  if (!timelineSelection || !loadedMidi) {
+    overlay.hidden = true
+    clearButton.disabled = true
+    replaceButton.disabled = true
+    setTranslatedText('arranger-selection-status', 'arranger.selectHint')
+    return
+  }
+  const ppq = loadedMidi.timeDivision || 480
+  overlay.hidden = false
+  overlay.style.left = `${(timelineSelection.startTick / ppq) * timelineBeatWidth}px`
+  overlay.style.top = `${34 + timelineSelection.trackIndex * 62}px`
+  overlay.style.width = `${Math.max(2, ((timelineSelection.endTick - timelineSelection.startTick) / ppq) * timelineBeatWidth)}px`
+  overlay.style.height = '62px'
+  overlay.classList.toggle('recording', Boolean(replacementRecording))
+  clearButton.disabled = Boolean(replacementRecording)
+  replaceButton.disabled = Boolean(replacementRecording)
+  setTranslatedText('arranger-selection-status', replacementRecording ? 'arranger.recording' : 'arranger.range', {
+    track: arrangementTrackName(timelineSelection.trackIndex),
+    start: (timelineSelection.startTick / ppq).toFixed(2),
+    end: (timelineSelection.endTick / ppq).toFixed(2),
+  })
+}
+
+function updateTimelinePlayhead(time: number, duration: number): void {
+  const playhead = $<HTMLDivElement>('timeline-playhead')
+  if (!loadedMidi || duration <= 0 || time <= 0) {
+    playhead.hidden = true
+    return
+  }
+  playhead.hidden = false
+  const width = $<HTMLDivElement>('timeline-content').getBoundingClientRect().width
+  playhead.style.left = `${Math.max(0, Math.min(width, (time / duration) * width))}px`
+}
+
+$<HTMLInputElement>('arranger-zoom').addEventListener('input', (event) => {
+  timelineBeatWidth = Number((event.target as HTMLInputElement).value)
+  renderTimeline()
+  updateTimelineSelection()
+})
+$('btn-clear-range').addEventListener('click', () => {
+  timelineSelection = null
+  updateTimelineSelection()
+})
+
+async function playArrangement(startSeconds = 0, source = loadedMidi): Promise<void> {
+  if (!source) return
+  const e = await ensureEngine()
+  let playbackSource = source
+  if (mutedTracks.size > 0) playbackSource = applyTrackMutes(source, mutedTracks)
+  await e.playMidi(playbackSource.writeMIDI(), source.fileName ?? 'song.mid', startSeconds)
+  setPlaybackUi(true)
+}
+
+$('btn-play').addEventListener('click', () => void playArrangement().catch((err) => {
+  setTranslatedStatus('midi-status', 'playback.playError', { error: err instanceof Error ? err.message : String(err) }, 'err')
+}))
 $('btn-pause').addEventListener('click', () => engine?.pause())
 $('btn-stop').addEventListener('click', () => {
-  engine?.stop()
+  if (replacementRecording) finishReplacementRecording()
+  else engine?.stop()
   $<HTMLProgressElement>('progress').value = 0
 })
-$('btn-restart').addEventListener('click', async () => {
-  if (!loadedMidi) return
+$('btn-restart').addEventListener('click', () => {
   engine?.stop()
-  const e = await ensureEngine()
-  let source = loadedMidi
-  if (mutedTracks.size > 0) source = applyTrackMutes(loadedMidi, mutedTracks)
-  await e.playMidi(source.writeMIDI(), loadedMidi.fileName ?? 'song.mid')
-  setPlaybackUi(true)
+  void playArrangement()
 })
+$('btn-export-arrangement').addEventListener('click', () => {
+  if (!loadedMidi) return
+  const baseName = (loadedMidi.fileName ?? 'opusweave').replace(/\.(mid|midi)$/i, '')
+  downloadBuffer(loadedMidi.writeMIDI(), `${baseName}-edited.mid`, 'audio/midi')
+  setTranslatedStatus('midi-status', 'arranger.exported', {}, 'ok')
+})
+
+async function startReplacementRecording(): Promise<void> {
+  if (!loadedMidi || !timelineSelection || replacementRecording || recorder.isRecording) return
+  const selection = { ...timelineSelection }
+  const tempoMap = createMidiTempoMap(loadedMidi)
+  const startSeconds = tempoMap.tickToSeconds(selection.startTick)
+  const durationMs = Math.max(50, (tempoMap.tickToSeconds(selection.endTick) - startSeconds) * 1000)
+  const preview = replaceArrangementRange(loadedMidi, selection)
+  replacementRecording = { selection, durationMs }
+  recorder.start(performance.now())
+  $<HTMLButtonElement>('btn-stop-replace').disabled = false
+  $<HTMLButtonElement>('btn-replace-range').disabled = true
+  updateTimelineSelection()
+  try {
+    await playArrangement(startSeconds, preview)
+    replacementTimer = window.setTimeout(finishReplacementRecording, durationMs)
+  } catch (err) {
+    replacementRecording = null
+    recorder.stop(performance.now())
+    updateTimelineSelection()
+    throw err
+  }
+}
+
+function finishReplacementRecording(): void {
+  if (!loadedMidi || !replacementRecording) return
+  const context = replacementRecording
+  replacementRecording = null
+  if (replacementTimer !== undefined) window.clearTimeout(replacementTimer)
+  replacementTimer = undefined
+  const replacementTake = recorder.stop(performance.now())
+  engine?.stop()
+  loadedMidi = replaceArrangementRange(loadedMidi, {
+    ...context.selection,
+    take: replacementTake,
+    selectionDurationMs: context.durationMs,
+  })
+  refreshArrangementInspection()
+  timelineSelection = context.selection
+  $<HTMLButtonElement>('btn-stop-replace').disabled = true
+  updateTimelineSelection()
+  const ppq = loadedMidi.timeDivision || 480
+  setTranslatedStatus('midi-status', 'arranger.replaced', {
+    track: arrangementTrackName(context.selection.trackIndex),
+    start: (context.selection.startTick / ppq).toFixed(2),
+    end: (context.selection.endTick / ppq).toFixed(2),
+    events: replacementTake.events.length,
+  }, 'ok')
+}
+
+$('btn-replace-range').addEventListener('click', () => void startReplacementRecording().catch((err) => {
+  setTranslatedStatus('midi-status', 'playback.playError', { error: err instanceof Error ? err.message : String(err) }, 'err')
+}))
+$('btn-stop-replace').addEventListener('click', finishReplacementRecording)
 
 // ─── Recording ───────────────────────────────────────────────────────────────
 
 $('btn-record').addEventListener('click', () => {
+  if (replacementRecording || recorder.isRecording) return
   recorder.start(performance.now())
   take = null
   $<HTMLButtonElement>('btn-record').disabled = true
@@ -718,6 +951,7 @@ $('btn-record').addEventListener('click', () => {
 })
 
 $('btn-record-stop').addEventListener('click', () => {
+  if (replacementRecording) return
   take = recorder.stop(performance.now())
   const hasEvents = take.events.length > 0
   $<HTMLButtonElement>('btn-record').disabled = false
@@ -1117,7 +1351,8 @@ renderLearnBindings()
 updateOctaveLabel()
 setPlaybackUi(false)
 renderMidiState(midiManager.getState())
-requestAnimationFrame(updateWorkspaceNavigation)
+showWorkspacePage('studio')
+renderArrangement()
 void initializeComputerMapDisclosure()
 builtInSoundFontPromise = loadBuiltInSoundFont()
 void builtInSoundFontPromise

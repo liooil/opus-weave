@@ -34,7 +34,7 @@ SoundFont 合成  (.sf2 / .sf3 / .sfogg)
 
 | # | 能力 |
 |---|---|
-| 1 | 导入并播放 `.mid` 文件 |
+| 1 | 将 `.mid` 导入多轨节拍时间轴，选择片段，通过实时演奏替换，并导出编辑后的 MIDI |
 | 2 | 默认使用与 FreePiano 相同采样来源的 mda Piano，并以轻量 Micro GM 补全其他音色；也可加载自定义 `.sf2` / `.sf3` / `.sfogg` 音色库 |
 | 3 | 通过 WebMIDI 连接实体 MIDI 键盘（权限按钮、端口选择、热插拔、id 变化后按厂商/名称回退匹配） |
 | 4 | 实时监视 Note On/Off、CC、Pitch Bend（含音名显示） |

@@ -37,7 +37,7 @@ Record performance  →  export .mid (re-importable)
 
 | # | Capability |
 |---|---|
-| 1 | Import a `.mid` file and play it back in the browser |
+| 1 | Import a `.mid` file into a multi-track beat timeline, select ranges, replace them through live playing, and export the edited MIDI |
 | 2 | Play immediately with the FreePiano-style mda Piano default and lightweight Micro GM fallback, or load a custom `.sf2` / `.sf3` / `.sfogg` bank |
 | 3 | Connect a physical MIDI keyboard via WebMIDI (permission button, port picker, hot-plug, id-change fallback) |
 | 4 | Monitor Note On/Off, CC, and Pitch Bend in real time (with note names) |

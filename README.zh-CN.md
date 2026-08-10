@@ -32,7 +32,7 @@ SoundFont 合成  (.sf2 / .sf3 / .sfogg)
 | # | 能力 |
 |---|---|
 | 1 | 导入并播放 `.mid` 文件 |
-| 2 | 导入 `.sf2` / `.sf3` / `.sfogg` 音色库用于浏览器合成 |
+| 2 | 使用内置轻量 Micro GM SoundFont 直接演奏，或加载自定义 `.sf2` / `.sf3` / `.sfogg` 音色库 |
 | 3 | 通过 WebMIDI 连接实体 MIDI 键盘（权限按钮、端口选择、热插拔、id 变化后按厂商/名称回退匹配） |
 | 4 | 实时监视 Note On/Off、CC、Pitch Bend（含音名显示） |
 | 5 | 录制实时演奏（实体键盘或电脑键盘），导出可再次导入的 Standard MIDI File |
@@ -83,8 +83,9 @@ bun run opusweave mcp   # stdio MCP 服务器
 
 ## 音色库
 
-OpusWeave **不内置**任何 SoundFont。你需要自行提供音色库，并确保拥有合法
-使用权限。
+OpusWeave 内置 **OpusWeave Micro GM** 轻量合成音色库，覆盖全部 128 个 GM
+旋律音色和一套标准鼓组，启动后会自动加载，因此无需额外文件即可演奏。你仍可随时
+加载自己的 `.sf2`、`.sf3` 或 `.sfogg` 音色库；请确保拥有相应文件的合法使用权。
 
 ## 格式模型
 

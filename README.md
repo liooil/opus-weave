@@ -35,7 +35,7 @@ Record performance  →  export .mid (re-importable)
 | # | Capability |
 |---|---|
 | 1 | Import a `.mid` file and play it back in the browser |
-| 2 | Load a `.sf2` / `.sf3` / `.sfogg` SoundFont for in-browser synthesis |
+| 2 | Play immediately with the bundled lightweight Micro GM SoundFont, or load a custom `.sf2` / `.sf3` / `.sfogg` bank |
 | 3 | Connect a physical MIDI keyboard via WebMIDI (permission button, port picker, hot-plug, id-change fallback) |
 | 4 | Monitor Note On/Off, CC, and Pitch Bend in real time (with note names) |
 | 5 | Record a live performance (hardware keyboard or computer keyboard) and export a Standard MIDI File that re-imports |
@@ -87,8 +87,10 @@ Tools: `create_midi`, `inspect_midi`, `render_midi`, `validate_composition`,
 
 ## SoundFonts
 
-OpusWeave does **not** bundle any SoundFont. You must supply your own —
-please only use SoundFonts you are legally allowed to use.
+OpusWeave includes **OpusWeave Micro GM**, a compact synthetic General MIDI
+bank covering all 128 melodic programs plus a standard drum kit. It loads
+automatically for immediate playback. You can replace it at any time with your
+own `.sf2`, `.sf3`, or `.sfogg` bank; only use files you are legally allowed to use.
 
 ## Format model
 

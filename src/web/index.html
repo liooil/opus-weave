@@ -3,122 +3,184 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>OpusWeave</title>
+  <meta name="theme-color" content="#0b0c10" />
+  <title>OpusWeave Studio</title>
   <link rel="stylesheet" href="./app.css" />
 </head>
 <body>
-  <header class="topbar">
-    <h1>OpusWeave</h1>
-    <span class="tagline">From idea to score to performance.</span>
-  </header>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+        <div>
+          <h1>OpusWeave</h1>
+          <p data-i18n="brand.subtitle">Performance workstation</p>
+        </div>
+      </div>
+      <div class="topbar-center" aria-hidden="true">
+        <span class="active" data-i18n="nav.play">Play</span>
+        <span data-i18n="nav.shape">Shape</span>
+        <span data-i18n="nav.connect">Connect</span>
+      </div>
+      <div class="session-controls">
+        <label class="language-picker">
+          <span class="sr-only" data-i18n="language.label">Interface language</span>
+          <select id="language-select" data-i18n-aria-label="language.label">
+            <option value="en">EN</option>
+            <option value="zh-CN">中文</option>
+          </select>
+        </label>
+        <div class="session-state"><span class="state-dot"></span><span data-i18n="session.local">Local session</span></div>
+      </div>
+    </header>
 
-  <!-- 1. Status area -->
-  <section class="panel" id="status-panel">
-    <h2>Status</h2>
-    <dl class="status-grid">
-      <dt>AudioContext</dt><dd id="st-audio">—</dd>
-      <dt>WebMIDI</dt><dd id="st-midi">—</dd>
-      <dt>MIDI permission</dt><dd id="st-perm">—</dd>
-      <dt>Input port</dt><dd id="st-input">—</dd>
-      <dt>SoundFont</dt><dd id="st-soundfont">—</dd>
-      <dt>Playback file</dt><dd id="st-file">—</dd>
-      <dt>Recording</dt><dd id="st-record">—</dd>
-    </dl>
-    <div id="st-error" class="error-box" hidden></div>
-  </section>
+    <main class="workspace">
+      <aside class="sidebar">
+        <section class="panel system-panel" id="status-panel">
+          <div class="section-heading">
+            <div><span class="eyebrow" data-i18n="section.system">System</span><h2 data-i18n="section.studioStatus">Studio status</h2></div>
+            <span class="status-beacon" data-i18n-title="status.applicationReady" title="Application ready"></span>
+          </div>
+          <dl class="status-grid">
+            <div><dt data-i18n="status.audioEngine">Audio engine</dt><dd id="st-audio">—</dd></div>
+            <div><dt data-i18n="status.webMidi">Web MIDI</dt><dd id="st-midi">—</dd></div>
+            <div><dt data-i18n="status.permission">Permission</dt><dd id="st-perm">—</dd></div>
+            <div><dt data-i18n="status.input">Input</dt><dd id="st-input">—</dd></div>
+            <div><dt data-i18n="status.soundFont">SoundFont</dt><dd id="st-soundfont">—</dd></div>
+            <div><dt data-i18n="status.playback">Playback</dt><dd id="st-file">—</dd></div>
+            <div><dt data-i18n="status.recorder">Recorder</dt><dd id="st-record">—</dd></div>
+          </dl>
+          <div id="st-error" class="error-box" hidden></div>
+        </section>
 
-  <!-- 2. MIDI devices -->
-  <section class="panel" id="midi-panel">
-    <h2>MIDI Devices</h2>
-    <div class="row">
-      <button id="btn-request-midi">Request MIDI permission</button>
-      <button id="btn-refresh-midi">Refresh ports</button>
-    </div>
-    <div class="row">
-      <label>Input <select id="midi-input-select"></select></label>
-      <label>Output <select id="midi-output-select"></select></label>
-    </div>
-    <div id="port-details" class="port-details"></div>
-    <div id="device-profile" class="device-profile" hidden>
-      <strong id="profile-name"></strong>
-      <div id="profile-controls" class="profile-controls"></div>
-    </div>
-    <h3>Raw message monitor</h3>
-    <div id="midi-monitor" class="monitor" aria-live="polite"></div>
-  </section>
+        <section class="panel" id="midi-panel">
+          <div class="section-heading">
+            <div><span class="eyebrow" data-i18n="section.hardware">Hardware</span><h2 data-i18n="section.midiConnections">MIDI connections</h2></div>
+          </div>
+          <div class="stacked-actions">
+            <button id="btn-request-midi" class="primary full-width" data-i18n="midi.enable">Enable MIDI access</button>
+            <button id="btn-refresh-midi" class="quiet full-width" data-i18n="midi.refresh">Refresh devices</button>
+          </div>
+          <div class="field-stack">
+            <label><span data-i18n="midi.inputDevice">Input device</span><select id="midi-input-select"></select></label>
+            <label><span data-i18n="midi.outputDevice">Output device</span><select id="midi-output-select"></select></label>
+          </div>
+          <div id="port-details" class="port-details"></div>
+          <div id="device-profile" class="device-profile" hidden>
+            <strong id="profile-name"></strong>
+            <div id="profile-controls" class="profile-controls"></div>
+          </div>
+        </section>
+      </aside>
 
-  <!-- 3. SoundFont -->
-  <section class="panel" id="soundfont-panel">
-    <h2>SoundFont</h2>
-    <div class="row">
-      <input id="sf-file" type="file" accept=".sf2,.sf3,.sfogg" />
-      <label>Master volume <input id="master-volume" type="range" min="0" max="100" value="80" /></label>
-      <button id="btn-panic">Panic (all notes off)</button>
-    </div>
-    <div class="row">
-      <label>Preset <select id="preset-select" disabled><option value="">— load a SoundFont first —</option></select></label>
-    </div>
-    <div id="sf-status" class="status"></div>
-  </section>
+      <div class="main-stage">
+        <section class="panel transport-panel" id="playback-panel">
+          <div class="transport-head">
+            <div>
+              <span class="eyebrow" data-i18n="section.nowPlaying">Now playing</span>
+              <h2 data-i18n="section.arrangePerformance">Arrange the performance</h2>
+            </div>
+            <label class="file-button compact"><span data-i18n="playback.openMidi">Open MIDI</span><input id="midi-file" type="file" accept=".mid,.midi" /></label>
+          </div>
+          <div class="transport-display">
+            <div class="album-art" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
+            <div class="transport-content">
+              <div class="timeline-meta">
+                <span id="playback-time">0:00 / 0:00</span>
+                <span id="playback-tempo">BPM —</span>
+              </div>
+              <progress id="progress" value="0" max="1000"></progress>
+              <div class="transport-controls">
+                <button id="btn-restart" class="icon-button" data-i18n-title="playback.backToStart" data-i18n-aria-label="playback.backToStart" title="Back to start" aria-label="Back to start">|&lt;</button>
+                <button id="btn-stop" class="icon-button" data-i18n-aria-label="playback.stop" aria-label="Stop">■</button>
+                <button id="btn-play" class="play-button" data-i18n-aria-label="playback.play" aria-label="Play">▶</button>
+                <button id="btn-pause" class="icon-button" data-i18n-aria-label="playback.pause" aria-label="Pause">Ⅱ</button>
+              </div>
+            </div>
+          </div>
+          <div id="track-list" class="track-list"></div>
+          <div id="midi-status" class="status" data-status-key="playback.dropMidi">Drop in a MIDI file to begin.</div>
+        </section>
 
-  <!-- 4. Playback -->
-  <section class="panel" id="playback-panel">
-    <h2>Playback</h2>
-    <div class="row">
-      <input id="midi-file" type="file" accept=".mid,.midi" />
-      <button id="btn-play">Play</button>
-      <button id="btn-pause">Pause</button>
-      <button id="btn-stop">Stop</button>
-      <button id="btn-restart">⏮ Back to start</button>
-    </div>
-    <div class="row">
-      <progress id="progress" value="0" max="1000"></progress>
-      <span id="playback-time">0:00 / 0:00</span>
-      <span id="playback-tempo">♩ —</span>
-    </div>
-    <div id="track-list" class="track-list"></div>
-    <div id="midi-status" class="status"></div>
-  </section>
+        <section class="panel live-panel" id="live-panel">
+          <div class="section-heading inline-heading">
+            <div><span class="eyebrow" data-i18n="section.instrument">Instrument</span><h2 data-i18n="section.livePerformance">Live performance</h2></div>
+            <div class="performance-controls">
+              <span class="stepper-label" data-i18n="live.octave">Octave</span>
+              <button id="oct-down" class="stepper">−</button>
+              <strong id="oct-label">0</strong>
+              <button id="oct-up" class="stepper">+</button>
+              <label class="velocity-field"><span data-i18n="live.velocity">Velocity</span><input id="key-velocity" type="number" min="1" max="127" value="100" /></label>
+            </div>
+          </div>
+          <div id="live-notes" class="live-notes"><span class="notes-placeholder" data-i18n="live.notesPlaceholder">Played notes appear here</span></div>
+          <div class="keyboard-frame"><div id="virtual-keyboard"></div></div>
+          <p class="hint keyboard-hint" data-i18n="live.keyboardHint">Computer keys Z–M, S–L and Q–U play notes. Focused inputs ignore shortcuts.</p>
+        </section>
 
-  <!-- 5. Live performance -->
-  <section class="panel" id="live-panel">
-    <h2>Live</h2>
-    <div id="live-notes" class="live-notes"></div>
-    <div id="virtual-keyboard"></div>
-    <div class="row small">
-      <span>Octave <button id="oct-down">−</button><button id="oct-up">+</button> (<span id="oct-label">0</span>)</span>
-      <span>Velocity <input id="key-velocity" type="number" min="1" max="127" value="100" /></span>
-      <span class="hint">Computer keyboard: Z–M / S–L / Q–U play, inputs ignore keys.</span>
-    </div>
-  </section>
+        <div class="module-grid">
+          <section class="panel module-panel" id="soundfont-panel">
+            <div class="section-heading">
+              <div><span class="eyebrow" data-i18n="section.tone">Tone</span><h2 data-i18n="section.soundLibrary">Sound library</h2></div>
+              <button id="btn-panic" class="danger-quiet" data-i18n="sound.panic">Panic</button>
+            </div>
+            <label class="drop-zone">
+              <input id="sf-file" type="file" accept=".sf2,.sf3,.sfogg" />
+              <span class="drop-icon">SF</span>
+              <span class="built-in-badge" data-i18n="sound.builtInIncluded">Built-in Micro GM</span>
+              <strong data-i18n="sound.load">Load another SoundFont</strong>
+              <small data-i18n="sound.formats">Optional: SF2, SF3 or SFOGG</small>
+            </label>
+            <div class="field-stack compact-fields">
+              <label><span data-i18n="sound.preset">Preset</span><select id="preset-select" disabled><option value="" data-i18n="sound.loadFirst">Load a SoundFont first</option></select></label>
+              <label><span data-i18n="sound.masterVolume">Master volume</span><input id="master-volume" type="range" min="0" max="100" value="80" /></label>
+            </div>
+            <div id="sf-status" class="status"></div>
+          </section>
 
-  <!-- 6. Recording -->
-  <section class="panel" id="record-panel">
-    <h2>Recording</h2>
-    <div class="row">
-      <button id="btn-record">● Record</button>
-      <button id="btn-record-stop" disabled>■ Stop</button>
-      <button id="btn-clear-take" disabled>Clear take</button>
-      <button id="btn-play-take" disabled>Play take</button>
-      <button id="btn-record-export" disabled>Export .mid</button>
-    </div>
-    <div id="record-status" class="status"></div>
-  </section>
+          <section class="panel module-panel" id="record-panel">
+            <div class="section-heading">
+              <div><span class="eyebrow" data-i18n="section.capture">Capture</span><h2 data-i18n="section.takeRecorder">Take recorder</h2></div>
+              <span class="record-indicator"></span>
+            </div>
+            <div class="record-hero">
+              <button id="btn-record" class="record-button"><span></span><span data-i18n="record.newTake">Record new take</span></button>
+              <button id="btn-record-stop" data-i18n="record.stop" disabled>Stop</button>
+            </div>
+            <div class="button-row">
+              <button id="btn-play-take" data-i18n="record.playTake" disabled>Play take</button>
+              <button id="btn-record-export" data-i18n="record.exportMidi" disabled>Export MIDI</button>
+              <button id="btn-clear-take" class="quiet" data-i18n="record.clear" disabled>Clear</button>
+            </div>
+            <div id="record-status" class="status" data-status-key="record.ready">Ready to capture MIDI input.</div>
+          </section>
 
-  <!-- 7. MIDI Learn -->
-  <section class="panel" id="learn-panel">
-    <h2>MIDI Learn</h2>
-    <p class="hint">Click a parameter, then move the knob/pad/button on your device to bind it.</p>
-    <div class="row">
-      <button data-learn="master-volume">Learn master volume</button>
-      <button data-learn="synth-panic">Learn panic</button>
-      <button data-learn="octave-up">Learn octave up</button>
-      <button data-learn="octave-down">Learn octave down</button>
-    </div>
-    <div id="learn-status" class="status"></div>
-    <ul id="learn-bindings"></ul>
-  </section>
+          <section class="panel module-panel" id="learn-panel">
+            <div class="section-heading">
+              <div><span class="eyebrow" data-i18n="section.control">Control</span><h2 data-i18n="section.midiLearn">MIDI Learn</h2></div>
+            </div>
+            <p class="hint" data-i18n="learn.description">Select a parameter, then move a hardware control to create a binding.</p>
+            <div class="learn-grid">
+              <button data-learn="master-volume" data-i18n="learn.volume">Volume</button>
+              <button data-learn="synth-panic" data-i18n="learn.panic">Panic</button>
+              <button data-learn="octave-up" data-i18n="learn.octaveUp">Octave +</button>
+              <button data-learn="octave-down" data-i18n="learn.octaveDown">Octave −</button>
+            </div>
+            <div id="learn-status" class="status"></div>
+            <ul id="learn-bindings"></ul>
+          </section>
+        </div>
 
+        <section class="panel monitor-panel">
+          <div class="section-heading inline-heading">
+            <div><span class="eyebrow" data-i18n="section.diagnostics">Diagnostics</span><h2 data-i18n="section.messageMonitor">Message monitor</h2></div>
+            <span class="mono-label" data-i18n="monitor.liveStream">LIVE STREAM</span>
+          </div>
+          <div id="midi-monitor" class="monitor" aria-live="polite"><div class="monitor-empty" data-i18n="monitor.waiting">Waiting for MIDI activity…</div></div>
+        </section>
+      </div>
+    </main>
+  </div>
   <script type="module" src="./app.ts"></script>
 </body>
 </html>

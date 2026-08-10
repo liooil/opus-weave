@@ -25,6 +25,8 @@ export class SpessaSynthEngine implements SynthEngine {
   private gainNode: GainNode
   private soundFont: SoundFontInfo | null = null
   private disposed = false
+  private pendingMessages: Uint8Array[] = []
+  private resumePromise: Promise<void> | null = null
 
   constructor(
     /** Inject a pre-created AudioContext (tests use a mock). */
@@ -78,6 +80,30 @@ export class SpessaSynthEngine implements SynthEngine {
   }
 
   send(message: Uint8Array, _timestamp?: number): void {
+    if (!this.synth) return
+    if (this.resumePromise || this.ctx.state === 'suspended') {
+      this.pendingMessages.push(Uint8Array.from(message))
+      if (!this.resumePromise) {
+        this.resumePromise = this.ctx.resume()
+          .then(() => {
+            const queued = this.pendingMessages
+            this.pendingMessages = []
+            for (const pending of queued) this.deliverMessage(pending)
+          })
+          .catch((err: unknown) => {
+            this.pendingMessages = []
+            this.callbacks.onError?.(`audio resume failed: ${err instanceof Error ? err.message : String(err)}`)
+          })
+          .finally(() => {
+            this.resumePromise = null
+          })
+      }
+      return
+    }
+    this.deliverMessage(message)
+  }
+
+  private deliverMessage(message: Uint8Array): void {
     const synth = this.synth
     if (!synth) return
     const status = message[0]!
@@ -147,7 +173,9 @@ export class SpessaSynthEngine implements SynthEngine {
   listPresets(): Array<{ program: number; name: string }> {
     const synth = this.synth
     if (!synth) return []
-    return synth.presetList.map((p) => ({ program: p.program, name: p.name }))
+    return synth.presetList
+      .filter((preset) => !preset.isDrum)
+      .map((preset) => ({ program: preset.program, name: preset.name }))
   }
 
   get loadedSoundFont(): SoundFontInfo | null {
@@ -160,6 +188,8 @@ export class SpessaSynthEngine implements SynthEngine {
     this.sequencer = null
     this.synth = null
     this.soundFont = null
+    this.pendingMessages = []
+    this.resumePromise = null
     void this.ctx.close()
   }
 }

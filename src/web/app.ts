@@ -13,6 +13,8 @@ import { findProfileForPort, overrideControl, type DeviceProfile } from '../doma
 import { midiplusTinyPlusProfile } from '../domain/devices/midiplus-tiny-plus.ts'
 import { VirtualKeyboard } from './components/virtual-keyboard.ts'
 import type { BasicMIDI } from 'spessasynth_core'
+import { resolveLocale, setLocale, t, translateDocument, type TranslationValues } from './i18n.ts'
+import builtInSoundFontUrl from './assets/opusweave-micro-gm.sf2' with { type: 'file' }
 
 // ─── DOM helpers ─────────────────────────────────────────────────────────────
 
@@ -24,8 +26,41 @@ function $<T extends HTMLElement = HTMLElement>(id: string): T {
 
 function setStatus(id: string, msg: string, kind: 'ok' | 'warn' | 'err' | '' = ''): void {
   const el = $<HTMLElement>(id)
+  delete el.dataset.statusKey
+  delete el.dataset.statusValues
   el.textContent = msg
   el.className = `status${kind ? ` ${kind}` : ''}`
+}
+
+function setTranslatedStatus(
+  id: string,
+  key: string,
+  values: TranslationValues = {},
+  kind: 'ok' | 'warn' | 'err' | '' = '',
+): void {
+  const el = $<HTMLElement>(id)
+  el.dataset.statusKey = key
+  el.dataset.statusValues = JSON.stringify(values)
+  el.textContent = t(key, values)
+  el.className = `status${kind ? ` ${kind}` : ''}`
+}
+
+function setTranslatedText(id: string, key: string, values: TranslationValues = {}): void {
+  const el = $<HTMLElement>(id)
+  el.dataset.textKey = key
+  el.dataset.textValues = JSON.stringify(values)
+  el.textContent = t(key, values)
+}
+
+function retranslateTrackedCopy(): void {
+  for (const el of document.querySelectorAll<HTMLElement>('[data-status-key]')) {
+    const values = JSON.parse(el.dataset.statusValues ?? '{}') as TranslationValues
+    el.textContent = t(el.dataset.statusKey!, values)
+  }
+  for (const el of document.querySelectorAll<HTMLElement>('[data-text-key]')) {
+    const values = JSON.parse(el.dataset.textValues ?? '{}') as TranslationValues
+    el.textContent = t(el.dataset.textKey!, values)
+  }
 }
 
 function showError(msg: string): void {
@@ -33,6 +68,25 @@ function showError(msg: string): void {
   box.textContent = msg
   box.hidden = false
 }
+
+const localeSelect = $<HTMLSelectElement>('language-select')
+const initialLocale = resolveLocale(window.localStorage.getItem('opusweave.locale') ?? navigator.language)
+setLocale(initialLocale)
+localeSelect.value = initialLocale
+translateDocument()
+retranslateTrackedCopy()
+
+localeSelect.addEventListener('change', () => {
+  const locale = resolveLocale(localeSelect.value)
+  setLocale(locale)
+  window.localStorage.setItem('opusweave.locale', locale)
+  translateDocument()
+  retranslateTrackedCopy()
+  renderMidiState(midiManager.getState())
+  renderTrackList()
+  renderLearnBindings()
+  populatePresets()
+})
 
 function fmtTime(secs: number): string {
   if (!Number.isFinite(secs) || secs < 0) secs = 0
@@ -54,6 +108,8 @@ function downloadBuffer(buf: ArrayBuffer, name: string, mime: string): void {
 // ─── State ───────────────────────────────────────────────────────────────────
 
 let engine: SpessaSynthEngine | null = null
+let builtInSoundFontPromise: Promise<void> | null = null
+const BUILT_IN_SOUND_FONT_NAME = 'OpusWeave Micro GM'
 let loadedMidi: BasicMIDI | null = null
 let loadedInspection: MidiInspection | null = null
 const mutedTracks = new Set<number>()
@@ -65,6 +121,16 @@ const mapping = new MappingEngine()
 const midiLearn = new MidiLearn(window.localStorage)
 const profiles: DeviceProfile[] = [midiplusTinyPlusProfile()]
 let activeProfile: DeviceProfile | null = null
+const PARAM_LABEL_KEYS: Record<string, string> = {
+  'master-volume': 'params.masterVolume',
+  'synth-panic': 'params.synthPanic',
+  'octave-up': 'params.octaveUp',
+  'octave-down': 'params.octaveDown',
+}
+
+function parameterLabel(paramId: string): string {
+  return t(PARAM_LABEL_KEYS[paramId] ?? paramId)
+}
 /** User remaps for profile controls: controlId -> mapping (persisted). */
 let profileOverrides: Record<string, { controller: number }> = {}
 
@@ -95,35 +161,35 @@ async function ensureEngine(): Promise<SpessaSynthEngine> {
     },
     onPlaybackEnded: () => {
       setPlaybackUi(false)
-      setStatus('midi-status', 'Playback finished.', 'ok')
+      setTranslatedStatus('midi-status', 'playback.finished', {}, 'ok')
     },
     onPlaybackState: (playing) => setPlaybackUi(playing),
     onSoundFontLoaded: (info) => {
-      $<HTMLSpanElement>('st-soundfont').textContent = `${info.name} (${info.presetCount} presets)`
+      setTranslatedText('st-soundfont', 'sound.summary', { name: info.name, count: info.presetCount })
     },
     onError: (msg) => showError(msg),
   })
   await engine.ensureReady()
-  $<HTMLSpanElement>('st-audio').textContent = engine ? 'ready' : '—'
+  if (engine) setTranslatedText('st-audio', 'status.ready')
   // Register learnable parameters against the engine.
   midiLearn.register({
     id: 'master-volume',
-    label: 'Master volume',
+    label: t('params.masterVolume'),
     apply: (v) => engine?.setMasterVolume(v / 127),
   })
   midiLearn.register({
     id: 'synth-panic',
-    label: 'Panic',
+    label: t('params.synthPanic'),
     apply: () => engine?.panic(),
   })
   midiLearn.register({
     id: 'octave-up',
-    label: 'Octave up',
+    label: t('params.octaveUp'),
     apply: () => { mapping.shiftOctave(1); updateOctaveLabel() },
   })
   midiLearn.register({
     id: 'octave-down',
-    label: 'Octave down',
+    label: t('params.octaveDown'),
     apply: () => { mapping.shiftOctave(-1); updateOctaveLabel() },
   })
   return engine
@@ -145,7 +211,11 @@ function handleMidiMessage(data: Uint8Array, timestampMs: number): void {
   if (midiLearn.isArmed) {
     const binding = midiLearn.onMessage(data, midiManager.getState().selectedInputId ?? '')
     if (binding) {
-      setStatus('learn-status', `Bound ${binding.paramLabel} ← ${binding.kind} ${binding.controller ?? binding.note ?? ''}`, 'ok')
+      setTranslatedStatus('learn-status', 'learn.bound', {
+        parameter: parameterLabel(binding.paramId),
+        kind: binding.kind,
+        control: binding.controller ?? binding.note ?? '',
+      }, 'ok')
       renderLearnBindings()
     }
     return
@@ -257,33 +327,35 @@ function updateLiveNotes(data: Uint8Array): void {
 // ─── WebMIDI manager wiring ──────────────────────────────────────────────────
 
 function renderMidiState(state: MidiManagerState): void {
-  $<HTMLSpanElement>('st-midi').textContent = state.supported ? 'supported' : 'not supported'
-  $<HTMLSpanElement>('st-perm').textContent = state.permissionGranted ? 'granted' : state.error ? 'denied' : 'not requested'
+  setTranslatedText('st-midi', state.supported ? 'status.supported' : 'status.notSupported')
+  setTranslatedText('st-perm', state.permissionGranted ? 'status.granted' : state.error ? 'status.denied' : 'status.notRequested')
   if (state.error) showError(state.error)
 
   // Input dropdown
   const sel = $<HTMLSelectElement>('midi-input-select')
   const prev = sel.value
-  sel.innerHTML = '<option value="">— no device —</option>'
+  sel.innerHTML = `<option value="">${t('midi.noDevice')}</option>`
   for (const p of state.inputs) {
     const opt = document.createElement('option')
     opt.value = p.id
-    opt.textContent = `${p.name}${isVirtual(p) ? ' (virtual)' : ''}`
+    opt.textContent = `${p.name}${isVirtual(p) ? ` (${t('midi.virtual')})` : ''}`
     sel.appendChild(opt)
   }
   if (state.selectedInputId && state.inputs.some((p) => p.id === state.selectedInputId)) sel.value = state.selectedInputId
   else if (prev && state.inputs.some((p) => p.id === prev)) sel.value = prev
-  $<HTMLSpanElement>('st-input').textContent = state.inputNote || (state.selectedInputId ? 'connected' : '—')
+  if (state.inputNote) $<HTMLSpanElement>('st-input').textContent = state.inputNote
+  else if (state.selectedInputId) setTranslatedText('st-input', 'status.connected')
+  else $<HTMLSpanElement>('st-input').textContent = '—'
   if (state.inputNote) setStatus('learn-status', state.inputNote, 'warn')
 
   // Output dropdown
   const outSel = $<HTMLSelectElement>('midi-output-select')
   const prevOut = outSel.value
-  outSel.innerHTML = '<option value="">— no device —</option>'
+  outSel.innerHTML = `<option value="">${t('midi.noDevice')}</option>`
   for (const p of state.outputs) {
     const opt = document.createElement('option')
     opt.value = p.id
-    opt.textContent = `${p.name}${isVirtual(p) ? ' (virtual)' : ''}`
+    opt.textContent = `${p.name}${isVirtual(p) ? ` (${t('midi.virtual')})` : ''}`
     outSel.appendChild(opt)
   }
   if (state.selectedOutputId && state.outputs.some((p) => p.id === state.selectedOutputId)) outSel.value = state.selectedOutputId
@@ -340,7 +412,7 @@ function detectProfile(state: MidiManagerState): void {
     return
   }
   box.hidden = false
-  $<HTMLElement>('profile-name').textContent = `${activeProfile.name} — matched ${port!.name}`
+  $<HTMLElement>('profile-name').textContent = t('midi.profileMatched', { profile: activeProfile.name, device: port!.name })
   const controls = $<HTMLDivElement>('profile-controls')
   controls.innerHTML = ''
   for (const [id, control] of Object.entries(activeProfile.controls)) {
@@ -357,7 +429,11 @@ function detectProfile(state: MidiManagerState): void {
       if (!Number.isInteger(v) || v < 0 || v > 127) return
       profileOverrides = { ...profileOverrides, [id]: { controller: v } }
       window.localStorage.setItem('opusweave.profile.overrides', JSON.stringify(profileOverrides))
-      setStatus('learn-status', `${activeProfile!.name}: ${id} remapped to CC${v}`, 'ok')
+      setTranslatedStatus('learn-status', 'midi.remapped', {
+        profile: activeProfile!.name,
+        control: id,
+        controller: v,
+      }, 'ok')
     })
     label.appendChild(input)
     controls.appendChild(label)
@@ -366,25 +442,43 @@ function detectProfile(state: MidiManagerState): void {
 
 // ─── SoundFont ───────────────────────────────────────────────────────────────
 
+async function loadBuiltInSoundFont(): Promise<void> {
+  setTranslatedStatus('sf-status', 'sound.builtInLoading', {}, 'warn')
+  try {
+    const response = await fetch(builtInSoundFontUrl)
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const e = await ensureEngine()
+    const info = await e.loadSoundBank(await response.arrayBuffer(), BUILT_IN_SOUND_FONT_NAME)
+    setTranslatedText('st-audio', 'status.readyAudio')
+    setTranslatedStatus('sf-status', 'sound.builtInReady', { count: info.presetCount }, 'ok')
+    populatePresets()
+  } catch (err) {
+    setTranslatedStatus('sf-status', 'sound.builtInError', {
+      error: err instanceof Error ? err.message : String(err),
+    }, 'err')
+  }
+}
+
 $<HTMLInputElement>('sf-file').addEventListener('change', async (ev) => {
   const file = (ev.target as HTMLInputElement).files?.[0]
   if (!file) return
-  setStatus('sf-status', `Loading ${file.name}…`, 'warn')
+  if (builtInSoundFontPromise) await builtInSoundFontPromise
+  setTranslatedStatus('sf-status', 'sound.loading', { file: file.name }, 'warn')
   try {
     const e = await ensureEngine()
     const info = await e.loadSoundBank(await file.arrayBuffer(), file.name)
-    setStatus('sf-status', `Loaded: ${info.name} (${info.presetCount} presets)`, 'ok')
+    setTranslatedStatus('sf-status', 'sound.loaded', { name: info.name, count: info.presetCount }, 'ok')
     populatePresets()
   } catch (err) {
-    setStatus('sf-status', `Error: ${err instanceof Error ? err.message : String(err)}`, 'err')
+    setTranslatedStatus('sf-status', 'sound.error', { error: err instanceof Error ? err.message : String(err) }, 'err')
   }
 })
 
 function populatePresets(): void {
   const sel = $<HTMLSelectElement>('preset-select')
   sel.disabled = true
-  sel.innerHTML = '<option value="">— presets —</option>'
-  if (!engine) return
+  sel.innerHTML = `<option value="">${t(engine?.hasSoundFont() ? 'sound.presets' : 'sound.initializing')}</option>`
+  if (!engine?.hasSoundFont()) return
   const patches = engine.listPresets?.() ?? []
   for (const p of patches) {
     const opt = document.createElement('option')
@@ -418,7 +512,7 @@ $('btn-panic').addEventListener('click', () => {
 $<HTMLInputElement>('midi-file').addEventListener('change', async (ev) => {
   const file = (ev.target as HTMLInputElement).files?.[0]
   if (!file) return
-  setStatus('midi-status', `Loading ${file.name}…`, 'warn')
+  setTranslatedStatus('midi-status', 'playback.loading', { file: file.name }, 'warn')
   try {
     const buf = await file.arrayBuffer()
     loadedMidi = importMidi(buf, file.name)
@@ -430,10 +524,13 @@ $<HTMLInputElement>('midi-file').addEventListener('change', async (ev) => {
     $<HTMLSpanElement>('playback-tempo').textContent = `♩ ${tempo} BPM`
     const range = loadedInspection.tracks.flatMap((t) => (t.minNote !== null && t.maxNote !== null ? [t.minNote, t.maxNote] : []))
     if (range.length >= 2) keyboard.setRange(Math.min(...range), Math.max(...range))
-    setStatus('midi-status', `Loaded: ${file.name} (${fmtTime(loadedInspection.durationSeconds)})`, 'ok')
+    setTranslatedStatus('midi-status', 'playback.loaded', {
+      file: file.name,
+      duration: fmtTime(loadedInspection.durationSeconds),
+    }, 'ok')
     setPlaybackUi(false)
   } catch (err) {
-    setStatus('midi-status', `Error: ${err instanceof Error ? err.message : String(err)}`, 'err')
+    setTranslatedStatus('midi-status', 'playback.error', { error: err instanceof Error ? err.message : String(err) }, 'err')
   }
 })
 
@@ -441,23 +538,29 @@ function renderTrackList(): void {
   const list = $<HTMLDivElement>('track-list')
   list.innerHTML = ''
   if (!loadedInspection) return
-  for (const t of loadedInspection.tracks) {
+  for (const track of loadedInspection.tracks) {
     const row = document.createElement('div')
-    row.className = `track-row${mutedTracks.has(t.index) ? ' muted' : ''}`
+    row.className = `track-row${mutedTracks.has(track.index) ? ' muted' : ''}`
     const muteBtn = document.createElement('button')
     muteBtn.className = 'mute-btn'
-    muteBtn.textContent = mutedTracks.has(t.index) ? '🔇 Unmute' : '🔊 Mute'
+    muteBtn.textContent = t(mutedTracks.has(track.index) ? 'playback.unmute' : 'playback.mute')
     muteBtn.addEventListener('click', () => {
-      if (mutedTracks.has(t.index)) mutedTracks.delete(t.index)
-      else mutedTracks.add(t.index)
+      if (mutedTracks.has(track.index)) mutedTracks.delete(track.index)
+      else mutedTracks.add(track.index)
       renderTrackList()
     })
     const name = document.createElement('span')
     name.className = 'track-name'
-    name.textContent = t.name || `Track ${t.index}`
+    name.textContent = track.name || t('playback.track', { index: track.index })
     const meta = document.createElement('span')
     meta.className = 'track-meta'
-    meta.textContent = `ch${t.channels.join(',') || '—'} prog${t.program ?? '—'} ${t.noteCount} notes${t.hasControlChanges ? ' cc' : ''}${t.hasPitchBend ? ' pb' : ''}`
+    meta.textContent = t('playback.trackMeta', {
+      channels: track.channels.join(',') || '—',
+      program: track.program ?? '—',
+      notes: track.noteCount,
+      cc: track.hasControlChanges ? ' cc' : '',
+      pitchBend: track.hasPitchBend ? ' pb' : '',
+    })
     row.append(muteBtn, name, meta)
     list.appendChild(row)
   }
@@ -472,7 +575,7 @@ $('btn-play').addEventListener('click', async () => {
     await e.playMidi(source.writeMIDI(), loadedMidi.fileName ?? 'song.mid')
     setPlaybackUi(true)
   } catch (err) {
-    setStatus('midi-status', `Playback error: ${err instanceof Error ? err.message : String(err)}`, 'err')
+    setTranslatedStatus('midi-status', 'playback.playError', { error: err instanceof Error ? err.message : String(err) }, 'err')
   }
 })
 
@@ -499,8 +602,8 @@ $('btn-record').addEventListener('click', () => {
   $<HTMLButtonElement>('btn-record').disabled = true
   $<HTMLButtonElement>('btn-record-stop').disabled = false
   $<HTMLButtonElement>('btn-record-export').disabled = true
-  $<HTMLSpanElement>('st-record').textContent = 'recording'
-  setStatus('record-status', '● Recording… (hardware keyboard or computer keyboard)', 'warn')
+  setTranslatedText('st-record', 'status.recording')
+  setTranslatedStatus('record-status', 'record.recording', {}, 'warn')
 })
 
 $('btn-record-stop').addEventListener('click', () => {
@@ -511,8 +614,11 @@ $('btn-record-stop').addEventListener('click', () => {
   $<HTMLButtonElement>('btn-clear-take').disabled = !hasEvents
   $<HTMLButtonElement>('btn-play-take').disabled = !hasEvents
   $<HTMLButtonElement>('btn-record-export').disabled = !hasEvents
-  $<HTMLSpanElement>('st-record').textContent = 'idle'
-  setStatus('record-status', `Stopped. ${take.events.length} event(s), ${(take.durationMs / 1000).toFixed(2)}s.`, 'ok')
+  setTranslatedText('st-record', 'status.idle')
+  setTranslatedStatus('record-status', 'record.stopped', {
+    events: take.events.length,
+    duration: (take.durationMs / 1000).toFixed(2),
+  }, 'ok')
 })
 
 $('btn-clear-take').addEventListener('click', () => {
@@ -521,7 +627,7 @@ $('btn-clear-take').addEventListener('click', () => {
   $<HTMLButtonElement>('btn-clear-take').disabled = true
   $<HTMLButtonElement>('btn-play-take').disabled = true
   $<HTMLButtonElement>('btn-record-export').disabled = true
-  setStatus('record-status', 'Take cleared.', '')
+  setTranslatedStatus('record-status', 'record.cleared')
 })
 
 $('btn-play-take').addEventListener('click', async () => {
@@ -530,14 +636,14 @@ $('btn-play-take').addEventListener('click', async () => {
   try {
     const e = await ensureEngine()
     if (!e.hasSoundFont()) {
-      setStatus('record-status', 'Load a SoundFont first — the take has no sound without one.', 'warn')
+      setTranslatedStatus('record-status', 'record.soundFontRequired', {}, 'warn')
       return
     }
     playingTake = true
     await e.playMidi(buf, 'take.mid')
-    setStatus('record-status', 'Playing take…', '')
+    setTranslatedStatus('record-status', 'record.playing')
   } catch (err) {
-    setStatus('record-status', `Take playback error: ${err instanceof Error ? err.message : String(err)}`, 'err')
+    setTranslatedStatus('record-status', 'record.playError', { error: err instanceof Error ? err.message : String(err) }, 'err')
   }
   playingTake = false
 })
@@ -546,7 +652,7 @@ $('btn-record-export').addEventListener('click', () => {
   if (!take) return
   const buf = takeToMidi(take)
   downloadBuffer(buf, 'opusweave-recording.mid', 'audio/midi')
-  setStatus('record-status', 'Exported opusweave-recording.mid (re-import it to play).', 'ok')
+  setTranslatedStatus('record-status', 'record.exported', {}, 'ok')
 })
 
 // ─── Computer keyboard (MappingEngine) ───────────────────────────────────────
@@ -598,7 +704,7 @@ document.querySelectorAll<HTMLButtonElement>('[data-learn]').forEach((btn) => {
       else if (paramId === 'synth-panic') midiLearn.learn('synth-panic')
       else if (paramId === 'octave-up') midiLearn.learn('octave-up')
       else if (paramId === 'octave-down') midiLearn.learn('octave-down')
-      setStatus('learn-status', `Learning: move a control on your device to bind "${midiLearn.armedParamLabel}".`, 'warn')
+      setTranslatedStatus('learn-status', 'learn.learning', { parameter: parameterLabel(paramId) }, 'warn')
     })
   })
 })
@@ -608,7 +714,7 @@ function renderLearnBindings(): void {
   list.innerHTML = ''
   for (const b of midiLearn.listBindings()) {
     const li = document.createElement('li')
-    li.textContent = `${b.paramLabel} ← ${b.kind} ${b.controller ?? b.note ?? ''}${b.deviceName ? ` (${b.deviceName})` : ''}`
+    li.textContent = `${parameterLabel(b.paramId)} ← ${b.kind} ${b.controller ?? b.note ?? ''}${b.deviceName ? ` (${b.deviceName})` : ''}`
     const remove = document.createElement('button')
     remove.textContent = '✕'
     remove.style.marginLeft = '8px'
@@ -643,8 +749,7 @@ renderLearnBindings()
 updateOctaveLabel()
 setPlaybackUi(false)
 renderMidiState(midiManager.getState())
-void ensureEngine().then(() => {
-  $<HTMLSpanElement>('st-audio').textContent = 'ready (click Play to start audio)'
-})
+builtInSoundFontPromise = loadBuiltInSoundFont()
+void builtInSoundFontPromise
 
 // Guard: exported MIDI from a take must re-import — validated by round-trip test in the suite.

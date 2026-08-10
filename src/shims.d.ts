@@ -19,3 +19,8 @@ declare module '*spessasynth_processor.min.js' {
   const filePath: string
   export default filePath
 }
+
+declare module '*.sf2' {
+  const fileUrl: string
+  export default fileUrl
+}

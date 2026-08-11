@@ -26,9 +26,9 @@ The phase-1 spec mandates five separations, and the code follows them:
    offline CLI rendering. The GUI never touches FluidSynth, and the renderer
    never touches Web Audio.
 5. **Device configuration is not hardcoded in UI handlers.** Device profiles
-   (`src/domain/devices/`) describe how a hardware controller maps to MIDI;
-   the computer-keyboard mapping goes through `MappingEngine`; UI event
-   handlers only forward messages.
+   (`src/domain/devices/`) describe hardware mappings. `MappingEngine` owns the
+   active computer layout, including stateful word/Pinyin motion and custom
+   `ComputerKeyboardLayout` contracts; UI handlers only forward messages.
 
 ## Module map
 
@@ -40,10 +40,12 @@ src/build.ts       Single-file binary via bundesk; the AudioWorklet processor
                    is embedded with a `with { type: 'file' }` import and
                    served at /spessasynth_processor.min.js.
 src/domain/
-  composition/     CompositionSpec types, runtime validation, TempoMap
-                   (the single beat→tick rounding point).
-  owt/             OWT Score/Take AST, rational parser, stable serializer,
-                   MIDI conversion, exact Take pairing, quantizer, comparison.
+  ai/              OpenAI-compatible OWT client, schema fallback, automatic
+                   phrase-turn detection and interruptible AI improvisation.
+  composition/     CompositionSpec types, runtime validation, TempoMap and
+                   deterministic English/Pinyin musical typing.
+  owt/             Score-only OWT AST, rational parser, stable serializer,
+                   built-in examples, MIDI melody extraction and compilation.
   midi/            midi-export (SMF Type 1), midi-import/inspect, recorder.
   devices/         DeviceProfile model + matching, MappingEngine,
                    MIDIPLUS TINY+ profile.
@@ -52,7 +54,8 @@ src/domain/
 src/audio/         SynthEngine contract, spessasynth engine, mock, renderers.
 src/midi/          WebMidiManager (browser) + pure port-selection logic.
 src/mcp/           MCP server (stdio) + tool definitions.
-src/web/           GUI: index.html, app.css, app.ts, components/.
+src/web/           GUI plus Helix-style modal OWT editor, semantic selections,
+                   syntax/playback layers and guided performance UI.
 src/tests/         Deterministic Bun test suite.
 ```
 
@@ -86,14 +89,18 @@ on timing. `TempoMap.tickToSeconds` integrates over the tempo map
 (microseconds-per-quarter = 60_000_000 / bpm) with each segment priced at the
 tempo in effect at the segment start.
 
-### OWT and CompositionSpec share one business model
+### OWT is the persistent source format
 
-OWT Score uses normalized rational cursor arithmetic, explicit durations and
-human MIDI channels. `scoreToCompositionSpec` converts only at the MIDI/API
-boundary, so OWT and CompositionSpec feed the same validation and exporter.
-OWT Take stores exact millisecond note spans and controls; MIDI import pairs
-Note On/Off events before serialization, while quantization creates a derived
-Score without replacing the Exact Take.
+OWT uses normalized rational cursor arithmetic, explicit durations and human
+MIDI channels. `scoreToCompositionSpec` converts OWT to the internal structured
+compilation model at the validation/MIDI boundary. MIDI playback and export are
+derived outputs.
+
+MIDI import is intentionally lossy: notes are grouped by track/channel, a
+melody source is selected, polyphony is reduced to one voice, rhythm is
+quantized, and one `Melody` track is emitted. The importer reports discarded
+notes and ignored events. OWT does not store exact takes or promise MIDI
+round-trip fidelity.
 
 ### Track mute = event stripping, not synth hacks
 

@@ -1,4 +1,4 @@
-import type { OwtDocument, OwtScore, OwtScoreTrack, OwtTake, ScoreEvent, ScorePosition, TakeEvent } from './ast.ts'
+import type { OwtDocument, OwtScore, OwtScoreTrack, ScoreEvent, ScorePosition } from './ast.ts'
 import { formatNoteName, scorePositionToQuarter } from './parser.ts'
 import {
   ZERO,
@@ -93,35 +93,7 @@ export function serializeScore(score: OwtScore): string {
   return `${lines.join('\n')}\n`
 }
 
-function takeEventRank(event: TakeEvent): number {
-  if (event.kind === 'note') return 0
-  if (event.kind === 'cc') return 1
-  return 2
-}
-
-function milliseconds(value: number): string {
-  return value.toFixed(3)
-}
-
-export function serializeTake(take: OwtTake): string {
-  const lines = ['owt 0.1 take', '']
-  if (take.title !== undefined) lines.push(`title ${quote(take.title)}`)
-  if (take.source !== undefined) lines.push(`source ${quote(take.source)}`)
-  lines.push('unit ms', '')
-  const events = take.events.slice().sort((a, b) => a.atMs - b.atMs || a.channel - b.channel || takeEventRank(a) - takeEventRank(b))
-  for (const event of events) {
-    if (event.kind === 'note') {
-      lines.push(`note ${formatNoteName(event.pitch)} at=${milliseconds(event.atMs)} dur=${milliseconds(event.durationMs)} velocity=${event.velocity} channel=${event.channel}`)
-    } else if (event.kind === 'cc') {
-      lines.push(`cc ${event.controller} at=${milliseconds(event.atMs)} value=${event.value} channel=${event.channel}`)
-    } else {
-      lines.push(`bend at=${milliseconds(event.atMs)} value=${event.value} channel=${event.channel}`)
-    }
-  }
-  lines.push('', 'end')
-  return `${lines.join('\n')}\n`
-}
 
 export function serializeOwt(document: OwtDocument): string {
-  return document.kind === 'score' ? serializeScore(document) : serializeTake(document)
+  return serializeScore(document)
 }

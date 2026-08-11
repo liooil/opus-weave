@@ -1,14 +1,15 @@
 # OpusWeave Roadmap
 
-Milestone 1 now includes OWT 0.1 Score/Take parsing, MIDI compilation, Exact
-Take import, quantization, CLI workflows and MCP tools.
+Milestone 1 establishes `.owt` as the primary editable format. MIDI is an
+import, playback and export format; MIDI import intentionally extracts and
+simplifies a melody instead of preserving performance events.
 
-## Milestone 1: OWT text layer — implemented
+## Milestone 1: OWT melody editor — implemented
 
-- OWT Score and Exact Take documents with deterministic serialization.
-- Shared CompositionSpec/MIDI compilation path.
-- MIDI-to-Take pairing, velocity-zero normalization and configurable quantization.
-- CLI and MCP validation, compilation, playback preparation, retrieval and comparison.
+- Score-only OWT documents with deterministic parsing and serialization.
+- OWT editing, validation, formatting, playback and MIDI export.
+- Lossy MIDI/recording melody extraction with source selection, voice reduction and rhythm quantization.
+- CLI and MCP OWT validation, playback, import and export workflows.
 
 ## Milestone 2: MusicXML and interactive scores
 
@@ -21,15 +22,16 @@ Take import, quantization, CLI workflows and MCP tools.
 
 ## Milestone 3: Human–AI ensemble and score following
 
+- Basic AI call-and-response from the latest live phrase is available; tempo-following ensemble remains future work.
 - The user selects the part they will perform; the app plays the rest.
 - Real-time MIDI score following.
 - Automatic page turns.
 - Accompaniment follows the user's tempo.
-- Take comparison and practice analysis.
+- Melody transcription quality evaluation and correction tools.
 
 ## Milestone 4: OMR (optical music recognition)
 
-- Image / PDF score import.
+- AI-assisted image and MP4-frame transcription to validated OWT is available; deterministic OMR and PDF import remain future work.
 - Replaceable `OmrProvider` interface.
 - Staff-level OMR sidecar data.
 - Source-image coordinates and confidence values.
@@ -45,7 +47,7 @@ Take import, quantization, CLI workflows and MCP tools.
 
 ## Milestone 6: FreePiano compatibility
 
-- Full computer-keyboard mapping.
+- Switchable OpusWeave, English, Pinyin and FreePiano classic keyboard layouts are available; the visual custom-layout editor remains future work.
 - Multiple layers / groups.
 - Multiple actions per key binding.
 - FreePiano `.map` file import.
@@ -54,10 +56,10 @@ Take import, quantization, CLI workflows and MCP tools.
 
 ## Notes on product boundaries
 
-- MIDI is the performance/playback format.
-- OWT Score/Take is the human- and LLM-facing text layer, not an industry exchange format.
-- MusicXML is the planned formal notation format; ABC remains a future compatibility format.
-- Images/PDF (OMR) are planned input entry points.
-- `CompositionSpec` and OWT Score share one composition business model.
+- OWT (`.owt`) is the primary human- and LLM-facing source format.
+- MIDI is an import, playback and export format; MIDI → OWT is intentionally lossy.
+- MusicXML remains a future notation interchange format.
+- Images and MP4 frame samples can already produce simplified OWT through a configured multimodal model; deterministic OMR, PDF and audio transcription remain future work.
+- `CompositionSpec` is the internal compilation model shared by OWT validation and MIDI export.
 - The MIDIPLUS TINY+ profile is the first official device profile, not the
   only one.

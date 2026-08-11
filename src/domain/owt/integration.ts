@@ -1,29 +1,13 @@
-import { BasicMIDI, MIDIBuilder } from 'spessasynth_core'
+import { BasicMIDI } from 'spessasynth_core'
 import type { CompositionSpec, CompositionTrack } from '../composition/composition-spec.ts'
-import { TempoMap } from '../composition/tempo-map.ts'
 import { buildMidi } from '../midi/midi-export.ts'
-import { importMidi } from '../midi/midi-import.ts'
-import { RECORD_PPQ, type RecordedTake } from '../midi/midi-recorder.ts'
-import type {
-  OwtScore,
-  OwtScoreTrack,
-  OwtTake,
-  QuantizeOptions,
-  ScoreEvent,
-  TakeEvent,
-  TakeNoteEvent,
-} from './ast.ts'
+import { getArrangementNotes, type ArrangementNote } from '../midi/midi-arrangement.ts'
+import { createMidiTempoMap, importMidi } from '../midi/midi-import.ts'
+import { takeToMidi as recordedTakeToMidi, type RecordedTake } from '../midi/midi-recorder.ts'
+import type { OwtScore, OwtScoreTrack } from './ast.ts'
 import { parseOwtOrThrow } from './parser.ts'
-import {
-  ZERO,
-  addRational,
-  compareRational,
-  multiplyRational,
-  rational,
-  rationalToNumber,
-  type Rational,
-} from './rational.ts'
-import { serializeTake } from './serializer.ts'
+import { ONE, ZERO, rational, rationalToNumber, type Rational } from './rational.ts'
+import { serializeScore } from './serializer.ts'
 
 export function scoreToCompositionSpec(score: OwtScore): CompositionSpec {
   return {
@@ -69,280 +53,262 @@ function scoreTrackToCompositionTrack(track: OwtScoreTrack): CompositionTrack {
 }
 
 export function compileScoreText(text: string): { score: OwtScore; spec: CompositionSpec; midi: ArrayBuffer } {
-  const document = parseOwtOrThrow(text)
-  if (document.kind !== 'score') throw new Error('expected an OWT score document')
-  const spec = scoreToCompositionSpec(document)
-  return { score: document, spec, midi: buildMidi(spec) }
+  const score = parseOwtOrThrow(text)
+  const spec = scoreToCompositionSpec(score)
+  return { score, spec, midi: buildMidi(spec) }
 }
 
-function midiTempoMap(midi: BasicMIDI): TempoMap {
-  const ppq = midi.timeDivision || 480
-  const sourceChanges = midi.tempoChanges.length > 1 ? midi.tempoChanges.slice(0, -1) : midi.tempoChanges
-  const changes = sourceChanges
-    .filter((change) => change.ticks >= 0)
-    .map((change) => ({ beat: change.ticks / ppq, bpm: change.tempo }))
-  return new TempoMap({ ppq, tempos: changes, defaultTempo: changes.find((change) => change.beat === 0)?.bpm ?? 120 })
+export type MelodyVoiceStrategy = 'continuous' | 'highest' | 'lowest'
+
+export interface MelodyExtractionOptions {
+  /** Quantization grid in OWT quarter-note units. Defaults to a sixteenth note (1/4). */
+  grid?: Rational
+  /** Zero-based source MIDI track. Automatic selection when omitted. */
+  trackIndex?: number
+  /** Human-facing MIDI channel 1–16. Automatic selection when omitted. */
+  channel?: number
+  voiceStrategy?: MelodyVoiceStrategy
+  preserveVelocity?: boolean
+  title?: string
 }
 
-interface PendingNote {
-  atMs: number
+export interface MelodyExtractionReport {
+  sourceTrackIndex: number
+  sourceTrackName: string
+  sourceChannel: number
+  inputNotes: number
+  outputNotes: number
+  discardedNotes: number
+  discardedTracks: number
+  ignoredEvents: number
+  grid: Rational
+  voiceStrategy: MelodyVoiceStrategy
+}
+
+export interface MelodyExtractionResult {
+  score: OwtScore
+  text: string
+  report: MelodyExtractionReport
+}
+
+interface MelodyCandidate {
+  trackIndex: number
+  trackName: string
+  channel: number
+  notes: ArrangementNote[]
+  score: number
+}
+
+interface QuantizedNote {
+  pitch: number
   velocity: number
-  line: number
-  column: number
+  startTick: number
+  endTick: number
 }
 
-function takeEventOrder(event: TakeEvent): number {
-  if (event.kind === 'note') return 0
-  if (event.kind === 'cc') return 1
-  return 2
+const KEY_SIGNATURES_MAJOR = ['Cb', 'Gb', 'Db', 'Ab', 'Eb', 'Bb', 'F', 'C', 'G', 'D', 'A', 'E', 'B', 'F#', 'C#']
+const KEY_SIGNATURES_MINOR = ['Ab', 'Eb', 'Bb', 'F', 'C', 'G', 'D', 'A', 'E', 'B', 'F#', 'C#', 'G#', 'D#', 'A#']
+
+function signedByte(value: number): number {
+  return value > 127 ? value - 256 : value
 }
 
-export function midiToTake(data: ArrayBuffer, options: { title?: string; source?: string } = {}): OwtTake {
-  const midi = importMidi(data, options.title)
-  const tempoMap = midiTempoMap(midi)
-  const events = midi.tracks
-    .flatMap((track, trackIndex) => track.events.map((event) => ({ event, trackIndex })))
-    .sort((left, right) => left.event.ticks - right.event.ticks || left.trackIndex - right.trackIndex)
-  const takeEvents: TakeEvent[] = []
-  const pending = new Map<string, PendingNote[]>()
+function firstKeySignature(midi: BasicMIDI): OwtScore['keys'][number] | undefined {
+  let earliest: { tick: number; accidentals: number; minor: boolean } | undefined
+  for (const track of midi.tracks) {
+    for (const event of track.events) {
+      if (event.statusByte !== 0x59 || event.data.length < 2) continue
+      const candidate = { tick: event.ticks, accidentals: signedByte(event.data[0]!), minor: event.data[1] === 1 }
+      if (!earliest || candidate.tick < earliest.tick) earliest = candidate
+    }
+  }
+  if (!earliest || earliest.accidentals < -7 || earliest.accidentals > 7) return undefined
+  const names = earliest.minor ? KEY_SIGNATURES_MINOR : KEY_SIGNATURES_MAJOR
+  return {
+    position: { measure: 1, beat: ONE },
+    at: ZERO,
+    tonic: names[earliest.accidentals + 7]!,
+    mode: earliest.minor ? 'minor' : 'major',
+  }
+}
 
-  for (const { event } of events) {
-    if (event.statusByte < 0x80 || event.statusByte >= 0xf0) continue
-    const kind = event.statusByte & 0xf0
-    const channel = (event.statusByte & 0x0f) + 1
-    const atMs = tempoMap.tickToSeconds(event.ticks) * 1000
-    if (kind === 0x90 && (event.data[1] ?? 0) > 0) {
-      const pitch = event.data[0] ?? 0
-      const key = `${channel}:${pitch}`
-      const queue = pending.get(key) ?? []
-      queue.push({ atMs, velocity: event.data[1]!, line: 0, column: 0 })
-      pending.set(key, queue)
-    } else if (kind === 0x80 || (kind === 0x90 && (event.data[1] ?? 0) === 0)) {
-      const pitch = event.data[0] ?? 0
-      const key = `${channel}:${pitch}`
-      const queue = pending.get(key)
-      const start = queue?.shift()
-      if (queue?.length === 0) pending.delete(key)
-      if (start) takeEvents.push({
-        kind: 'note', pitch, atMs: start.atMs, durationMs: Math.max(0, atMs - start.atMs),
-        velocity: start.velocity, channel, line: start.line, column: start.column,
+function firstMeter(midi: BasicMIDI): { numerator: number; denominator: number } {
+  let earliest: { tick: number; numerator: number; denominator: number } | undefined
+  for (const track of midi.tracks) {
+    for (const event of track.events) {
+      if (event.statusByte !== 0x58 || event.data.length < 2) continue
+      const denominator = 2 ** event.data[1]!
+      if (!Number.isInteger(denominator) || denominator < 1) continue
+      const candidate = { tick: event.ticks, numerator: event.data[0]!, denominator }
+      if (!earliest || candidate.tick < earliest.tick) earliest = candidate
+    }
+  }
+  return earliest ?? { numerator: 4, denominator: 4 }
+}
+
+function programForChannel(midi: BasicMIDI, trackIndex: number, channel: number): number {
+  const track = midi.tracks[trackIndex]
+  if (!track) return 0
+  const event = track.events.find((candidate) => (candidate.statusByte & 0xf0) === 0xc0 && (candidate.statusByte & 0x0f) === channel)
+  return event?.data[0] ?? 0
+}
+
+function normalizeTrackName(value: string): string {
+  if (![...value].some((character) => character.charCodeAt(0) >= 0x80 && character.charCodeAt(0) <= 0xff)) return value
+  const bytes = Uint8Array.from([...value], (character) => character.charCodeAt(0))
+  const decoded = new TextDecoder('utf-8', { fatal: false }).decode(bytes)
+  return decoded.includes('\uFFFD') ? value : decoded
+}
+
+function candidateScore(trackName: string, notes: ArrangementNote[]): number {
+  const name = trackName.toLowerCase()
+  const averagePitch = notes.reduce((sum, note) => sum + note.note, 0) / notes.length
+  let overlaps = 0
+  let previousEnd = -Infinity
+  for (const note of notes.slice().sort((left, right) => left.startTick - right.startTick || left.endTick - right.endTick)) {
+    if (note.startTick < previousEnd) overlaps++
+    previousEnd = Math.max(previousEnd, note.endTick)
+  }
+  const monophonicRatio = 1 - overlaps / notes.length
+  let score = monophonicRatio * 40 + averagePitch * 0.25 + Math.min(20, Math.log2(notes.length + 1) * 4)
+  if (/melody|lead|vocal|voice|solo|主旋律|旋律/.test(name)) score += 60
+  if (/bass|drum|perc|chord|accomp|pad|低音|鼓|和弦|伴奏/.test(name)) score -= 45
+  return score
+}
+
+function collectCandidates(midi: BasicMIDI, options: MelodyExtractionOptions): MelodyCandidate[] {
+  const candidates: MelodyCandidate[] = []
+  for (let trackIndex = 0; trackIndex < midi.tracks.length; trackIndex++) {
+    if (options.trackIndex !== undefined && trackIndex !== options.trackIndex) continue
+    const trackName = normalizeTrackName(midi.tracks[trackIndex]?.name || `Track ${trackIndex + 1}`)
+    const byChannel = new Map<number, ArrangementNote[]>()
+    for (const note of getArrangementNotes(midi, trackIndex)) {
+      if (note.channel === 9) continue
+      if (options.channel !== undefined && note.channel !== options.channel - 1) continue
+      const notes = byChannel.get(note.channel) ?? []
+      notes.push(note)
+      byChannel.set(note.channel, notes)
+    }
+    for (const [channel, notes] of byChannel) {
+      candidates.push({ trackIndex, trackName, channel, notes, score: candidateScore(trackName, notes) })
+    }
+  }
+  return candidates.sort((left, right) => right.score - left.score || left.trackIndex - right.trackIndex || left.channel - right.channel)
+}
+
+function chooseVoice(notes: ArrangementNote[], ppq: number, grid: Rational, strategy: MelodyVoiceStrategy): QuantizedNote[] {
+  const gridTicks = Math.max(1, Math.round(ppq * rationalToNumber(grid)))
+  const groups = new Map<number, QuantizedNote[]>()
+  for (const note of notes) {
+    const startTick = Math.max(0, Math.round(note.startTick / gridTicks) * gridTicks)
+    const rawEnd = Math.round(note.endTick / gridTicks) * gridTicks
+    const endTick = Math.max(startTick + gridTicks, rawEnd)
+    const group = groups.get(startTick) ?? []
+    group.push({ pitch: note.note, velocity: note.velocity, startTick, endTick })
+    groups.set(startTick, group)
+  }
+
+  const selected: QuantizedNote[] = []
+  let previousPitch: number | undefined
+  for (const [, group] of [...groups].sort((left, right) => left[0] - right[0])) {
+    let note: QuantizedNote
+    if (strategy === 'highest') note = group.reduce((best, candidate) => candidate.pitch > best.pitch ? candidate : best)
+    else if (strategy === 'lowest') note = group.reduce((best, candidate) => candidate.pitch < best.pitch ? candidate : best)
+    else if (previousPitch === undefined) {
+      note = group.reduce((best, candidate) => candidate.pitch > best.pitch ? candidate : best)
+    } else {
+      note = group.reduce((best, candidate) => {
+        const candidateValue = -Math.abs(candidate.pitch - previousPitch!) * 2 + candidate.pitch * 0.08 + (candidate.endTick - candidate.startTick) / gridTicks
+        const bestValue = -Math.abs(best.pitch - previousPitch!) * 2 + best.pitch * 0.08 + (best.endTick - best.startTick) / gridTicks
+        return candidateValue > bestValue ? candidate : best
       })
-    } else if (kind === 0xb0) {
-      takeEvents.push({ kind: 'cc', controller: event.data[0] ?? 0, value: event.data[1] ?? 0, atMs, channel, line: 0, column: 0 })
-    } else if (kind === 0xe0) {
-      takeEvents.push({ kind: 'bend', value: ((event.data[1] ?? 0) << 7) | (event.data[0] ?? 0), atMs, channel, line: 0, column: 0 })
+    }
+    const previous = selected.at(-1)
+    if (previous && previous.endTick > note.startTick) previous.endTick = Math.max(previous.startTick + gridTicks, note.startTick)
+    selected.push({ ...note })
+    previousPitch = note.pitch
+  }
+  return selected
+}
+
+function countIgnoredEvents(midi: BasicMIDI): number {
+  let count = 0
+  for (const track of midi.tracks) {
+    for (const event of track.events) {
+      const kind = event.statusByte & 0xf0
+      if (event.statusByte >= 0x80 && event.statusByte < 0xf0 && kind !== 0x80 && kind !== 0x90) count++
     }
   }
-
-  const endMs = tempoMap.tickToSeconds(midi.lastVoiceEventTick) * 1000
-  for (const [key, queue] of pending) {
-    const [channel, pitch] = key.split(':').map(Number)
-    for (const start of queue) {
-      takeEvents.push({ kind: 'note', pitch: pitch!, atMs: start.atMs, durationMs: Math.max(0, endMs - start.atMs), velocity: start.velocity, channel: channel!, line: 0, column: 0 })
-    }
-  }
-  takeEvents.sort((a, b) => a.atMs - b.atMs || a.channel - b.channel || takeEventOrder(a) - takeEventOrder(b))
-  return { kind: 'take', version: '0.1', title: options.title, source: options.source, unit: 'ms', events: takeEvents }
+  return count
 }
 
-export function recordedTakeToOwt(take: RecordedTake, options: { title?: string; source?: string } = {}): OwtTake {
-  const builder = new MIDIBuilder({ timeDivision: RECORD_PPQ, initialTempo: 120, format: 0, name: options.title ?? 'Recorded Take' })
-  for (const event of take.events) {
-    const status = event.data[0]!
-    const channel = status & 0x0f
-    const kind = status & 0xf0
-    if (kind === 0x90) builder.noteOn(event.tick, 0, channel, event.data[1]!, event.data[2]!)
-    else if (kind === 0x80) builder.noteOff(event.tick, 0, channel, event.data[1]!)
-    else if (kind === 0xb0) builder.controllerChange(event.tick, 0, channel, event.data[1]!, event.data[2]!)
-    else if (kind === 0xe0) builder.pitchWheel(event.tick, 0, channel, (event.data[2]! << 7) | event.data[1]!)
+export function extractMelodyFromMidi(data: ArrayBuffer, options: MelodyExtractionOptions = {}): MelodyExtractionResult {
+  const midi = importMidi(data, options.title)
+  const ppq = midi.timeDivision || 480
+  const grid = options.grid ?? rational(1, 4)
+  if (rationalToNumber(grid) <= 0) throw new Error('melody extraction grid must be positive')
+  if (options.channel !== undefined && (!Number.isInteger(options.channel) || options.channel < 1 || options.channel > 16)) {
+    throw new Error('melody extraction channel must be an integer from 1 to 16')
   }
-  builder.flush(true)
-  const result = midiToTake(builder.writeMIDI(), options)
-  return result
-}
+  const strategy = options.voiceStrategy ?? 'continuous'
+  const candidates = collectCandidates(midi, options)
+  const source = candidates[0]
+  if (!source) throw new Error('MIDI contains no non-drum notes to extract')
 
-export function takeToMidi(take: OwtTake): ArrayBuffer {
-  const ppq = 1000
-  const builder = new MIDIBuilder({ timeDivision: ppq, initialTempo: 60, format: 0, name: take.title ?? 'OWT Take' })
-  for (const event of take.events) {
-    const tick = Math.round(event.atMs)
-    const channel = event.channel - 1
-    if (event.kind === 'note') {
-      builder.noteOn(tick, 0, channel, event.pitch, event.velocity)
-      builder.noteOff(Math.round(event.atMs + event.durationMs), 0, channel, event.pitch)
-    } else if (event.kind === 'cc') builder.controllerChange(tick, 0, channel, event.controller, event.value)
-    else builder.pitchWheel(tick, 0, channel, event.value)
+  const selected = chooseVoice(source.notes, ppq, grid, strategy)
+  const velocities = selected.map((note) => note.velocity).sort((left, right) => left - right)
+  const defaultVelocity = velocities.length > 0 ? velocities[Math.floor(velocities.length / 2)]! : 88
+  const track: OwtScoreTrack = {
+    name: 'Melody',
+    channel: source.channel + 1,
+    program: programForChannel(midi, source.trackIndex, source.channel),
+    velocity: defaultVelocity,
+    events: selected.map((note) => ({
+      kind: 'note' as const,
+      at: rational(note.startTick, ppq),
+      duration: rational(note.endTick - note.startTick, ppq),
+      pitches: [note.pitch],
+      velocity: options.preserveVelocity ? note.velocity : undefined,
+      line: 0,
+      column: 0,
+    })),
   }
-  builder.flush(true)
-  return builder.writeMIDI()
-}
-
-function quantized(value: number, grid: Rational): Rational {
-  const gridValue = rationalToNumber(grid)
-  return multiplyRational(rational(Math.round(value / gridValue)), grid)
-}
-
-interface VoiceTrack {
-  track: OwtScoreTrack
-  end: Rational
-}
-
-export function quantizeTake(take: OwtTake, options: QuantizeOptions): OwtScore {
-  if (compareRational(options.grid, ZERO) <= 0) throw new Error('quantization grid must be positive')
-  if (!Number.isFinite(options.bpm) || options.bpm <= 0) throw new Error('quantization BPM must be positive')
-  const quarterMs = 60000 / options.bpm
-  const byChannel = new Map<number, TakeNoteEvent[]>()
-  for (const event of take.events) {
-    if (event.kind !== 'note') continue
-    const notes = byChannel.get(event.channel) ?? []
-    notes.push(event)
-    byChannel.set(event.channel, notes)
+  const meter = firstMeter(midi)
+  const tempo = createMidiTempoMap(midi).tempos[0]?.bpm ?? 120
+  const key = firstKeySignature(midi)
+  const score: OwtScore = {
+    kind: 'score',
+    version: '0.1',
+    title: options.title,
+    ppq,
+    meters: [{ position: { measure: 1, beat: ONE }, at: ZERO, ...meter }],
+    tempos: [{ position: { measure: 1, beat: ONE }, at: ZERO, bpm: tempo }],
+    keys: key ? [key] : [],
+    tracks: [track],
   }
-  const tracks: OwtScoreTrack[] = []
-  const primaryByChannel = new Map<number, OwtScoreTrack>()
-
-  for (const [channel, notes] of [...byChannel.entries()].sort((a, b) => a[0] - b[0])) {
-    notes.sort((a, b) => a.atMs - b.atMs || a.pitch - b.pitch)
-    const voices: VoiceTrack[] = []
-    for (const note of notes) {
-      const at = quantized(note.atMs / quarterMs, options.grid)
-      const rawDuration = Math.max(rationalToNumber(options.grid), note.durationMs / quarterMs)
-      const duration = quantized(rawDuration, options.grid)
-      let voice = voices.find((candidate) => compareRational(candidate.end, at) <= 0)
-      if (!voice) {
-        const suffix = voices.length === 0 ? '' : ` ${voices.length + 1}`
-        const track: OwtScoreTrack = {
-          name: `Recorded ch${channel}${suffix}`,
-          channel,
-          program: options.program ?? 0,
-          velocity: 80,
-          events: [],
-        }
-        voice = { track, end: ZERO }
-        voices.push(voice)
-        tracks.push(track)
-        if (!primaryByChannel.has(channel)) primaryByChannel.set(channel, track)
-      }
-      const simultaneous = voice.track.events.find((event) =>
-        event.kind === 'note' && compareRational(event.at, at) === 0 && compareRational(event.duration, duration) === 0 && event.velocity === note.velocity,
-      )
-      if (simultaneous?.kind === 'note') simultaneous.pitches.push(note.pitch)
-      else voice.track.events.push({ kind: 'note', at, duration, pitches: [note.pitch], velocity: note.velocity, line: 0, column: 0 })
-      voice.end = addRational(at, duration)
-    }
-  }
-
-  for (const event of take.events) {
-    if (event.kind === 'note') continue
-    let track = primaryByChannel.get(event.channel)
-    if (!track) {
-      track = { name: `Recorded ch${event.channel}`, channel: event.channel, program: options.program ?? 0, velocity: 80, events: [] }
-      primaryByChannel.set(event.channel, track)
-      tracks.push(track)
-    }
-    const at = quantized(event.atMs / quarterMs, options.grid)
-    if (event.kind === 'cc') track.events.push({ kind: 'cc', at, controller: event.controller, value: event.value, line: 0, column: 0 })
-    else track.events.push({ kind: 'bend', at, value: event.value, line: 0, column: 0 })
-  }
-  for (const track of tracks) track.events.sort((a, b) => compareRational(a.at, b.at) || takeEventOrderFromScore(a) - takeEventOrderFromScore(b))
-
+  const totalNotes = candidates.reduce((sum, candidate) => sum + candidate.notes.length, 0)
   return {
-    kind: 'score', version: '0.1', title: options.title ?? `${take.title ?? 'Take'}, quantized`, ppq: options.ppq ?? 480,
-    meters: [{ position: { measure: 1, beat: rational(1) }, at: ZERO, ...options.meter }],
-    tempos: [{ position: { measure: 1, beat: rational(1) }, at: ZERO, bpm: options.bpm }],
-    keys: [], tracks,
+    score,
+    text: serializeScore(score),
+    report: {
+      sourceTrackIndex: source.trackIndex,
+      sourceTrackName: source.trackName,
+      sourceChannel: source.channel + 1,
+      inputNotes: source.notes.length,
+      outputNotes: selected.length,
+      discardedNotes: Math.max(0, totalNotes - selected.length),
+      discardedTracks: Math.max(0, new Set(candidates.map((candidate) => candidate.trackIndex)).size - 1),
+      ignoredEvents: countIgnoredEvents(midi),
+      grid,
+      voiceStrategy: strategy,
+    },
   }
 }
 
-function takeEventOrderFromScore(event: ScoreEvent): number {
-  if (event.kind === 'cc') return 0
-  if (event.kind === 'bend') return 1
-  if (event.kind === 'program') return 2
-  if (event.kind === 'note') return 3
-  return 4
+export function extractMelodyFromRecording(take: RecordedTake, options: MelodyExtractionOptions = {}): MelodyExtractionResult {
+  return extractMelodyFromMidi(recordedTakeToMidi(take), { title: options.title ?? 'OpusWeave Recording', ...options })
 }
 
-function scoreQuarterToMs(score: OwtScore, quarter: Rational): number {
-  const target = rationalToNumber(quarter)
-  const tempos = score.tempos.slice().sort((a, b) => compareRational(a.at, b.at))
-  let milliseconds = 0
-  let previousBeat = 0
-  let bpm = tempos[0]?.bpm ?? 120
-  for (const tempo of tempos) {
-    const beat = rationalToNumber(tempo.at)
-    if (beat >= target) break
-    milliseconds += (beat - previousBeat) * (60000 / bpm)
-    previousBeat = beat
-    bpm = tempo.bpm
-  }
-  return milliseconds + (target - previousBeat) * (60000 / bpm)
-}
-
-export interface TakeComparison {
-  expectedNotes: number
-  performedNotes: number
-  pitchMatches: number
-  missedNotes: number
-  extraNotes: number
-  meanAbsoluteTimingErrorMs: number | null
-  noteResults: Array<{ expectedPitch: number; performedPitch?: number; timingErrorMs?: number }>
-}
-
-export function compareTakeWithScore(take: OwtTake, score: OwtScore): TakeComparison {
-  const expected = score.tracks.flatMap((track) => track.events.flatMap((event) => event.kind === 'note'
-    ? event.pitches.map((pitch) => ({ pitch, atMs: scoreQuarterToMs(score, event.at) }))
-    : [])).sort((a, b) => a.atMs - b.atMs || a.pitch - b.pitch)
-  const performed = take.events.filter((event): event is TakeNoteEvent => event.kind === 'note').slice().sort((a, b) => a.atMs - b.atMs || a.pitch - b.pitch)
-  const length = Math.max(expected.length, performed.length)
-  const noteResults: TakeComparison['noteResults'] = []
-  let pitchMatches = 0
-  let timingTotal = 0
-  let timingCount = 0
-  for (let index = 0; index < length; index++) {
-    const wanted = expected[index]
-    const actual = performed[index]
-    if (!wanted) continue
-    const result: TakeComparison['noteResults'][number] = { expectedPitch: wanted.pitch }
-    if (actual) {
-      result.performedPitch = actual.pitch
-      result.timingErrorMs = actual.atMs - wanted.atMs
-      timingTotal += Math.abs(result.timingErrorMs)
-      timingCount++
-      if (actual.pitch === wanted.pitch) pitchMatches++
-    }
-    noteResults.push(result)
-  }
-  return {
-    expectedNotes: expected.length,
-    performedNotes: performed.length,
-    pitchMatches,
-    missedNotes: Math.max(0, expected.length - performed.length),
-    extraNotes: Math.max(0, performed.length - expected.length),
-    meanAbsoluteTimingErrorMs: timingCount > 0 ? timingTotal / timingCount : null,
-    noteResults,
-  }
-}
-
-export function takeRangeByMeasure(
-  take: OwtTake,
-  options: { fromMeasure: number; toMeasure: number; bpm: number; meter: { numerator: number; denominator: number } },
-): OwtTake {
-  if (!Number.isInteger(options.fromMeasure) || options.fromMeasure < 1) throw new Error('fromMeasure must be a positive integer')
-  if (!Number.isInteger(options.toMeasure) || options.toMeasure < options.fromMeasure) throw new Error('toMeasure must be greater than or equal to fromMeasure')
-  if (!Number.isFinite(options.bpm) || options.bpm <= 0) throw new Error('range BPM must be positive')
-  if (!Number.isInteger(options.meter.numerator) || options.meter.numerator < 1) throw new Error('meter numerator must be positive')
-  if (!Number.isInteger(options.meter.denominator) || options.meter.denominator < 1 || (options.meter.denominator & (options.meter.denominator - 1)) !== 0) {
-    throw new Error('meter denominator must be a positive power of two')
-  }
-  const measureMs = options.meter.numerator * (4 / options.meter.denominator) * (60000 / options.bpm)
-  const start = (options.fromMeasure - 1) * measureMs
-  const end = options.toMeasure * measureMs
-  return {
-    ...take,
-    events: take.events.filter((event) => event.atMs < end && (event.kind !== 'note' ? event.atMs >= start : event.atMs + event.durationMs > start)),
-  }
-}
-
-export function midiFileToTakeText(data: ArrayBuffer, options: { title?: string; source?: string } = {}): string {
-  return serializeTake(midiToTake(data, options))
+export function midiFileToOwtText(data: ArrayBuffer, options: MelodyExtractionOptions = {}): string {
+  return extractMelodyFromMidi(data, options).text
 }

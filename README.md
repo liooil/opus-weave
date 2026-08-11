@@ -19,34 +19,30 @@ Install it from the browser to keep the complete workstation—including the syn
 
 ## What phase 1 delivers
 
-A complete vertical chain:
+OpusWeave is an editor and player for `.owt` text files:
 
 ```
-AI / JSON / CLI / MCP  →  create MIDI
+MIDI / recording / AI prompt / score image / MP4 frames
+       ↓  melody extraction or multimodal generation
+OWT text  (primary editable source)
        ↓
-Standard MIDI File  (import / export, SMF Type 1)
-       ↓
-GUI playback  (spessasynth_lib + Web Audio API)
-       ↓
-WebMIDI  (live keyboard input, hot-plug, auto-reconnect)
-       ↓
-SoundFont synthesis  (.sf2 / .sf3 / .sfogg)
-       ↓
-Record performance  →  export .mid (re-importable)
+MIDI playback/export  →  SoundFont synthesis
 ```
 
 | # | Capability |
 |---|---|
-| 1 | Import a `.mid` file into a multi-track beat timeline, select ranges, replace them through live playing, and export the edited MIDI |
-| 2 | Play immediately with the FreePiano-style mda Piano default and lightweight Micro GM fallback, or load a custom `.sf2` / `.sf3` / `.sfogg` bank |
-| 3 | Connect a physical MIDI keyboard via WebMIDI (permission button, port picker, hot-plug, id-change fallback) |
-| 4 | Monitor Note On/Off, CC, and Pitch Bend in real time (with note names) |
-| 5 | Record a live performance (hardware keyboard or computer keyboard) and export a Standard MIDI File that re-imports |
-| 6 | Create a multi-track MIDI file via CLI or MCP from a structured `CompositionSpec` |
-| 7 | Render MIDI + SoundFont to WAV via the optional system FluidSynth (`render-midi`) |
-| 8 | Drive everything from an AI agent via the MCP server (5 tools) |
-| 9 | Play with the computer keyboard (Z–M / S–L / Q–U, octave shift, fixed velocity) and learn MIDI controls (`MIDI Learn`) |
-| 10 | Built-in editable device profile for the MIDIPLUS TINY+ 32-key keyboard |
+| 1 | Edit `.owt` as score objects (event, measure or track), as raw text, or through live performance replacement, with syntax highlighting and playback-following source highlights |
+| 2 | Import MIDI through intentional lossy melody extraction with track selection, voice reduction and rhythm quantization |
+| 3 | Export OWT to Standard MIDI for playback and interchange |
+| 4 | Play immediately with the FreePiano-style mda Piano default and lightweight Micro GM fallback, or load a custom `.sf2` / `.sf3` / `.sfogg` bank |
+| 5 | Connect a physical MIDI keyboard via WebMIDI and extract a simple OWT melody from a recording |
+| 6 | Inspect and edit imported MIDI on a multi-track beat timeline before extracting or exporting |
+| 7 | Monitor Note On/Off, CC and Pitch Bend in real time |
+| 8 | Render MIDI + SoundFont to WAV via the optional system FluidSynth (`render-midi`) |
+| 9 | Drive OWT validation, playback, import and export through MCP |
+| 10 | Switch the live computer keyboard between OpusWeave chromatic, English-word, Pinyin-tone and FreePiano classic layouts; generate OWT from the active layout |
+| 11 | Load public-domain piano examples including Ode to Joy, Für Elise, Canon in D, Minuet in G and Moonlight Sonata |
+| 12 | Configure an OpenAI-compatible multimodal model for prompt composition, score-image/MP4 transcription and AI call-and-response |
 
 ## Quick start
 
@@ -70,6 +66,10 @@ The server binds `127.0.0.1` only — it is never exposed to the LAN by default.
 ### CLI
 
 ```bash
+bun run opusweave owt validate examples/twinkle.owt
+bun run opusweave owt play examples/twinkle.owt
+bun run opusweave owt to-midi examples/twinkle.owt -o tmp/twinkle.mid
+bun run opusweave owt from-midi tmp/twinkle.mid --grid 1/16 --voice continuous -o tmp/melody.owt
 bun run opusweave create-midi --spec examples/minimal-composition.json --output tmp/example.mid
 bun run opusweave inspect-midi --file tmp/example.mid
 bun run opusweave render-midi --midi tmp/example.mid --soundfont /path/to/bank.sf2 --output tmp/example.wav
@@ -85,10 +85,9 @@ Add to your MCP client config:
 { "command": "bun", "args": ["<repo>/src/main.ts", "mcp"] }
 ```
 
-Tools include CompositionSpec and OWT workflows: `create_midi`,
-`validate_score_text`, `compile_score_text_to_midi`, `play_score_text`,
-`get_take_text`, `quantize_take`, and `compare_take_with_score`. See
-[docs/mcp.md](docs/mcp.md) and [docs/owt.md](docs/owt.md).
+OWT-first tools are `validate_owt`, `play_owt`, `export_owt_to_midi`, and
+`import_midi_to_owt`. Lower-level MIDI and CompositionSpec utilities remain
+available. See [docs/mcp.md](docs/mcp.md) and [docs/owt.md](docs/owt.md).
 
 ## SoundFonts
 
@@ -110,16 +109,14 @@ temporary stream without recording it.
 ## Format model
 
 
-- **MIDI** is the performance/playback format (Standard MIDI File, Type 1 by
-  default).
-- **MusicXML / MXL** is the planned future notation format (see
-  [docs/roadmap.md](docs/roadmap.md)).
-- **OWT Score / Take** is the stable human- and LLM-facing text layer for
-  writing music and reading exact performances. See [docs/owt.md](docs/owt.md).
-- **CompositionSpec** is OpusWeave's AI/API input model — a structured way
-  for agents to describe music. It is **not** a new music file standard; the
-  persistent output is standard MIDI.
-- **Images / PDF (OMR)** are planned future entry points.
+- **OWT (`.owt`)** is the primary persistent format: simple, deterministic,
+  human-editable melody text. See [docs/owt.md](docs/owt.md).
+- **MIDI** is an import, playback and export format. MIDI → OWT is intentionally
+  lossy: accompaniment, performance controls and microtiming are discarded.
+- **CompositionSpec** is an internal structured compilation model shared by
+  OWT validation and MIDI export, not the user-facing file format.
+- **Score images and MP4 video** can be sent to a configured multimodal model
+  and simplified into validated OWT; MP4 recognition samples visual frames.
 
 See [docs/midi-model.md](docs/midi-model.md) for the full `CompositionSpec`
 schema and validation rules.
@@ -130,8 +127,8 @@ schema and validation rules.
 src/
 ├── main.ts                    # BunDesk desktop app, CLI actions, --smoke, MCP routing
 ├── build.ts                   # single-file binary build (bundesk)
-├── domain/                    # framework-free core: composition, OWT Score/Take,
-│   │                          #   validation, tempo map, MIDI export/import/recorder,
+├── domain/                    # framework-free core: OWT, melody extraction,
+│   │                          #   composition IR, MIDI import/export, devices
 │   │                          #   quantization, device profiles, MIDI learn, service
 ├── audio/                     # SynthEngine interface, spessasynth engine, mock,
 │   │                          #   FluidSynth renderer

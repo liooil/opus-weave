@@ -115,6 +115,33 @@ describe('MappingEngine (computer keyboard)', () => {
     expect(m.keyDownMessage('z')![0]).toBe(0x99)
   })
 
+  it('switches to English and Pinyin melodic layouts', () => {
+    const m = new MappingEngine({ layout: 'english' })
+    expect(m.keyDownMessages('h')).toHaveLength(1)
+    expect(m.listComputerKeyAssignments()).toHaveLength(30)
+    expect(m.keyDownMessages('1')).toHaveLength(0)
+    m.setComputerLayout('pinyin')
+    expect(m.keyDownMessages('2').map((message) => message[1])).toEqual([62, 67])
+    expect(m.keyDownMessages('3')).toHaveLength(3)
+  })
+
+  it('matches the main FreePiano 1.8 classic rows', () => {
+    const m = new MappingEngine({ layout: 'freepiano' })
+    expect(m.keyToNote('z')).toBe(36)
+    expect(m.keyToNote('a')).toBe(48)
+    expect(m.keyToNote('q')).toBe(60)
+    expect(m.keyToNote('1')).toBe(72)
+    expect(m.keyToNote('=')).toBe(91)
+  })
+
+  it('accepts a custom layout contract for future editors', () => {
+    const m = new MappingEngine()
+    m.setComputerLayout({ id: 'custom', baseNote: 60, keys: { a: 0, b: 7 } })
+    expect(m.currentComputerLayoutId).toBe('custom')
+    expect(m.keyToNote('a')).toBe(60)
+    expect(m.keyToNote('b')).toBe(67)
+  })
+
   it('encodes device control messages through the same engine', () => {
     const m = new MappingEngine({ channel: 1 })
     expect([...m.controlMessage({ kind: 'cc', controller: 1 }, 64)!]).toEqual([0xb1, 1, 64])

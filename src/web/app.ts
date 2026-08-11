@@ -9,7 +9,7 @@ import { WebMidiManager, type MidiManagerState } from '../midi/web-midi-manager.
 import { MidiRecorder, takeToMidi, type RecordedTake } from '../domain/midi/midi-recorder.ts'
 import { applyTrackMutes, createMidiTempoMap, importMidi, inspectMidi, type MidiInspection } from '../domain/midi/midi-import.ts'
 import { getArrangementNotes, replaceArrangementRange } from '../domain/midi/midi-arrangement.ts'
-import { MappingEngine, noteName, type ComputerKeyAssignment } from '../domain/devices/mapping-engine.ts'
+import { MappingEngine, noteName, type BuiltinComputerLayoutId, type ComputerKeyAssignment } from '../domain/devices/mapping-engine.ts'
 import { MidiLearn } from '../domain/midi-learn.ts'
 import { findProfileForPort, overrideControl, type DeviceProfile } from '../domain/devices/device-profile.ts'
 import { midiplusTinyPlusProfile } from '../domain/devices/midiplus-tiny-plus.ts'
@@ -17,11 +17,23 @@ import { VirtualKeyboard } from './components/virtual-keyboard.ts'
 import { enableHorizontalPointerScroll } from './components/horizontal-pointer-scroll.ts'
 import type { BasicMIDI } from 'spessasynth_core'
 import { resolveLocale, setLocale, t, translateDocument, type TranslationValues } from './i18n.ts'
-import { compileScoreText, midiToTake, quantizeTake, recordedTakeToOwt, takeToMidi as owtTakeToMidi } from '../domain/owt/integration.ts'
+import { compileScoreText, extractMelodyFromMidi, extractMelodyFromRecording, type MelodyExtractionResult, type MelodyVoiceStrategy } from '../domain/owt/integration.ts'
 import { parseOwt } from '../domain/owt/parser.ts'
 import { parseRational, rational } from '../domain/owt/rational.ts'
-import { serializeOwt, serializeScore, serializeTake } from '../domain/owt/serializer.ts'
+import { serializeOwt } from '../domain/owt/serializer.ts'
 import type { OwtDocument } from '../domain/owt/ast.ts'
+import { activeOwtSourceRanges, buildOwtPlaybackMap, type OwtPlaybackToken, type OwtSourceRange } from '../domain/owt/playback-map.ts'
+import { owtLexicalRanges, renderOwtHighlight, type OwtDecoration, type OwtLexicalRange } from './components/owt-highlighter.ts'
+import { ModalOwtEditor, normalizedSelection, type ModalEditorViewState } from './editor/modal-editor.ts'
+import { buildOwtSyntaxIndex, nextObject, objectContaining, replaceOwtEventPitch, type OwtObjectKind, type OwtTextObject } from './editor/owt-objects.ts'
+import { buildPracticePrompts, PracticeSession } from '../domain/owt/practice-session.ts'
+import { BUILTIN_OWT_EXAMPLES, builtinOwtExample } from '../domain/owt/builtin-examples.ts'
+import { keyboardLayoutTextToOwt } from '../domain/composition/keyboard-layout-composition.ts'
+import { buildScoreViewModel } from '../domain/owt/score-views.ts'
+import { renderJianpuScore, renderStaffScore } from './components/score-views.ts'
+import { createOwtWithAi, DEFAULT_OWT_AI_CONFIG, testOwtAiConnection, type OwtAiConfig, type OwtAiRequest } from '../domain/ai/owt-ai.ts'
+import { ConversationalImprovSession } from '../domain/ai/conversational-improv.ts'
+import { mediaFileToAiAttachments } from './ai-media.ts'
 import builtInGmSoundFontUrl from './assets/opusweave-micro-gm.sf2' with { type: 'file' }
 import freePianoSoundFontUrl from './assets/freepiano-mda-piano.sf2' with { type: 'file' }
 
@@ -106,6 +118,10 @@ localeButton.addEventListener('click', () => {
   void refreshAudioOutputs(false)
   renderComputerKeyMap()
   updateComputerMapToggleCopy()
+  modalEditor.refresh()
+  if (practiceSession) renderPracticeGuide()
+  updateConversationalImprovUi()
+  if (activeScoreView === 'staff' || activeScoreView === 'jianpu') renderNotationViews()
   updateLanguageToggleCopy()
 })
 
@@ -161,15 +177,15 @@ function downloadText(text: string, name: string): void {
 
 const DEFAULT_OWT_SCORE = `owt 0.1 score
 
-title "New Score"
+title "New Melody"
 ppq 480
 meter 1:1 4/4
 tempo 1:1 120
 key 1:1 C major
 
-track "Piano" channel=1 program=0 velocity=88
+track "Melody" channel=1 program=0 velocity=88
 
-| C4:1 E4:1 G4:1 C5:1 |
+| C4:1 D4:1 E4:1 G4:1 |
 
 end
 `
@@ -197,9 +213,411 @@ let timelineBeatWidth = 64
 let replacementTimer: number | undefined
 let replacementRecording: { selection: TimelineSelection; durationMs: number } | null = null
 let playbackPositionFrame = 0
+const owtEditor = $<HTMLTextAreaElement>('owt-editor')
+const owtHighlight = $<HTMLElement>('owt-highlight')
+const owtEditorShell = document.querySelector<HTMLElement>('.owt-editor-shell')!
+let owtLexicalTokens: OwtLexicalRange[] = []
+let owtPlaybackTokens: OwtPlaybackToken[] = []
+let owtPlaybackRanges: OwtSourceRange[] = []
+let owtActiveRangeKey = ''
+let owtSyntaxIndex = buildOwtSyntaxIndex('')
+let owtModalView: ModalEditorViewState | undefined
+let owtDiagnostics: Array<{ line: number; column: number }> = []
+let selectionPlaybackTimer: number | undefined
+type ScoreViewId = 'owt' | 'timeline' | 'staff' | 'jianpu'
+const SCORE_VIEW_PREFERENCE_KEY = 'opusweave.score-view'
+const scoreViewTabs = [...document.querySelectorAll<HTMLButtonElement>('[data-score-view-target]')]
+const scoreViewPanels = [...document.querySelectorAll<HTMLElement>('[data-score-view]')]
+let activeScoreView: ScoreViewId = 'owt'
+let owtRevision = 0
+let timelineOwtRevision = -1
+let notationRefreshTimer: number | undefined
+
+function renderNotationViews(): void {
+  const result = parseOwt(owtEditor.value)
+  if (!result.document) {
+    const empty = `<div class="notation-empty">${t('scoreViews.invalid')}</div>`
+    $('staff-score').innerHTML = empty
+    $('jianpu-score').innerHTML = empty
+    return
+  }
+  const model = buildScoreViewModel(result.document)
+  $('staff-score').innerHTML = renderStaffScore(model)
+  $('jianpu-score').innerHTML = renderJianpuScore(model)
+}
+
+function scheduleNotationRefresh(): void {
+  window.clearTimeout(notationRefreshTimer)
+  notationRefreshTimer = window.setTimeout(() => {
+    if (activeScoreView === 'staff' || activeScoreView === 'jianpu') renderNotationViews()
+  }, 80)
+}
+
+function syncTimelineFromCurrentOwt(): boolean {
+  try {
+    const compiled = compileScoreText(owtEditor.value)
+    const fileName = `${(compiled.score.title || 'OWT Score').replace(/[^\p{L}\p{N}._-]+/gu, '-')}.mid`
+    loadedMidi = importMidi(compiled.midi, fileName)
+    loadedInspection = inspectMidi(compiled.midi, fileName)
+    mutedTracks.clear()
+    timelineSelection = null
+    timelineOwtRevision = owtRevision
+    $<HTMLElement>('st-file').textContent = fileName
+    $<HTMLButtonElement>('btn-export-arrangement').disabled = false
+    renderArrangement()
+    setPlaybackUi(false)
+    setTranslatedStatus('midi-status', 'scoreViews.timelineSynced', {}, 'ok')
+    return true
+  } catch (error) {
+    setTranslatedStatus('midi-status', 'scoreViews.timelineInvalid', { error: error instanceof Error ? error.message : String(error) }, 'err')
+    return false
+  }
+}
+
+function showScoreView(view: ScoreViewId, persist = true): void {
+  activeScoreView = view
+  for (const panel of scoreViewPanels) {
+    const active = panel.dataset.scoreView === view
+    panel.hidden = !active
+    panel.classList.toggle('active', active)
+  }
+  for (const tab of scoreViewTabs) {
+    const active = tab.dataset.scoreViewTarget === view
+    tab.classList.toggle('active', active)
+    tab.setAttribute('aria-selected', String(active))
+  }
+  if (view === 'timeline' && timelineOwtRevision !== owtRevision) syncTimelineFromCurrentOwt()
+  if (view === 'staff' || view === 'jianpu') renderNotationViews()
+  if (persist) window.localStorage.setItem(SCORE_VIEW_PREFERENCE_KEY, view)
+}
+
+for (const tab of scoreViewTabs) tab.addEventListener('click', () => showScoreView(tab.dataset.scoreViewTarget as ScoreViewId))
+$('btn-score-view-play').addEventListener('click', () => void playOwtRange().catch((error) => {
+  setTranslatedStatus('owt-status', 'owt.error', { error: error instanceof Error ? error.message : String(error) }, 'err')
+}))
+
+function syncOwtHighlightScroll(): void {
+  owtHighlight.scrollTop = owtEditor.scrollTop
+  owtHighlight.scrollLeft = owtEditor.scrollLeft
+}
+
+function modalDecorations(): OwtDecoration[] {
+  if (!owtModalView) return []
+  const decorations: OwtDecoration[] = []
+  for (let index = 0; index < owtModalView.selections.length; index++) {
+    const range = normalizedSelection(owtModalView.selections[index]!)
+    decorations.push({
+      start: range.start,
+      end: range.end,
+      className: index === owtModalView.primary ? 'owt-selection-primary' : 'owt-selection-secondary',
+    })
+    if (range.start === range.end && index !== owtModalView.primary) decorations.push({ start: range.start, end: range.end, className: 'owt-modal-cursor' })
+  }
+  for (const range of owtModalView.searchRanges) decorations.push({ ...range, className: 'owt-search-match' })
+  for (const range of owtSyntaxIndex.diagnostics) decorations.push({ start: range.start, end: range.end, className: 'owt-diagnostic-range' })
+  return decorations
+}
+
+function renderOwtEditorHighlight(): void {
+  owtHighlight.innerHTML = renderOwtHighlight(owtEditor.value, owtPlaybackRanges, owtLexicalTokens, modalDecorations())
+  syncOwtHighlightScroll()
+}
+
+function refreshOwtLexicalHighlight(): void {
+  owtLexicalTokens = owtLexicalRanges(owtEditor.value)
+  renderOwtEditorHighlight()
+}
+
+function clearOwtPlaybackContext(): void {
+  window.clearTimeout(selectionPlaybackTimer)
+  owtPlaybackTokens = []
+  owtPlaybackRanges = []
+  owtActiveRangeKey = ''
+  renderOwtEditorHighlight()
+}
+
+function setOwtEditorText(text: string, record = false): void {
+  owtEditor.scrollTop = 0
+  owtEditor.scrollLeft = 0
+  clearOwtPlaybackContext()
+  modalEditor.setText(text, record)
+  if (simpleEditMode === 'score') selectSemanticAt(0)
+}
+
+function revealOwtSourceRange(range: OwtSourceRange): void {
+  const line = owtEditor.value.slice(0, range.start).split('\n').length - 1
+  const style = getComputedStyle(owtEditor)
+  const lineHeight = Number.parseFloat(style.lineHeight) || 19
+  const paddingTop = Number.parseFloat(style.paddingTop) || 0
+  const top = paddingTop + line * lineHeight
+  const bottom = top + lineHeight
+  if (top < owtEditor.scrollTop || bottom > owtEditor.scrollTop + owtEditor.clientHeight) {
+    owtEditor.scrollTop = Math.max(0, top - owtEditor.clientHeight * 0.4)
+    syncOwtHighlightScroll()
+  }
+}
+
+function updateOwtPlaybackHighlight(seconds: number, duration: number): void {
+  if (duration <= 0 || owtPlaybackTokens.length === 0) {
+    if (owtActiveRangeKey !== '') {
+      owtActiveRangeKey = ''
+      owtPlaybackRanges = []
+      renderOwtEditorHighlight()
+    }
+    return
+  }
+  const ranges = activeOwtSourceRanges(owtPlaybackTokens, seconds)
+  const key = ranges.map((range) => `${range.start}:${range.end}`).join(',')
+  if (key === owtActiveRangeKey) return
+  owtActiveRangeKey = key
+  owtPlaybackRanges = ranges
+  renderOwtEditorHighlight()
+  if (ranges[0]) revealOwtSourceRange(ranges[0])
+}
+
+function modalHint(prefix: string): string {
+  if (prefix === 'space') return t('modal.hintSpace')
+  if (prefix === 'space-x') return t('modal.hintObjects')
+  if (prefix === 'g') return t('modal.hintGoto')
+  if (prefix === ']' || prefix === '[') return t('modal.hintNavigate')
+  return prefix
+}
+
+function renderModalStatus(state: ModalEditorViewState): void {
+  owtModalView = state
+  const mode = $('owt-mode')
+  mode.textContent = state.mode.toUpperCase()
+  mode.className = `owt-mode ${state.mode}`
+  owtEditorShell.className = `owt-editor-shell ${state.mode}`
+  $('owt-position').textContent = t('modal.position', { line: state.line, column: state.column })
+  $('owt-selection-count').textContent = t('modal.selections', { count: state.selections.length })
+  $('owt-pending').textContent = state.pending ? t('modal.pending', { keys: state.pending }) : ''
+  const hints = $('owt-key-hints')
+  if (state.pending) {
+    hints.textContent = modalHint(state.pending)
+    hints.hidden = false
+  }
+  renderOwtEditorHighlight()
+}
+
+const modalEditor = new ModalOwtEditor(
+  owtEditor,
+  $<HTMLInputElement>('owt-command'),
+  $('owt-key-hints'),
+  {
+    onChange: () => {
+      if (owtPlaybackTokens.length > 0) engine?.stop()
+      if (practiceSession) stopPractice()
+      owtRevision++
+      scheduleNotationRefresh()
+      owtPlaybackTokens = []
+      owtPlaybackRanges = []
+      owtSyntaxIndex = buildOwtSyntaxIndex(owtEditor.value, owtDiagnostics)
+      owtActiveRangeKey = ''
+      refreshOwtLexicalHighlight()
+    },
+    onRender: renderModalStatus,
+    onCommand: (command, args) => handleModalCommand(command, args),
+    getSyntaxIndex: () => owtSyntaxIndex,
+  },
+)
+
+owtEditor.addEventListener('scroll', syncOwtHighlightScroll)
+
+type SemanticSelectionLevel = 'event' | 'measure' | 'track'
+let simpleEditMode: 'score' | 'raw' = 'score'
+let semanticSelectionLevel: SemanticSelectionLevel = 'event'
+let semanticReplaceArmed = false
+
+function semanticKind(level = semanticSelectionLevel): OwtObjectKind {
+  return level
+}
+
+function semanticObjects(level = semanticSelectionLevel): OwtTextObject[] {
+  if (level === 'event') return owtSyntaxIndex.events
+  if (level === 'measure') return owtSyntaxIndex.measures
+  return owtSyntaxIndex.tracks
+}
+
+function selectedSemanticObject(level = semanticSelectionLevel): OwtTextObject | undefined {
+  const range = modalEditor.primaryRange()
+  return objectContaining(owtSyntaxIndex, semanticKind(level), range.start, range.end)
+    ?? semanticObjects(level).find((object) => object.start === range.start)
+}
+
+function selectSemanticObject(object: OwtTextObject | undefined): void {
+  if (!object) {
+    setTranslatedStatus('owt-edit-status', 'simpleEdit.noObject', {}, 'warn')
+    return
+  }
+  modalEditor.selectRange(object.start, object.end)
+  if (semanticSelectionLevel === 'event') $<HTMLInputElement>('owt-event-input').value = owtEditor.value.slice(object.start, object.end)
+  setTranslatedStatus('owt-edit-status', `simpleEdit.selected.${semanticSelectionLevel}`, {}, 'ok')
+}
+
+function selectSemanticAt(position: number): void {
+  const objects = semanticObjects()
+  const containing = objects
+    .filter((object) => object.start <= position && object.end >= position)
+    .sort((left, right) => (left.end - left.start) - (right.end - right.start))[0]
+  selectSemanticObject(containing ?? objects.find((object) => object.start >= position) ?? objects[0])
+}
+
+function updateSimpleEditUi(): void {
+  const scoreButton = $<HTMLButtonElement>('btn-owt-mode-score')
+  const rawButton = $<HTMLButtonElement>('btn-owt-mode-raw')
+  scoreButton.classList.toggle('active', simpleEditMode === 'score')
+  rawButton.classList.toggle('active', simpleEditMode === 'raw')
+  scoreButton.setAttribute('aria-pressed', String(simpleEditMode === 'score'))
+  rawButton.setAttribute('aria-pressed', String(simpleEditMode === 'raw'))
+  $('owt-semantic-controls').hidden = simpleEditMode !== 'score'
+  for (const button of document.querySelectorAll<HTMLButtonElement>('[data-owt-level]')) {
+    button.classList.toggle('active', button.dataset.owtLevel === semanticSelectionLevel)
+  }
+}
+
+function cancelSemanticPerformanceReplacement(showStatus = false): void {
+  semanticReplaceArmed = false
+  const button = $<HTMLButtonElement>('btn-owt-replace-play')
+  button.classList.remove('active')
+  button.setAttribute('aria-pressed', 'false')
+  if (showStatus) setTranslatedStatus('owt-edit-status', 'simpleEdit.replaceCancelled')
+}
+
+function setSimpleEditMode(mode: 'score' | 'raw'): void {
+  cancelSemanticPerformanceReplacement()
+  simpleEditMode = mode
+  modalEditor.setInteractionMode(mode === 'raw' ? 'raw' : 'semantic')
+  $('owt-key-hints').hidden = true
+  updateSimpleEditUi()
+  if (mode === 'score') {
+    selectSemanticAt(modalEditor.primaryRange().start)
+    setTranslatedStatus('owt-edit-status', 'simpleEdit.ready')
+  } else {
+    modalEditor.focus()
+    setTranslatedStatus('owt-edit-status', 'simpleEdit.rawReady', {}, 'ok')
+  }
+}
+
+function semanticTokenInput(): string | null {
+  const value = $<HTMLInputElement>('owt-event-input').value.trim()
+  if (/^(?:R|[A-Ga-g](?:#|b)?-?\d+|\[(?:[A-Ga-g](?:#|b)?-?\d+)(?:\s+[A-Ga-g](?:#|b)?-?\d+)*\]):\d+(?:\/\d+)?(?:\{[^}]*\})?$/.test(value)) return value
+  setTranslatedStatus('owt-edit-status', 'simpleEdit.invalidToken', {}, 'err')
+  return null
+}
+
+function replaceSelectedSemanticToken(): void {
+  if (semanticSelectionLevel !== 'event') {
+    setTranslatedStatus('owt-edit-status', 'simpleEdit.eventOnly', {}, 'warn')
+    return
+  }
+  const object = selectedSemanticObject()
+  const token = semanticTokenInput()
+  if (!object || !token) return
+  modalEditor.replaceTextRange(object.start, object.end, token)
+  selectSemanticAt(object.start)
+  setTranslatedStatus('owt-edit-status', 'simpleEdit.replaced', {}, 'ok')
+}
+
+function insertSemanticToken(after: boolean): void {
+  if (semanticSelectionLevel !== 'event') {
+    setTranslatedStatus('owt-edit-status', 'simpleEdit.eventOnly', {}, 'warn')
+    return
+  }
+  const object = selectedSemanticObject()
+  const token = semanticTokenInput()
+  if (!object || !token) return
+  const at = after ? object.end : object.start
+  const insert = after ? ` ${token}` : `${token} `
+  modalEditor.insertText(at, insert)
+  selectSemanticAt(at + (after ? 1 : 0))
+  setTranslatedStatus('owt-edit-status', 'simpleEdit.inserted', {}, 'ok')
+}
+
+function deleteSelectedSemanticObject(): void {
+  const object = selectedSemanticObject()
+  if (!object) return
+  let start = object.start
+  let end = object.end
+  if (semanticSelectionLevel === 'event') {
+    if (owtEditor.value[end] === ' ') end++
+    else if (start > 0 && owtEditor.value[start - 1] === ' ') start--
+  }
+  modalEditor.deleteTextRange(start, end)
+  selectSemanticAt(start)
+  setTranslatedStatus('owt-edit-status', 'simpleEdit.deleted', {}, 'ok')
+}
+
+function moveSemanticSelection(direction: 1 | -1): void {
+  const range = modalEditor.primaryRange()
+  selectSemanticObject(nextObject(owtSyntaxIndex, semanticKind(), range.start, direction))
+}
+
+function toggleSemanticPerformanceReplacement(): void {
+  if (semanticReplaceArmed) {
+    cancelSemanticPerformanceReplacement(true)
+    return
+  }
+  if (semanticSelectionLevel !== 'event' || !selectedSemanticObject()) {
+    setTranslatedStatus('owt-edit-status', 'simpleEdit.eventOnly', {}, 'warn')
+    return
+  }
+  semanticReplaceArmed = true
+  const button = $<HTMLButtonElement>('btn-owt-replace-play')
+  button.classList.add('active')
+  button.setAttribute('aria-pressed', 'true')
+  setTranslatedStatus('owt-edit-status', 'simpleEdit.playNow', {}, 'warn')
+  $('live-panel').scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+function handleSemanticReplacementNote(data: Uint8Array): boolean {
+  if (!semanticReplaceArmed || (data[0]! & 0xf0) !== 0x90 || (data[2] ?? 0) === 0) return false
+  const object = selectedSemanticObject('event')
+  if (!object) { cancelSemanticPerformanceReplacement(); return false }
+  const current = owtEditor.value.slice(object.start, object.end)
+  const replacement = replaceOwtEventPitch(current, noteName(data[1]!))
+  if (!replacement) { cancelSemanticPerformanceReplacement(); return false }
+  modalEditor.replaceTextRange(object.start, object.end, replacement)
+  cancelSemanticPerformanceReplacement()
+  semanticSelectionLevel = 'event'
+  updateSimpleEditUi()
+  selectSemanticAt(object.start)
+  setTranslatedStatus('owt-edit-status', 'simpleEdit.playReplaced', { note: noteName(data[1]!) }, 'ok')
+  return true
+}
+
+owtEditor.addEventListener('click', () => {
+  if (simpleEditMode === 'score') selectSemanticAt(owtEditor.selectionStart)
+})
+$('btn-owt-mode-score').addEventListener('click', () => setSimpleEditMode('score'))
+$('btn-owt-mode-raw').addEventListener('click', () => setSimpleEditMode('raw'))
+$('btn-owt-mode-improv').addEventListener('click', () => {
+  if (improvSession.active) stopConversationalImprov()
+  else startConversationalImprov()
+})
+for (const button of document.querySelectorAll<HTMLButtonElement>('[data-owt-level]')) {
+  button.addEventListener('click', () => {
+    semanticSelectionLevel = button.dataset.owtLevel as SemanticSelectionLevel
+    updateSimpleEditUi()
+    selectSemanticAt(modalEditor.primaryRange().start)
+  })
+}
+$('btn-owt-prev-object').addEventListener('click', () => moveSemanticSelection(-1))
+$('btn-owt-next-object').addEventListener('click', () => moveSemanticSelection(1))
+$('btn-owt-insert-before').addEventListener('click', () => insertSemanticToken(false))
+$('btn-owt-insert-after').addEventListener('click', () => insertSemanticToken(true))
+$('btn-owt-replace-token').addEventListener('click', replaceSelectedSemanticToken)
+$('btn-owt-delete-object').addEventListener('click', deleteSelectedSemanticObject)
+$('btn-owt-replace-play').addEventListener('click', toggleSemanticPerformanceReplacement)
 
 const recorder = new MidiRecorder()
+const improvSession = new ConversationalImprovSession()
+let improvPhraseTimer: number | undefined
+let improvAbortController: AbortController | undefined
+let improvRequestSequence = 0
 const mapping = new MappingEngine()
+let practiceSession: PracticeSession | null = null
+let practiceExpectedNotes: number[] = []
 const midiLearn = new MidiLearn(window.localStorage)
 const profiles: DeviceProfile[] = [midiplusTinyPlusProfile()]
 let activeProfile: DeviceProfile | null = null
@@ -255,7 +673,9 @@ async function ensureEngine(): Promise<SpessaSynthEngine> {
       setPlaybackUi(false)
       setTranslatedStatus('midi-status', 'playback.finished', {}, 'ok')
       updateTimelinePlayhead(0, 0)
+      clearOwtPlaybackContext()
       if (replacementRecording) window.setTimeout(finishReplacementRecording, 0)
+      handleConversationalImprovPlaybackEnded()
     },
     onPlaybackState: (playing) => {
       clearPlaybackNotes()
@@ -300,6 +720,7 @@ function renderPlaybackPosition(time: number, duration: number): void {
   $<HTMLProgressElement>('progress').value = duration > 0 ? (time / duration) * 1000 : 0
   $<HTMLSpanElement>('playback-time').textContent = `${fmtTime(time)} / ${fmtTime(duration)}`
   updateTimelinePlayhead(time, duration)
+  updateOwtPlaybackHighlight(time, duration)
 }
 
 function startPlaybackPositionUpdates(): void {
@@ -433,6 +854,85 @@ function setPlaybackUi(playing: boolean): void {
   $<HTMLButtonElement>('btn-stop').disabled = !playing
 }
 
+function refreshPracticeExpectedVisuals(): void {
+  keyboard.setExpected(practiceExpectedNotes)
+  for (const keycap of computerKeycaps.values()) keycap.classList.remove('expected')
+  for (const assignment of mapping.listComputerKeyAssignments()) {
+    if (practiceExpectedNotes.includes(assignment.note)) computerKeycaps.get(assignment.key)?.classList.add('expected')
+  }
+  if (practiceExpectedNotes.length > 0) keyboard.scrollToRange(Math.min(...practiceExpectedNotes), Math.max(...practiceExpectedNotes), 'smooth')
+}
+
+function renderPracticeGuide(): void {
+  const guide = $('practice-guide')
+  const prompt = practiceSession?.current
+  if (!practiceSession || !prompt) {
+    practiceExpectedNotes = []
+    refreshPracticeExpectedVisuals()
+    return
+  }
+  practiceExpectedNotes = prompt.pitches.slice()
+  guide.hidden = false
+  guide.classList.remove('wrong', 'complete')
+  $<HTMLButtonElement>('btn-owt-practice').textContent = t('practice.stop')
+  $('practice-note').textContent = prompt.pitches.map(noteName).join(' + ')
+  const assignment = mapping.listComputerKeyAssignments().find((candidate) => candidate.note === prompt.pitches[0])
+  const computerKey = $<HTMLElement>('practice-computer-key')
+  computerKey.hidden = !assignment
+  computerKey.textContent = assignment?.key.toUpperCase() ?? ''
+  $('practice-progress').textContent = t('practice.progress', { current: practiceSession.position + 1, total: practiceSession.prompts.length })
+  refreshPracticeExpectedVisuals()
+}
+
+function stopPractice(hide = true): void {
+  practiceSession = null
+  practiceExpectedNotes = []
+  refreshPracticeExpectedVisuals()
+  $<HTMLButtonElement>('btn-owt-practice').textContent = t('owt.practice')
+  if (hide) $('practice-guide').hidden = true
+}
+
+function startPractice(): void {
+  const score = parseEditorOwt()
+  if (!score) return
+  const prompts = buildPracticePrompts(score)
+  if (prompts.length === 0) {
+    setTranslatedStatus('owt-status', 'practice.noNotes', {}, 'warn')
+    return
+  }
+  engine?.stop()
+  clearOwtPlaybackContext()
+  practiceSession = new PracticeSession(prompts)
+  $<HTMLButtonElement>('btn-owt-practice').textContent = t('practice.stop')
+  renderPracticeGuide()
+  setTranslatedStatus('owt-status', 'practice.started', { count: prompts.length }, 'ok')
+  $('live-panel').scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+function handlePracticeNote(data: Uint8Array): void {
+  if (!practiceSession || (data[0]! & 0xf0) !== 0x90 || (data[2] ?? 0) === 0) return
+  const result = practiceSession.accept(data[1]!)
+  if (!result.matched) {
+    const guide = $('practice-guide')
+    guide.classList.add('wrong')
+    window.setTimeout(() => guide.classList.remove('wrong'), 180)
+    return
+  }
+  if (result.complete) {
+    const guide = $('practice-guide')
+    guide.classList.add('complete')
+    $('practice-note').textContent = t('practice.complete')
+    $('practice-progress').textContent = ''
+    practiceSession = null
+    practiceExpectedNotes = []
+    refreshPracticeExpectedVisuals()
+    $<HTMLButtonElement>('btn-owt-practice').textContent = t('owt.practice')
+    setTranslatedStatus('owt-status', 'practice.completed', {}, 'ok')
+    return
+  }
+  renderPracticeGuide()
+}
+
 // ─── MIDI message pipeline (hardware + computer keyboard + virtual keys) ─────
 
 function handleMidiMessage(data: Uint8Array, timestampMs: number): void {
@@ -457,7 +957,9 @@ function handleMidiMessage(data: Uint8Array, timestampMs: number): void {
 
   // Device profile remap (editable CC remaps).
   const remapped = applyProfileRemap(data)
+  if (!handleSemanticReplacementNote(remapped)) handleConversationalImprovInput(remapped, timestampMs)
 
+  handlePracticeNote(remapped)
   // Live play-through to the SoundFont synth.
   if (engine?.hasSoundFont()) engine.send(remapped)
 
@@ -796,6 +1298,7 @@ function refreshArrangementInspection(): void {
   const data = loadedMidi.writeMIDI()
   loadedMidi = importMidi(data, loadedMidi.fileName)
   loadedInspection = inspectMidi(data, loadedMidi.fileName)
+  timelineOwtRevision = owtRevision
   $<HTMLButtonElement>('btn-export-arrangement').disabled = false
   renderArrangement()
   setPlaybackUi(false)
@@ -804,6 +1307,7 @@ function refreshArrangementInspection(): void {
 async function loadMidiData(buffer: ArrayBuffer, fileName: string): Promise<void> {
   loadedMidi = importMidi(buffer, fileName)
   loadedInspection = inspectMidi(buffer, fileName)
+  timelineOwtRevision = owtRevision
   mutedTracks.clear()
   $<HTMLSpanElement>('st-file').textContent = fileName
   renderTrackList()
@@ -830,6 +1334,7 @@ $<HTMLInputElement>('midi-file').addEventListener('change', async (ev) => {
     const buf = await file.arrayBuffer()
     loadedMidi = importMidi(buf, file.name)
     loadedInspection = inspectMidi(buf, file.name)
+    timelineOwtRevision = owtRevision
     mutedTracks.clear()
     timelineSelection = null
     selectedTrackIndex = loadedInspection.tracks.find((track) => track.noteCount > 0)?.index ?? 0
@@ -1031,6 +1536,7 @@ $('btn-clear-range').addEventListener('click', () => {
 
 async function playArrangement(startSeconds = 0, source = loadedMidi): Promise<void> {
   if (!source) return
+  clearOwtPlaybackContext()
   const e = await ensureEngine()
   let playbackSource = source
   if (mutedTracks.size > 0) playbackSource = applyTrackMutes(source, mutedTracks)
@@ -1186,15 +1692,9 @@ function updateOwtSourceButtons(): void {
   $<HTMLButtonElement>('btn-owt-from-recording').disabled = take === null || take.events.length === 0
 }
 
-function refreshOwtKind(document?: OwtDocument): void {
-  const kind = document?.kind ?? (/^\s*owt\s+0\.1\s+take\b/m.test($<HTMLTextAreaElement>('owt-editor').value) ? 'take' : 'score')
-  const badge = $('owt-kind')
-  badge.textContent = kind.toUpperCase()
-  badge.classList.toggle('take', kind === 'take')
-  $<HTMLButtonElement>('btn-owt-quantize').disabled = kind !== 'take'
-}
-
 function renderOwtDiagnostics(diagnostics: Array<{ line: number; column: number; severity: string; code: string; message: string }>): void {
+  owtDiagnostics = diagnostics.map(({ line, column }) => ({ line, column }))
+  owtSyntaxIndex = buildOwtSyntaxIndex(owtEditor.value, owtDiagnostics)
   const box = $('owt-diagnostics')
   box.innerHTML = ''
   for (const diagnostic of diagnostics) {
@@ -1203,12 +1703,12 @@ function renderOwtDiagnostics(diagnostics: Array<{ line: number; column: number;
     row.textContent = `${diagnostic.line}:${diagnostic.column} [${diagnostic.code}] ${diagnostic.message}`
     box.appendChild(row)
   }
+  renderOwtEditorHighlight()
 }
 
 function parseEditorOwt(): OwtDocument | null {
   const result = parseOwt($<HTMLTextAreaElement>('owt-editor').value)
   renderOwtDiagnostics(result.diagnostics)
-  refreshOwtKind(result.document)
   if (!result.document) {
     setTranslatedStatus('owt-status', 'owt.invalid', { count: result.diagnostics.filter((item) => item.severity === 'error').length }, 'err')
     return null
@@ -1217,42 +1717,119 @@ function parseEditorOwt(): OwtDocument | null {
 }
 
 function owtFileName(document: OwtDocument, extension: 'owt' | 'mid'): string {
-  const title = document.title?.trim() || (document.kind === 'score' ? 'opusweave-score' : 'opusweave-take')
-  const safe = title.replace(/[^\p{L}\p{N}._-]+/gu, '-').replace(/^-+|-+$/g, '') || `opusweave-${document.kind}`
+  const title = document.title?.trim() || 'opusweave-melody'
+  const safe = title.replace(/[^\p{L}\p{N}._-]+/gu, '-').replace(/^-+|-+$/g, '') || 'opusweave-melody'
   return `${safe}.${extension}`
 }
 
 function validateEditorOwt(): OwtDocument | null {
   const document = parseEditorOwt()
   if (!document) return null
-  if (document.kind === 'score') {
-    const compiled = compileScoreText($<HTMLTextAreaElement>('owt-editor').value)
-    const notes = compiled.spec.tracks.reduce((sum, track) => sum + track.notes.length, 0)
-    const beats = compiled.spec.tracks.reduce((maximum, track) => Math.max(maximum, ...track.notes.map((note) => note.startBeat + note.durationBeats), 0), 0)
-    setTranslatedStatus('owt-status', 'owt.validScore', { tracks: compiled.spec.tracks.length, notes, beats }, 'ok')
-  } else {
-    const duration = document.events.reduce((maximum, event) => Math.max(maximum, event.kind === 'note' ? event.atMs + event.durationMs : event.atMs), 0)
-    setTranslatedStatus('owt-status', 'owt.validTake', { events: document.events.length, duration: duration.toFixed(3) }, 'ok')
-  }
+  const compiled = compileScoreText($<HTMLTextAreaElement>('owt-editor').value)
+  const notes = compiled.spec.tracks.reduce((sum, track) => sum + track.notes.length, 0)
+  const beats = compiled.spec.tracks.reduce((maximum, track) => Math.max(maximum, ...track.notes.map((note) => note.startBeat + note.durationBeats), 0), 0)
+  setTranslatedStatus('owt-status', 'owt.valid', { tracks: compiled.spec.tracks.length, notes, beats }, 'ok')
   return document
 }
 
-function parseQuantizeGrid(text: string) {
+function parseExtractionGrid(): ReturnType<typeof rational> {
+  const text = $<HTMLInputElement>('owt-grid').value.trim()
   const fraction = parseRational(text)
   if (!fraction || fraction.numerator <= 0) throw new Error(`invalid grid: ${text}`)
   return rational(fraction.numerator * 4, fraction.denominator)
 }
 
-function parseQuantizeMeter(text: string): { numerator: number; denominator: number } {
-  const match = /^(\d+)\/(\d+)$/.exec(text.trim())
-  if (!match) throw new Error(`invalid meter: ${text}`)
-  const numerator = Number(match[1])
-  const denominator = Number(match[2])
-  if (numerator < 1 || denominator < 1 || (denominator & (denominator - 1)) !== 0) throw new Error(`invalid meter: ${text}`)
-  return { numerator, denominator }
+function extractionVoice(): MelodyVoiceStrategy {
+  return $<HTMLSelectElement>('owt-voice').value as MelodyVoiceStrategy
 }
 
-$<HTMLTextAreaElement>('owt-editor').addEventListener('input', () => refreshOwtKind())
+function showExtractedMelody(result: MelodyExtractionResult, sourceKey: 'owt.midiImported' | 'owt.recordingImported'): void {
+  setOwtEditorText(result.text, true)
+  renderOwtDiagnostics([])
+  setTranslatedStatus('owt-status', sourceKey, {
+    notes: result.report.outputNotes,
+    track: result.report.sourceTrackName,
+    discarded: result.report.discardedNotes,
+  }, 'ok')
+}
+
+async function playOwtRange(sourceRange?: { start: number; end?: number }): Promise<void> {
+  const document = parseEditorOwt()
+  if (!document) return
+  const compiled = compileScoreText(owtEditor.value)
+  const fileName = owtFileName(document, 'mid')
+  await loadMidiData(compiled.midi, fileName)
+  timelineOwtRevision = owtRevision
+  owtPlaybackTokens = buildOwtPlaybackMap(owtEditor.value, compiled.score)
+  owtPlaybackRanges = []
+  owtActiveRangeKey = ''
+  let startSeconds = 0
+  let endSeconds: number | undefined
+  if (sourceRange) {
+    const startToken = owtPlaybackTokens.find((token) => token.start <= sourceRange.start && token.end > sourceRange.start)
+      ?? owtPlaybackTokens.find((token) => token.start >= sourceRange.start)
+    startSeconds = startToken?.startSeconds ?? 0
+    if (sourceRange.end !== undefined && sourceRange.end > sourceRange.start) {
+      const selected = owtPlaybackTokens.filter((token) => token.start < sourceRange.end! && token.end > sourceRange.start)
+      endSeconds = selected.reduce((maximum, token) => Math.max(maximum, token.endSeconds), startSeconds)
+    }
+  }
+  const player = await ensureEngine()
+  await player.playMidi(compiled.midi, fileName, startSeconds)
+  if (endSeconds !== undefined && endSeconds > startSeconds) {
+    selectionPlaybackTimer = window.setTimeout(() => player.stop(), (endSeconds - startSeconds) * 1000)
+  }
+  setTranslatedStatus('owt-status', 'owt.playing', {}, 'ok')
+  setTranslatedStatus('midi-status', 'playback.playing')
+}
+
+function handleModalCommand(command: string, args = ''): void | Promise<void> {
+  const normalized = command === 'w' ? 'save' : command
+  switch (normalized) {
+    case 'play': case 'play-pause':
+      if (!$<HTMLButtonElement>('btn-pause').disabled) engine?.pause()
+      else return playOwtRange()
+      return
+    case 'play-from-cursor': {
+      const range = modalEditor.primaryRange()
+      return playOwtRange({ start: range.start })
+    }
+    case 'play-selection': {
+      const range = modalEditor.primaryRange()
+      return playOwtRange(range)
+    }
+    case 'pause': engine?.pause(); return
+    case 'stop': engine?.stop(); clearOwtPlaybackContext(); return
+    case 'save': $('btn-owt-save').click(); return
+    case 'open': $<HTMLInputElement>('owt-file').click(); return
+    case 'new': $('btn-owt-new-score').click(); return
+    case 'validate': $('btn-owt-validate').click(); return
+    case 'format': $('btn-owt-format').click(); return
+    case 'export-midi': $('btn-owt-export-midi').click(); return
+    case 'import-midi': case 'extract-midi': $<HTMLInputElement>('midi-file').click(); return
+    case 'perform': $('btn-owt-practice').click(); return
+    case 'diagnostics': {
+      const diagnostic = buildOwtSyntaxIndex(owtEditor.value, owtDiagnostics).diagnostics[0]
+      if (diagnostic) modalEditor.selectRange(diagnostic.start, diagnostic.end)
+      return
+    }
+    case 'set': {
+      const [name, value] = args.split(/\s+/, 2)
+      if (name === 'grid' && ['1/8', '1/16', '1/32'].includes(value ?? '')) $<HTMLSelectElement>('owt-grid').value = value!
+      else if (name === 'voice' && ['continuous', 'highest', 'lowest'].includes(value ?? '')) $<HTMLSelectElement>('owt-voice').value = value!
+      else setTranslatedStatus('owt-status', 'modal.unknownCommand', { command: `${command} ${args}` }, 'warn')
+      return
+    }
+    case 'help': {
+      const hints = $('owt-key-hints')
+      hints.textContent = t('modal.help')
+      hints.hidden = false
+      return
+    }
+    default:
+      setTranslatedStatus('owt-status', 'modal.unknownCommand', { command: `${command}${args ? ` ${args}` : ''}` }, 'warn')
+  }
+}
 
 $('btn-owt-validate').addEventListener('click', () => {
   try {
@@ -1265,37 +1842,28 @@ $('btn-owt-validate').addEventListener('click', () => {
 $('btn-owt-format').addEventListener('click', () => {
   const document = parseEditorOwt()
   if (!document) return
-  $<HTMLTextAreaElement>('owt-editor').value = serializeOwt(document)
+  setOwtEditorText(serializeOwt(document), true)
   renderOwtDiagnostics([])
-  refreshOwtKind(document)
   setTranslatedStatus('owt-status', 'owt.formatted', {}, 'ok')
 })
 
-$('btn-owt-play').addEventListener('click', async () => {
-  const document = parseEditorOwt()
-  if (!document) return
-  try {
-    const midi = document.kind === 'score'
-      ? compileScoreText($<HTMLTextAreaElement>('owt-editor').value).midi
-      : owtTakeToMidi(document)
-    const fileName = owtFileName(document, 'mid')
-    await loadMidiData(midi, fileName)
-    const e = await ensureEngine()
-    await e.playMidi(midi, fileName)
-    setTranslatedStatus('owt-status', 'owt.playing', { kind: document.kind.toUpperCase() }, 'ok')
-    setTranslatedStatus('midi-status', 'playback.playing')
-  } catch (err) {
+$('btn-owt-play').addEventListener('click', () => {
+  void playOwtRange().catch((err) => {
     setTranslatedStatus('owt-status', 'owt.error', { error: err instanceof Error ? err.message : String(err) }, 'err')
-  }
+  })
 })
+
+$('btn-owt-practice').addEventListener('click', () => {
+  if (practiceSession) stopPractice()
+  else startPractice()
+})
+$('btn-practice-stop').addEventListener('click', () => stopPractice())
 
 $('btn-owt-export-midi').addEventListener('click', () => {
   const document = parseEditorOwt()
   if (!document) return
   try {
-    const midi = document.kind === 'score'
-      ? compileScoreText($<HTMLTextAreaElement>('owt-editor').value).midi
-      : owtTakeToMidi(document)
+    const midi = compileScoreText($<HTMLTextAreaElement>('owt-editor').value).midi
     const fileName = owtFileName(document, 'mid')
     downloadBuffer(midi, fileName, 'audio/midi')
     setTranslatedStatus('owt-status', 'owt.exported', { file: fileName }, 'ok')
@@ -1316,16 +1884,18 @@ $('btn-owt-save').addEventListener('click', () => {
 $<HTMLInputElement>('owt-file').addEventListener('change', async (event) => {
   const file = (event.target as HTMLInputElement).files?.[0]
   if (!file) return
-  $<HTMLTextAreaElement>('owt-editor').value = await file.text()
-  refreshOwtKind()
+  setOwtEditorText(await file.text())
   setTranslatedStatus('owt-status', 'owt.loaded', { file: file.name }, 'ok')
-  validateEditorOwt()
+  try {
+    validateEditorOwt()
+  } catch (err) {
+    setTranslatedStatus('owt-status', 'owt.error', { error: err instanceof Error ? err.message : String(err) }, 'err')
+  }
 })
 
 $('btn-owt-new-score').addEventListener('click', () => {
-  $<HTMLTextAreaElement>('owt-editor').value = DEFAULT_OWT_SCORE
+  setOwtEditorText(DEFAULT_OWT_SCORE, true)
   renderOwtDiagnostics([])
-  refreshOwtKind()
   setTranslatedStatus('owt-status', 'owt.newReady', {}, 'ok')
 })
 
@@ -1334,12 +1904,16 @@ $('btn-owt-from-midi').addEventListener('click', () => {
     setTranslatedStatus('owt-status', 'owt.sourceMissing', {}, 'warn')
     return
   }
-  const title = $<HTMLElement>('st-file').textContent || 'Current MIDI'
-  const exactTake = midiToTake(loadedMidi.writeMIDI(), { title, source: title })
-  $<HTMLTextAreaElement>('owt-editor').value = serializeTake(exactTake)
-  renderOwtDiagnostics([])
-  refreshOwtKind(exactTake)
-  setTranslatedStatus('owt-status', 'owt.midiImported', {}, 'ok')
+  try {
+    const title = $<HTMLElement>('st-file').textContent || 'Imported Melody'
+    showExtractedMelody(extractMelodyFromMidi(loadedMidi.writeMIDI(), {
+      title,
+      grid: parseExtractionGrid(),
+      voiceStrategy: extractionVoice(),
+    }), 'owt.midiImported')
+  } catch (err) {
+    setTranslatedStatus('owt-status', 'owt.error', { error: err instanceof Error ? err.message : String(err) }, 'err')
+  }
 })
 
 $('btn-owt-from-recording').addEventListener('click', () => {
@@ -1347,46 +1921,375 @@ $('btn-owt-from-recording').addEventListener('click', () => {
     setTranslatedStatus('owt-status', 'owt.sourceMissing', {}, 'warn')
     return
   }
-  const state = midiManager.getState()
-  const source = state.inputs.find((input) => input.id === state.selectedInputId)?.name
-  const exactTake = recordedTakeToOwt(take, { title: 'OpusWeave Recording', source })
-  $<HTMLTextAreaElement>('owt-editor').value = serializeTake(exactTake)
-  renderOwtDiagnostics([])
-  refreshOwtKind(exactTake)
-  setTranslatedStatus('owt-status', 'owt.recordingImported', {}, 'ok')
-})
-
-$('btn-owt-quantize').addEventListener('click', () => {
-  const document = parseEditorOwt()
-  if (!document) return
-  if (document.kind !== 'take') {
-    setTranslatedStatus('owt-status', 'owt.takeRequired', {}, 'warn')
-    return
-  }
   try {
-    const gridText = $<HTMLInputElement>('owt-grid').value.trim()
-    const bpm = Number($<HTMLInputElement>('owt-bpm').value)
-    const meter = parseQuantizeMeter($<HTMLInputElement>('owt-meter').value)
-    const score = quantizeTake(document, { grid: parseQuantizeGrid(gridText), bpm, meter })
-    $<HTMLTextAreaElement>('owt-editor').value = serializeScore(score)
-    renderOwtDiagnostics([])
-    refreshOwtKind(score)
-    setTranslatedStatus('owt-status', 'owt.quantized', { grid: gridText }, 'ok')
+    showExtractedMelody(extractMelodyFromRecording(take, {
+      title: 'OpusWeave Recording',
+      grid: parseExtractionGrid(),
+      voiceStrategy: extractionVoice(),
+    }), 'owt.recordingImported')
   } catch (err) {
     setTranslatedStatus('owt-status', 'owt.error', { error: err instanceof Error ? err.message : String(err) }, 'err')
   }
+})
+
+// ─── Built-in examples, musical typing and AI composition ───────────────────
+
+const exampleSelect = $<HTMLSelectElement>('owt-example')
+for (const example of BUILTIN_OWT_EXAMPLES) {
+  const option = document.createElement('option')
+  option.value = example.id
+  option.textContent = `${example.title} — ${example.composer}`
+  exampleSelect.appendChild(option)
+}
+
+async function loadBuiltinExample(play: boolean): Promise<void> {
+  const example = builtinOwtExample(exampleSelect.value)
+  if (!example) return
+  setOwtEditorText(example.text, true)
+  renderOwtDiagnostics([])
+  setTranslatedStatus('owt-status', 'examples.loaded', { title: example.title }, 'ok')
+  if (play) await playOwtRange()
+}
+
+$('btn-load-example').addEventListener('click', () => void loadBuiltinExample(false))
+$('btn-play-example').addEventListener('click', () => void loadBuiltinExample(true).catch((error) => {
+  setTranslatedStatus('owt-status', 'owt.error', { error: error instanceof Error ? error.message : String(error) }, 'err')
+}))
+
+const musicalTypingInput = $<HTMLTextAreaElement>('musical-typing-input')
+const COMPUTER_LAYOUT_PREFERENCE_KEY = 'opusweave.computer-layout'
+let musicalTypingGeneration = 0
+
+function currentComputerLayout(): BuiltinComputerLayoutId {
+  return mapping.currentComputerLayoutId as BuiltinComputerLayoutId
+}
+
+function layoutTranslationKey(layout: BuiltinComputerLayoutId): string {
+  return `layout.${layout}`
+}
+
+function updateComputerLayoutGuidance(layout: BuiltinComputerLayoutId): void {
+  const hint = document.querySelector<HTMLElement>('.keyboard-hint')!
+  const hintKey = `layout.hint.${layout}`
+  hint.dataset.i18n = hintKey
+  hint.textContent = t(hintKey)
+  setTranslatedStatus('typing-status', hintKey)
+}
+
+function setComputerKeyboardLayout(layout: BuiltinComputerLayoutId, persist = true): void {
+  releaseComputerNotes()
+  mapping.setComputerLayout(layout)
+  $<HTMLSelectElement>('computer-layout').value = layout
+  $<HTMLSelectElement>('musical-typing-mode').value = layout
+  if (persist) window.localStorage.setItem(COMPUTER_LAYOUT_PREFERENCE_KEY, layout)
+  updateComputerLayoutGuidance(layout)
+  updateOctaveLabel()
+  setTranslatedStatus('typing-status', 'layout.changed', { layout: t(layoutTranslationKey(layout)) }, 'ok')
+}
+
+async function soundKeyboardLayoutMessages(messages: readonly Uint8Array[], generation: number): Promise<void> {
+  await ensureEngine()
+  for (const message of messages) {
+    if (generation !== musicalTypingGeneration) return
+    handleMidiMessage(message, performance.now())
+    await new Promise((resolve) => window.setTimeout(resolve, 115))
+    handleMidiMessage(new Uint8Array([0x80 | (message[0]! & 0x0f), message[1]!, 0x40]), performance.now())
+  }
+}
+
+musicalTypingInput.addEventListener('keydown', (event) => {
+  if (event.repeat || event.ctrlKey || event.metaKey || event.altKey) return
+  const messages = mapping.keyDownMessages(event.key)
+  if (messages.length === 0) return
+  renderComputerKeyMap()
+  const generation = musicalTypingGeneration
+  void soundKeyboardLayoutMessages(messages, generation).catch((error) => {
+    setStatus('typing-status', error instanceof Error ? error.message : String(error), 'err')
+  })
+})
+
+for (const id of ['computer-layout', 'musical-typing-mode']) {
+  $<HTMLSelectElement>(id).addEventListener('change', (event) => {
+    setComputerKeyboardLayout((event.target as HTMLSelectElement).value as BuiltinComputerLayoutId)
+  })
+}
+
+async function writeMusicalTyping(play: boolean): Promise<void> {
+  const text = musicalTypingInput.value
+  if (!text.trim()) {
+    setTranslatedStatus('typing-status', 'typing.empty', {}, 'warn')
+    return
+  }
+  const owt = keyboardLayoutTextToOwt(text, currentComputerLayout())
+  setOwtEditorText(owt, true)
+  renderOwtDiagnostics([])
+  setTranslatedStatus('typing-status', 'typing.generated', { count: [...text].length }, 'ok')
+  if (play) await playOwtRange()
+}
+
+$('btn-typing-to-owt').addEventListener('click', () => void writeMusicalTyping(false))
+$('btn-typing-play').addEventListener('click', () => void writeMusicalTyping(true).catch((error) => {
+  setStatus('typing-status', error instanceof Error ? error.message : String(error), 'err')
+}))
+$('btn-typing-clear').addEventListener('click', () => {
+  musicalTypingGeneration++
+  musicalTypingInput.value = ''
+  mapping.setComputerLayout(currentComputerLayout())
+  renderComputerKeyMap()
+  updateComputerLayoutGuidance(currentComputerLayout())
+})
+
+const AI_CONFIG_KEY = 'opusweave.ai.config'
+let selectedAiMedia: File | null = null
+
+function storedAiConfig(): OwtAiConfig {
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(AI_CONFIG_KEY) ?? '{}') as Partial<OwtAiConfig>
+    return { ...DEFAULT_OWT_AI_CONFIG, ...stored }
+  } catch {
+    return { ...DEFAULT_OWT_AI_CONFIG }
+  }
+}
+
+function renderAiConfig(config: OwtAiConfig): void {
+  $<HTMLInputElement>('ai-endpoint').value = config.baseUrl
+  $<HTMLInputElement>('ai-model').value = config.model
+  $<HTMLInputElement>('ai-api-key').value = config.apiKey ?? ''
+}
+
+function currentAiConfig(): OwtAiConfig {
+  return {
+    baseUrl: $<HTMLInputElement>('ai-endpoint').value.trim(),
+    model: $<HTMLInputElement>('ai-model').value.trim(),
+    apiKey: $<HTMLInputElement>('ai-api-key').value || undefined,
+    temperature: DEFAULT_OWT_AI_CONFIG.temperature,
+    maxTokens: DEFAULT_OWT_AI_CONFIG.maxTokens,
+  }
+}
+
+function persistAiConfig(): void {
+  window.localStorage.setItem(AI_CONFIG_KEY, JSON.stringify(currentAiConfig()))
+}
+
+function aiTransport(signal?: AbortSignal): { proxyUrl?: string; signal: AbortSignal } {
+  const localDesktop = location.hostname === '127.0.0.1' || location.hostname === 'localhost'
+  const timeout = AbortSignal.timeout(180_000)
+  return { proxyUrl: localDesktop ? '/api/ai/chat' : undefined, signal: signal ? AbortSignal.any([signal, timeout]) : timeout }
+}
+
+const aiActionButtons = ['btn-ai-test', 'btn-ai-compose', 'btn-ai-transcribe']
+function setAiBusy(busy: boolean): void {
+  for (const id of aiActionButtons) $<HTMLButtonElement>(id).disabled = busy
+  $<HTMLButtonElement>('btn-ai-improvise').disabled = busy && !improvSession.active
+}
+
+async function applyAiRequest(request: OwtAiRequest, statusKey: string, statusValues: TranslationValues = {}): Promise<void> {
+  if (improvSession.active) stopConversationalImprov(false)
+  persistAiConfig()
+  setAiBusy(true)
+  setTranslatedStatus('ai-status', statusKey, statusValues, 'warn')
+  try {
+    const text = await createOwtWithAi(currentAiConfig(), request, aiTransport())
+    setOwtEditorText(text, true)
+    renderOwtDiagnostics([])
+    if (!validateEditorOwt()) throw new Error('AI OWT validation failed')
+    setTranslatedStatus('ai-status', 'ai.applied', {}, 'ok')
+    await playOwtRange()
+  } catch (error) {
+    setTranslatedStatus('ai-status', 'ai.error', { error: error instanceof Error ? error.message : String(error) }, 'err')
+  } finally {
+    setAiBusy(false)
+  }
+}
+
+function updateConversationalImprovUi(): void {
+  const button = $<HTMLButtonElement>('btn-ai-improvise')
+  const state = $('ai-improv-state')
+  const stateKeys = {
+    off: 'ai.improvOff',
+    listening: 'ai.improvListeningState',
+    recording: 'ai.improvRecordingState',
+    thinking: 'ai.improvThinkingState',
+    responding: 'ai.improvRespondingState',
+  } as const
+  const buttonKey = improvSession.active ? 'ai.improviseStop' : 'ai.improviseStart'
+  button.dataset.i18n = buttonKey
+  button.textContent = t(buttonKey)
+  button.setAttribute('aria-pressed', String(improvSession.active))
+  button.classList.toggle('active', improvSession.active)
+  const editorButton = $<HTMLButtonElement>('btn-owt-mode-improv')
+  editorButton.setAttribute('aria-pressed', String(improvSession.active))
+  editorButton.classList.toggle('active', improvSession.active)
+  state.dataset.i18n = stateKeys[improvSession.state]
+  state.textContent = t(stateKeys[improvSession.state])
+  state.className = `improv-state ${improvSession.state}`
+}
+
+function stopConversationalImprov(showStatus = true): void {
+  window.clearTimeout(improvPhraseTimer)
+  improvAbortController?.abort()
+  improvAbortController = undefined
+  improvRequestSequence++
+  if (improvSession.state === 'responding') {
+    engine?.stop()
+    clearOwtPlaybackContext()
+  }
+  improvSession.stop()
+  updateConversationalImprovUi()
+  if (showStatus) setTranslatedStatus('ai-status', 'ai.improvStopped')
+}
+
+function startConversationalImprov(): void {
+  persistAiConfig()
+  cancelSemanticPerformanceReplacement()
+  if (simpleEditMode !== 'score') setSimpleEditMode('score')
+  engine?.stop()
+  clearOwtPlaybackContext()
+  improvSession.start()
+  updateConversationalImprovUi()
+  setTranslatedStatus('ai-status', 'ai.improvListening', {}, 'ok')
+  void ensureEngine().catch((error) => {
+    stopConversationalImprov(false)
+    setTranslatedStatus('ai-status', 'ai.error', { error: error instanceof Error ? error.message : String(error) }, 'err')
+  })
+}
+
+function scheduleConversationalImprovTurn(): void {
+  window.clearTimeout(improvPhraseTimer)
+  improvPhraseTimer = window.setTimeout(finishConversationalImprovPhrase, improvSession.silenceMs + 25)
+}
+
+function handleConversationalImprovInput(data: Uint8Array, timestampMs: number): void {
+  const result = improvSession.push(data, timestampMs)
+  if (!result.accepted) return
+  if (result.interruptedAi) {
+    improvAbortController?.abort()
+    improvAbortController = undefined
+    improvRequestSequence++
+    engine?.stop()
+    clearOwtPlaybackContext()
+    setTranslatedStatus('ai-status', 'ai.improvInterrupted', {}, 'warn')
+  } else if (result.phraseStarted) {
+    setTranslatedStatus('ai-status', 'ai.improvHearing', {}, 'ok')
+  }
+  updateConversationalImprovUi()
+  scheduleConversationalImprovTurn()
+}
+
+function finishConversationalImprovPhrase(): void {
+  const phrase = improvSession.poll(performance.now())
+  if (!phrase) return
+  updateConversationalImprovUi()
+  setTranslatedStatus('ai-status', 'ai.improvThinking', {}, 'warn')
+  void requestConversationalImprovResponse(phrase)
+}
+
+async function requestConversationalImprovResponse(phrase: RecordedTake): Promise<void> {
+  const requestSequence = ++improvRequestSequence
+  const controller = new AbortController()
+  improvAbortController = controller
+  try {
+    const phraseOwt = extractMelodyFromRecording(phrase, {
+      title: 'Human Call',
+      grid: rational(1, 4),
+      voiceStrategy: 'continuous',
+    }).text
+    const text = await createOwtWithAi(currentAiConfig(), {
+      task: 'improvise',
+      instruction: $<HTMLTextAreaElement>('ai-prompt').value.trim() || 'Answer the phrase naturally, leave conversational space, and finish with a clear cadence.',
+      currentOwt: phraseOwt,
+    }, aiTransport(controller.signal))
+    if (requestSequence !== improvRequestSequence || improvSession.state !== 'thinking') return
+    setOwtEditorText(text, true)
+    renderOwtDiagnostics([])
+    if (!validateEditorOwt()) throw new Error('AI OWT validation failed')
+    improvSession.markResponding()
+    updateConversationalImprovUi()
+    setTranslatedStatus('ai-status', 'ai.improvResponding', {}, 'ok')
+    await playOwtRange()
+  } catch (error) {
+    if (requestSequence !== improvRequestSequence || !improvSession.active || improvSession.state === 'recording') return
+    improvSession.markListening()
+    updateConversationalImprovUi()
+    setTranslatedStatus('ai-status', 'ai.error', { error: error instanceof Error ? error.message : String(error) }, 'err')
+  } finally {
+    if (requestSequence === improvRequestSequence) improvAbortController = undefined
+  }
+}
+
+function handleConversationalImprovPlaybackEnded(): void {
+  if (improvSession.state !== 'responding') return
+  improvSession.markListening()
+  updateConversationalImprovUi()
+  setTranslatedStatus('ai-status', 'ai.improvListening', {}, 'ok')
+}
+
+renderAiConfig(storedAiConfig())
+updateConversationalImprovUi()
+for (const id of ['ai-endpoint', 'ai-model', 'ai-api-key']) $(id).addEventListener('change', persistAiConfig)
+
+$('btn-ai-settings').addEventListener('click', () => {
+  const settings = $('ai-settings')
+  settings.hidden = !settings.hidden
+  $<HTMLButtonElement>('btn-ai-settings').setAttribute('aria-expanded', String(!settings.hidden))
+})
+
+$('btn-ai-test').addEventListener('click', () => {
+  const config = currentAiConfig()
+  setAiBusy(true)
+  setTranslatedStatus('ai-status', 'ai.testing', { model: config.model }, 'warn')
+  void testOwtAiConnection(config, aiTransport()).then(() => {
+    persistAiConfig()
+    setTranslatedStatus('ai-status', 'ai.connected', { model: config.model }, 'ok')
+  }).catch((error) => {
+    setTranslatedStatus('ai-status', 'ai.error', { error: error instanceof Error ? error.message : String(error) }, 'err')
+  }).finally(() => setAiBusy(false))
+})
+
+$('btn-ai-compose').addEventListener('click', () => {
+  const instruction = $<HTMLTextAreaElement>('ai-prompt').value.trim() || 'Improve this score into a coherent, expressive piano miniature.'
+  void applyAiRequest({ task: 'prompt', instruction, currentOwt: owtEditor.value }, 'ai.working')
+})
+
+$<HTMLInputElement>('ai-media-file').addEventListener('change', (event) => {
+  selectedAiMedia = (event.target as HTMLInputElement).files?.[0] ?? null
+  if (selectedAiMedia) setTranslatedStatus('ai-status', 'ai.mediaReady', { file: selectedAiMedia.name }, 'ok')
+  $('ai-media-name').textContent = selectedAiMedia?.name ?? t('ai.noMedia')
+})
+
+$('btn-ai-transcribe').addEventListener('click', () => {
+  if (!selectedAiMedia) {
+    setTranslatedStatus('ai-status', 'ai.error', { error: t('ai.noMedia') }, 'warn')
+    return
+  }
+  const file = selectedAiMedia
+  setAiBusy(true)
+  setTranslatedStatus('ai-status', 'ai.mediaReading', { file: file.name }, 'warn')
+  void mediaFileToAiAttachments(file).then((attachments) => applyAiRequest({
+    task: 'score-media',
+    instruction: $<HTMLTextAreaElement>('ai-prompt').value.trim() || 'Transcribe the visible score faithfully, simplifying only when notation is ambiguous.',
+    currentOwt: owtEditor.value,
+    attachments,
+  }, 'ai.mediaReading', { file: file.name })).catch((error) => {
+    setTranslatedStatus('ai-status', 'ai.error', { error: error instanceof Error ? error.message : String(error) }, 'err')
+  }).finally(() => setAiBusy(false))
+})
+
+$('btn-ai-improvise').addEventListener('click', () => {
+  if (improvSession.active) stopConversationalImprov()
+  else startConversationalImprov()
 })
 // ─── Computer keyboard (MappingEngine) ───────────────────────────────────────
 
 const TEXT_INPUT: Record<string, true> = { INPUT: true, TEXTAREA: true, SELECT: true }
 const VELOCITY_STEP = 10
-const activeComputerNotes = new Map<string, Uint8Array>()
+const activeComputerNotes = new Map<string, Uint8Array[]>()
 const pointerComputerKeys = new Set<string>()
 const computerKeycaps = new Map<string, HTMLElement>()
 
 const QWERTY_ROWS = [
-  ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '='],
-  ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']'],
+  ['`', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '='],
+  ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']', '\\'],
   ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', "'"],
   ['z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '/'],
 ] as const
@@ -1447,30 +2350,35 @@ function renderComputerKeyMap(): void {
   computerKeycaps.clear()
   const root = $<HTMLDivElement>('computer-key-map')
   root.innerHTML = ''
+  const usesPerformanceShortcuts = currentComputerLayout() === 'default'
+  document.querySelector<HTMLElement>('.map-shortcuts')!.hidden = !usesPerformanceShortcuts
   const assignments = new Map(mapping.listComputerKeyAssignments().map((assignment) => [assignment.key, assignment]))
-  const actionLabels: Record<string, { label: string; velocity?: boolean }> = {
+  const actionLabels: Record<string, { label: string; velocity?: boolean }> = usesPerformanceShortcuts ? {
     a: { label: t('live.octaveDownKey') },
     k: { label: t('live.octaveUpKey') },
     f: { label: t('live.velocityDownKey'), velocity: true },
     '4': { label: t('live.velocityUpKey'), velocity: true },
-  }
+  } : {}
 
   for (const rowKeys of QWERTY_ROWS) {
     const row = document.createElement('div')
     row.className = 'qwerty-row'
     for (const keyName of rowKeys) {
       const assignment = assignments.get(keyName)
+      const notes = mapping.previewKeyPitches(keyName)
       const action = actionLabels[keyName]
       const keycap = document.createElement('span')
       keycap.className = 'computer-keycap'
       keycap.dataset.key = keyName
 
-      if (assignment) {
+      if (assignment && notes.length > 0) {
         const pitchClass = ((assignment.note % 12) + 12) % 12
         if ([1, 3, 6, 8, 10].includes(pitchClass)) keycap.classList.add('accidental')
         keycap.dataset.note = String(assignment.note)
-        keycap.title = `${keyName.toUpperCase()} → ${noteName(assignment.note)} (${assignment.note})`
+        const noteCopy = notes.map(noteName).join('→')
+        keycap.title = `${keyName.toUpperCase()} → ${noteCopy}`
         if (isComputerKeyVisuallyActive(keyName)) keycap.classList.add('active')
+        if (notes.some((note) => practiceExpectedNotes.includes(note))) keycap.classList.add('expected')
       } else if (action) {
         keycap.classList.add('action')
         if (action.velocity) keycap.classList.add('velocity-action')
@@ -1482,7 +2390,7 @@ function renderComputerKeyMap(): void {
       const key = document.createElement('kbd')
       key.textContent = keyName.toUpperCase()
       const detail = document.createElement('small')
-      detail.textContent = assignment ? noteName(assignment.note) : (action?.label ?? '—')
+      detail.textContent = notes.length > 0 ? notes.map(noteName).join('→') : (action?.label ?? '—')
       keycap.append(key, detail)
       row.appendChild(keycap)
       computerKeycaps.set(keyName, keycap)
@@ -1504,9 +2412,15 @@ function updateKeyboardLinks(): void {
   const bridgeRect = svg.getBoundingClientRect()
   if (bridgeRect.width === 0 || bridgeRect.height === 0) return
   const pianoRect = $<HTMLDivElement>('virtual-keyboard').getBoundingClientRect()
+  const assignments = mapping.listComputerKeyAssignments()
+  const traceActiveOnly = currentComputerLayout() !== 'default'
+  const tracedNotes = new Set<number>()
   svg.setAttribute('viewBox', `0 0 ${bridgeRect.width} ${bridgeRect.height}`)
 
-  for (const assignment of mapping.listComputerKeyAssignments()) {
+  for (const assignment of assignments) {
+    if (traceActiveOnly && !isComputerKeyVisuallyActive(assignment.key)) continue
+    if (traceActiveOnly && tracedNotes.has(assignment.note)) continue
+    tracedNotes.add(assignment.note)
     const keycap = computerKeycaps.get(assignment.key)
     const pianoKey = document.querySelector<HTMLElement>(`#virtual-keyboard [data-note="${assignment.note}"]`)
     if (!keycap || !pianoKey) continue
@@ -1551,8 +2465,8 @@ function releaseComputerNotes(): void {
   const timestamp = performance.now()
   const heldNotes = [...activeComputerNotes]
   activeComputerNotes.clear()
-  for (const [key, message] of heldNotes) {
-    handleMidiMessage(message, timestamp)
+  for (const [key, messages] of heldNotes) {
+    for (const message of messages) handleMidiMessage(message, timestamp)
     setComputerKeyActive(key)
   }
 }
@@ -1581,23 +2495,34 @@ function changeKeyboardVelocity(delta: number): void {
 }
 
 function startComputerPointerNote(key: string): (() => void) | undefined {
-  const message = mapping.keyDownMessage(key)
-  if (!message) return undefined
-  const noteOff = new Uint8Array([0x80 | (message[0]! & 0x0f), message[1]!, 0x40])
+  const messages = mapping.keyDownMessages(key)
+  if (messages.length === 0) return undefined
+  renderComputerKeyMap()
+  if (messages.length > 1) {
+    pointerComputerKeys.add(key)
+    setComputerKeyActive(key)
+    void soundKeyboardLayoutMessages(messages, musicalTypingGeneration).finally(() => {
+      pointerComputerKeys.delete(key)
+      setComputerKeyActive(key)
+    })
+    return () => undefined
+  }
+  const noteOffs = messages.map((message) => new Uint8Array([0x80 | (message[0]! & 0x0f), message[1]!, 0x40]))
   let released = false
   pointerComputerKeys.add(key)
   setComputerKeyActive(key)
-  handleMidiMessage(message, performance.now())
+  for (const message of messages) handleMidiMessage(message, performance.now())
   return () => {
     if (released) return
     released = true
-    handleMidiMessage(noteOff, performance.now())
+    for (const message of noteOffs) handleMidiMessage(message, performance.now())
     pointerComputerKeys.delete(key)
     setComputerKeyActive(key)
   }
 }
 
 function activateComputerMapControl(key: string): boolean {
+  if (currentComputerLayout() !== 'default') return false
   switch (key) {
     case 'a': changeOctave(-1); return true
     case 'k': changeOctave(1); return true
@@ -1612,12 +2537,12 @@ window.addEventListener('keydown', (ev) => {
   if (TEXT_INPUT[target.tagName]) return
 
   const plainShortcut = !ev.ctrlKey && !ev.metaKey && !ev.altKey
-  if (plainShortcut && (ev.code === 'KeyA' || ev.code === 'KeyK')) {
+  if (currentComputerLayout() === 'default' && plainShortcut && (ev.code === 'KeyA' || ev.code === 'KeyK')) {
     ev.preventDefault()
     if (!ev.repeat) changeOctave(ev.code === 'KeyA' ? -1 : 1)
     return
   }
-  if (plainShortcut && (ev.code === 'KeyF' || ev.code === 'Digit4')) {
+  if (currentComputerLayout() === 'default' && plainShortcut && (ev.code === 'KeyF' || ev.code === 'Digit4')) {
     ev.preventDefault()
     changeKeyboardVelocity(ev.code === 'KeyF' ? -VELOCITY_STEP : VELOCITY_STEP)
     return
@@ -1625,25 +2550,29 @@ window.addEventListener('keydown', (ev) => {
   if (ev.repeat) return
 
   const key = ev.key.toLowerCase()
-  const msg = mapping.keyDownMessage(key)
-  if (msg) {
-    ev.preventDefault()
-    activeComputerNotes.set(key, new Uint8Array([0x80 | (msg[0]! & 0x0f), msg[1]!, 0x40]))
-    setComputerKeyActive(key)
-    handleMidiMessage(msg, performance.now())
+  const messages = mapping.keyDownMessages(key)
+  if (messages.length === 0) return
+  ev.preventDefault()
+  renderComputerKeyMap()
+  if (messages.length > 1) {
+    void soundKeyboardLayoutMessages(messages, musicalTypingGeneration)
+    return
   }
+  activeComputerNotes.set(key, messages.map((message) => new Uint8Array([0x80 | (message[0]! & 0x0f), message[1]!, 0x40])))
+  setComputerKeyActive(key)
+  for (const message of messages) handleMidiMessage(message, performance.now())
 })
 
 window.addEventListener('keyup', (ev) => {
   const target = ev.target as HTMLElement
   if (TEXT_INPUT[target.tagName]) return
   const key = ev.key.toLowerCase()
-  const msg = activeComputerNotes.get(key)
-  if (!msg) return
+  const messages = activeComputerNotes.get(key)
+  if (!messages) return
   ev.preventDefault()
   activeComputerNotes.delete(key)
   setComputerKeyActive(key)
-  handleMidiMessage(msg, performance.now())
+  for (const message of messages) handleMidiMessage(message, performance.now())
 })
 
 window.addEventListener('blur', releaseComputerNotes)
@@ -1724,10 +2653,19 @@ window.addEventListener('beforeunload', () => {
 // ─── Boot ────────────────────────────────────────────────────────────────────
 
 renderLearnBindings()
-updateOctaveLabel()
+const savedComputerLayout = window.localStorage.getItem(COMPUTER_LAYOUT_PREFERENCE_KEY)
+const initialComputerLayout: BuiltinComputerLayoutId = ['default', 'english', 'pinyin', 'freepiano'].includes(savedComputerLayout ?? '')
+  ? savedComputerLayout as BuiltinComputerLayoutId
+  : 'default'
+setComputerKeyboardLayout(initialComputerLayout, false)
 setPlaybackUi(false)
-$<HTMLTextAreaElement>('owt-editor').value = DEFAULT_OWT_SCORE
-refreshOwtKind()
+setOwtEditorText(DEFAULT_OWT_SCORE)
+setSimpleEditMode('score')
+const savedScoreView = window.localStorage.getItem(SCORE_VIEW_PREFERENCE_KEY)
+const initialScoreView: ScoreViewId = ['owt', 'timeline', 'staff', 'jianpu'].includes(savedScoreView ?? '')
+  ? savedScoreView as ScoreViewId
+  : 'owt'
+showScoreView(initialScoreView, false)
 updateOwtSourceButtons()
 renderMidiState(midiManager.getState())
 showWorkspacePage('studio')

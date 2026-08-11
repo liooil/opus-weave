@@ -85,21 +85,19 @@ create → inspect → render pipeline. No arguments.
 
 ### OWT tools
 
-OWT tools operate on the text format documented in `docs/owt.md`:
+OWT is the primary persistent format documented in `docs/owt.md`:
 
 | Tool | Purpose |
 |---|---|
-| `validate_score_text` | Parse OWT and return source-located diagnostics plus composition validation |
-| `play_score_text` | Compile Score text to a MIDI payload for the internal SoundFont player |
-| `compile_score_text_to_midi` | Validate and write Score text as `.mid` |
-| `get_take_text` | Register/retrieve Exact Take text, optionally ranged by measures |
-| `quantize_take` | Convert Exact Take text to quantized Score text and MIDI |
-| `compare_take_with_score` | Compare pitches and timing against a Score |
+| `validate_owt` | Parse OWT and return source-located diagnostics plus composition validation |
+| `play_owt` | Compile OWT to a MIDI payload for the internal SoundFont player |
+| `export_owt_to_midi` | Validate OWT and write a derived `.mid` file |
+| `import_midi_to_owt` | Extract a simple one-track melody from MIDI and return OWT plus a loss report |
 
-`get_take_text` accepts an existing `takeId`, a MIDI file to import, or Take
-text to register. Range arguments use `fromMeasure`, `toMeasure`, `bpm`,
-`meterNumerator`, and `meterDenominator`. `quantize_take.grid` uses a
-conventional whole-note fraction such as `1/16`.
+`import_midi_to_owt` is intentionally lossy. `grid` accepts `1/8`, `1/16` or
+`1/32`; `voice` accepts `continuous`, `highest` or `lowest`. Optional `track`
+and `channel` select the source. Accompaniment, drums, controls and performance
+microtiming are not copied into OWT.
 
 ## Example session
 

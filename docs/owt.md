@@ -1,70 +1,67 @@
 # OpusWeave Text 0.1
 
-OpusWeave Text (OWT) is the human- and LLM-facing text layer for OpusWeave.
-It is not a replacement for Standard MIDI File, ABC, or MusicXML. OWT is used
-for copy/paste, CLI and MCP operations, readable performance data, and stable
-text serialization of the shared composition and take models.
+OpusWeave Text (`.owt`) is the primary OpusWeave file format. It is a stable,
+human-editable description of musical content: notes, rests, rhythm, measures,
+tempo and optional harmony. OpusWeave is an OWT editor and player; MIDI is an
+import, playback and export format rather than the source of truth.
 
-OWT 0.1 has two document kinds:
+OWT has one document kind: Score. Every file starts with `owt 0.1 score` and
+ends with `end`.
 
-- `score`: what the music should be.
-- `take`: what a performer actually played.
-
-Every file starts with `owt 0.1 score` or `owt 0.1 take` and ends with `end`.
-Quoted strings use JSON string escaping. Comments start with `#` when the `#`
-is preceded by whitespace, so accidentals such as `C#4` remain unambiguous.
-
-## Score
+## Simple melody
 
 ```text
 owt 0.1 score
 
-title "Example"
+title "Example melody"
 ppq 480
 meter 1:1 4/4
 tempo 1:1 120
 key 1:1 C major
 
-track "Piano" channel=1 program=0 velocity=88
-| <cc64=127> C4:1 E4:1 G4:1 C5:1 |
-| [C4 E4 G4]:2{v=76} <bend=8192> R:2 |
+track "Melody" channel=1 program=0 velocity=88
+
+| C4:1 D4:1 E4:1 G4:1 |
+| A4:2 G4:1 R:1 |
 
 end
 ```
 
-### Time and pitch
+`C4` is MIDI note 60. Durations use quarter-note units:
 
-- `C4` is MIDI note 60.
-- Durations are measured in quarter notes: `1` is a quarter, `1/2` an eighth,
-  `1/4` a sixteenth, `2` a half, and `4` a whole note.
-- Durations are normalized rational numbers. Cursor arithmetic does not use
-  floating-point accumulation.
-- Every note, rest, and chord has an explicit duration.
-- Every track starts at quarter position zero and has an independent cursor.
-- A chord starts all contained pitches together and advances by one shared
-  duration.
-- `|` validates a measure boundary but never advances time.
+| OWT duration | Musical duration |
+|---|---|
+| `4` | whole note |
+| `2` | half note |
+| `1` | quarter note |
+| `1/2` | eighth note |
+| `1/4` | sixteenth note |
 
-### Directives
+Durations are normalized rational numbers, so cursor arithmetic does not
+accumulate floating-point error. Every note, rest and chord has an explicit
+duration. `|` validates a measure boundary but does not advance time.
+
+Quoted strings use JSON escaping. Comments start with `#` when preceded by
+whitespace, so accidentals such as `C#4` remain unambiguous.
+
+## Directives
 
 ```text
 ppq 480
 meter 1:1 4/4
 tempo 1:1 120
-tempo 9:1 140
-key 1:1 C major
-track "Lead" channel=1 program=80 velocity=96
+tempo 9:1 132
+key 1:1 G major
+track "Melody" channel=1 program=0 velocity=88
 ```
 
-Positions use one-based `measure:beat`. Meter changes must occur at beat 1.
-OWT channels are human-facing `1` through `16`; the shared CompositionSpec and
-MIDI layers convert them to MIDI channels `0` through `15`.
+Positions use one-based `measure:beat`. OWT channels are human-facing `1`
+through `16`; MIDI conversion maps them to channels `0` through `15`.
 
-### Events
+The primary editing profile is one `Melody` track. Multiple tracks, chords and
+control events remain available for music that needs them:
 
 ```text
-C4:1
-R:1/2
 [C4 E4 G4]:2
 C4:1{v=64}
 <cc64=127>
@@ -72,79 +69,168 @@ C4:1{v=64}
 <program=40>
 ```
 
-Control, bend, and program events occur at the current cursor and do not
-advance it. Velocity is `1–127`; CC controller/value and program are `0–127`;
-pitch bend is `0–16383` with center `8192`.
+Automatic imports deliberately produce the simpler one-track profile and omit
+per-note velocity unless explicitly requested.
 
-## Take
+## Editor highlighting
 
-```text
-owt 0.1 take
+The OpusWeave editor colors directives, strings, notes, rests, chords,
+controls, attributes, numbers, bars and comments. During OWT playback, the
+source token for every currently sounding note or rest is highlighted. The
+highlight follows tempo changes and supports simultaneous events on multiple
+tracks. Editing the text stops the stale playback mapping before rebuilding
+the lexical layer.
 
-title "Take 1"
-source "MIDIPLUS TINY+"
-unit ms
+## Direct score editing
 
-note C4 at=0.000 dur=468.420 velocity=73 channel=1
-cc 64 at=100.000 value=127 channel=1
-bend at=500.000 value=8192 channel=1
+The default **Score edit** mode selects complete musical objects instead of
+individual text characters. The three levels mirror familiar text units:
 
-end
-```
+- **Event (CHAR)** — one note, rest, chord or control event, such as `C4:1`.
+- **Measure (WORD)** — the events between a pair of bar lines.
+- **Track (LINE)** — one complete musical track.
 
-Take timestamps and note durations are milliseconds and may contain decimals.
-A note duration represents physical key-down to key-up time; sustain remains a
-separate CC64 event. MIDI import normalizes Note On velocity zero to Note Off,
-pairs repeated notes in event order, and closes unmatched notes at the MIDI end.
-The serializer emits exactly three decimal places for stable diffs.
+Click the score or use **Previous** and **Next** to move at the selected level.
+For events, enter a complete token and use **Insert before**, **Insert after**
+or **Replace**. **Delete** applies to the selected event, measure or track.
+**Play to replace event** waits for one Note On from MIDI, the computer
+keyboard or the virtual piano, then replaces the selected pitch while keeping
+its duration and event attributes.
 
-## Quantization
+**Raw text** exposes the complete OWT source for unrestricted typing, paste and
+document replacement. Undo/redo and Save remain available in both modes.
+**Improv** starts the continuous call-and-response workflow from the same score
+toolbar.
 
-Exact Take events can be quantized to Score using a configurable grid, tempo,
-and meter. CLI/MCP grid values use conventional whole-note fractions: `1/16`
-means a sixteenth-note grid, which is OWT duration `1/4`. Note velocities are
-preserved. CC and bend events are placed on the same grid. Overlapping notes
-that cannot share one sequential voice are split into additional tracks.
+## Guided performance
 
-The original MIDI/Exact Take should be retained alongside the quantized Score;
-quantization is a derived view, not a replacement for performance timing.
+The **Perform** action turns the current Melody track into a sequence of
+expected notes. The Live Performance panel shows the next note, the mapped
+computer key when available, progress, an outlined computer keycap and an
+outlined piano key. Correct Note On input advances the guide; a chord advances
+after every pitch in that chord has been played. Wrong notes do not advance.
+
+## Real-time computer-keyboard layouts
+
+The Live Performance panel and Musical Typing card share one active keyboard
+layout. Changing either selector immediately updates both controls, the visible
+key-to-note map, piano range, live keystrokes and OWT generation. The selected
+layout is saved locally.
+
+- **OpusWeave default** is the existing chromatic two-octave piano layout.
+- **English word melody** maps every letter through constrained C-major
+  pentatonic motion; spaces and punctuation create tonic cadences.
+- **Pinyin melody** adds the Mandarin tone contours: `1` level, `2` rising,
+  `3` dipping then rising, and `4` falling.
+- **FreePiano classic** reproduces the main alphanumeric diatonic rows from
+  FreePiano 1.8's canonical `data/freepiano.map`: overlapping rows begin at
+  C2, C3, C4 and C5.
+
+In the default layout, A/K change octave and F/4 change velocity. Those keys
+become ordinary notes in the word, Pinyin and FreePiano layouts. **Write to
+OWT** quantizes the characters played by the active layout as eighth notes,
+pads complete 4/4 measures and adds a quiet repeating harmony track.
+
+`ComputerKeyboardLayout` is a public domain contract accepted by
+`MappingEngine.setComputerLayout`, so a future layout editor can install user
+key maps without changing input handlers.
+
+## Built-in examples
+
+The editor includes public-domain material: *Twinkle Twinkle Little Star*,
+Beethoven's *Ode to Joy*, the opening of *Für Elise*, Pachelbel's *Canon in D*,
+Petzold's *Minuet in G*, and the opening texture of Beethoven's *Moonlight
+Sonata*. The source files are also available under `examples/`.
+
+## AI score editor
+
+The AI panel targets OpenAI-compatible chat-completion servers. Endpoint,
+model and optional API key are stored locally in the browser. The default test
+configuration is `http://192.168.6.130:8080` with `gemma4-vl-long`.
+
+- A prompt edits the current OWT, validates the returned document and plays it.
+- Score images are sent as multimodal image content. MP4 files are decoded in
+  the browser and sampled into up to eight JPEG frames before transcription.
+- **Improv mode** listens continuously to MIDI, computer-keyboard or virtual-keyboard input. The first Note On starts a user turn; once all notes are released and input is silent for 1.2 seconds, the phrase is converted to OWT and sent automatically. The AI response is validated and played, then the mode returns to listening. Playing during the AI response interrupts it immediately and begins the next user turn.
+
+Invalid model output is returned to the model with parser diagnostics for up to
+three repairs. If free-form OWT remains invalid, a JSON-schema-constrained note
+response is converted into measure-safe OWT. Desktop builds proxy AI requests
+through the loopback BunDesk server so a LAN llama.cpp server does not need
+browser CORS configuration; the static web build connects directly.
+
+## Lossy MIDI import
+
+MIDI import extracts an editable melody instead of preserving the MIDI event
+stream. The conversion is intentionally lossy and deterministic:
+
+1. Ignore the percussion channel.
+2. Group notes by MIDI track and channel.
+3. Select the most melody-like source using track names, monophony, pitch range
+   and note density, unless the user selects a track or channel.
+4. Reduce simultaneous notes to one voice using `continuous`, `highest` or
+   `lowest` selection.
+5. Quantize note starts and durations to `1/8`, `1/16` or `1/32`.
+6. Preserve the first tempo, meter and key signature when available.
+7. Emit one track named `Melody`.
+8. Discard accompaniment tracks, drum notes, CC, pitch bend, aftertouch, SysEx,
+   raw track structure and performance microtiming.
+
+The importer returns a report containing the selected track/channel, input and
+output note counts, discarded note count and ignored event count. Loss is part
+of the contract: the generated OWT represents the recognizable melody, not a
+round-trip copy of the MIDI file.
+
+Recordings use the same extraction pipeline. Future audio/video transcription
+and score-image recognition should also produce the same simple OWT model after
+recognition and normalization.
 
 ## CLI
 
 ```bash
-opusweave text validate examples/twinkle.owt
-opusweave text play examples/twinkle.owt
-opusweave text to-midi examples/twinkle.owt -o twinkle.mid
-opusweave text from-midi twinkle.mid --view exact -o take.owt
-opusweave text from-midi twinkle.mid --view quantized --grid 1/16 --bpm 120 -o score.owt
+opusweave owt validate examples/twinkle.owt
+opusweave owt play examples/twinkle.owt
+opusweave owt to-midi examples/twinkle.owt -o twinkle.mid
+opusweave owt from-midi twinkle.mid --grid 1/16 --voice continuous -o melody.owt
 ```
 
-`text play` opens the OpusWeave internal SoundFont player with the compiled
-score. Browser audio policy requires one click in the window before playback.
+Optional MIDI import flags:
+
+- `--track N`: one-based source MIDI track.
+- `--channel N`: source MIDI channel `1–16`.
+- `--grid 1/8|1/16|1/32`: rhythm simplification grid.
+- `--voice continuous|highest|lowest`: polyphony reduction strategy.
+- `--preserve-velocity true`: retain per-note velocity overrides.
+
+`owt play` opens the OpusWeave player with the compiled OWT. Browser audio
+policy may require one click before playback starts.
 
 ## MCP tools
 
-- `validate_score_text`
-- `play_score_text`
-- `compile_score_text_to_midi`
-- `get_take_text`
-- `quantize_take`
-- `compare_take_with_score`
+- `validate_owt`
+- `play_owt`
+- `export_owt_to_midi`
+- `import_midi_to_owt`
 
-`get_take_text` accepts a stored take ID, MIDI file, or Take text. Optional
-measure bounds, BPM, and meter return a ranged Exact Take view to avoid placing
-an entire long performance in one model context.
+`import_midi_to_owt` exposes the same lossy melody extraction options and
+returns both OWT text and the conversion report.
 
-## Shared model
+## Internal compilation
 
 ```text
-CompositionSpec JSON ─┐
-                      ├── shared composition model ── MIDI exporter
-OWT Score ────────────┘
-
-Recorded MIDI ── note pairing ── Exact Take ── quantizer ── OWT Score
+.owt text
+   │ parse + validate
+   ▼
+OWT Score AST
+   │ internal conversion
+   ▼
+CompositionSpec
+   │ MIDI exporter
+   ▼
+MIDI playback/export
 ```
 
-OWT serializers are deterministic. Standard MIDI remains the performance file
-format; ABC import/export and MusicXML notation remain compatibility layers for
-future work.
+`CompositionSpec` remains an internal structured compilation model. `.owt` is
+the persistent user-facing source format. MIDI and rendered audio can always be
+regenerated from OWT, but imported MIDI cannot be reconstructed from simplified
+OWT.

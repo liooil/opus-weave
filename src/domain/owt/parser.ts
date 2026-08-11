@@ -7,10 +7,8 @@ import {
   type OwtParseResult,
   type OwtScore,
   type OwtScoreTrack,
-  type OwtTake,
   type ScoreEvent,
   type ScorePosition,
-  type TakeEvent,
   type TempoDirective,
 } from './ast.ts'
 import {
@@ -384,70 +382,6 @@ function parseScore(ctx: ParseContext): OwtScore {
   return score
 }
 
-function parseTake(ctx: ParseContext): OwtTake {
-  const take: OwtTake = { kind: 'take', version: '0.1', unit: 'ms', events: [] }
-  for (let lineIndex = 1; lineIndex < ctx.lines.length; lineIndex++) {
-    const source = stripComment(ctx.lines[lineIndex]!).trim()
-    const line = lineIndex + 1
-    if (!source) continue
-    if (source === 'end') {
-      ctx.ended = true
-      if (ctx.lines.slice(lineIndex + 1).some((rest) => stripComment(rest).trim().length > 0)) issue(ctx, line, 1, 'document.trailing', 'content is not allowed after end')
-      break
-    }
-    if (source.startsWith('title ')) {
-      const title = parseQuotedValue(source.slice(6))
-      if (title === null) issue(ctx, line, 7, 'document.title.syntax', 'title must be a quoted string')
-      else take.title = title
-      continue
-    }
-    if (source.startsWith('source ')) {
-      const device = parseQuotedValue(source.slice(7))
-      if (device === null) issue(ctx, line, 8, 'take.source.syntax', 'source must be a quoted string')
-      else take.source = device
-      continue
-    }
-    if (source.startsWith('unit ')) {
-      if (source !== 'unit ms') issue(ctx, line, 6, 'take.unit.unsupported', 'OWT 0.1 Take only supports unit ms')
-      continue
-    }
-
-    const parts = source.split(/\s+/)
-    const attrs = parseAttributes(source)
-    const atMs = Number(attrs.at)
-    const channel = Number(attrs.channel ?? 1)
-    if (!Number.isFinite(atMs) || atMs < 0) issue(ctx, line, 1, 'take.at.range', 'at must be a non-negative millisecond value')
-    if (!Number.isInteger(channel) || channel < 1 || channel > 16) issue(ctx, line, 1, 'take.channel.range', 'channel must be an integer from 1 to 16')
-    if (!Number.isFinite(atMs) || atMs < 0 || !Number.isInteger(channel) || channel < 1 || channel > 16) continue
-
-    let event: TakeEvent | undefined
-    if (parts[0] === 'note') {
-      const pitch = parseNoteName(parts[1] ?? '')
-      const durationMs = Number(attrs.dur)
-      const velocity = Number(attrs.velocity)
-      if (pitch === null) issue(ctx, line, 6, 'take.note.invalid', `invalid note name: ${parts[1] ?? ''}`)
-      if (!Number.isFinite(durationMs) || durationMs < 0) issue(ctx, line, 1, 'take.duration.range', 'dur must be a non-negative millisecond value')
-      if (!Number.isInteger(velocity) || velocity < 1 || velocity > 127) issue(ctx, line, 1, 'take.velocity.range', 'velocity must be an integer from 1 to 127')
-      if (pitch !== null && Number.isFinite(durationMs) && durationMs >= 0 && Number.isInteger(velocity) && velocity >= 1 && velocity <= 127) {
-        event = { kind: 'note', pitch, atMs, durationMs, velocity, channel, line, column: 1 }
-      }
-    } else if (parts[0] === 'cc') {
-      const controller = Number(parts[1])
-      const value = Number(attrs.value)
-      if (!Number.isInteger(controller) || controller < 0 || controller > 127 || !Number.isInteger(value) || value < 0 || value > 127) {
-        issue(ctx, line, 1, 'take.cc.range', 'CC controller and value must be integers from 0 to 127')
-      } else event = { kind: 'cc', controller, value, atMs, channel, line, column: 1 }
-    } else if (parts[0] === 'bend') {
-      const value = Number(attrs.value)
-      if (!Number.isInteger(value) || value < 0 || value > 16383) issue(ctx, line, 1, 'take.bend.range', 'pitch bend must be an integer from 0 to 16383')
-      else event = { kind: 'bend', value, atMs, channel, line, column: 1 }
-    } else issue(ctx, line, 1, 'take.event.syntax', `unsupported Take event: ${parts[0]}`)
-    if (event) take.events.push(event)
-  }
-  if (!ctx.ended) issue(ctx, ctx.lines.length, 1, 'document.end.missing', 'document must end with end')
-  take.events.sort((a, b) => a.atMs - b.atMs || a.channel - b.channel || a.kind.localeCompare(b.kind))
-  return take
-}
 
 export function parseOwt(text: string): OwtParseResult {
   const lines = text.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').split('\n')
@@ -456,11 +390,11 @@ export function parseOwt(text: string): OwtParseResult {
   const firstIndex = lines.findIndex((line) => stripComment(line).trim().length > 0)
   if (firstIndex < 0) return { diagnostics: [{ severity: 'error', line: 1, column: 1, code: 'document.empty', message: 'OWT document is empty' }] }
   const header = stripComment(lines[firstIndex]!).trim()
-  const match = /^owt\s+(\S+)\s+(score|take)$/.exec(header)
-  if (!match) return { diagnostics: [{ severity: 'error', line: firstIndex + 1, column: 1, code: 'document.header.invalid', message: 'expected: owt 0.1 score or owt 0.1 take' }] }
+  const match = /^owt\s+(\S+)\s+score$/.exec(header)
+  if (!match) return { diagnostics: [{ severity: 'error', line: firstIndex + 1, column: 1, code: 'document.header.invalid', message: 'expected: owt 0.1 score' }] }
   if (match[1] !== '0.1') return { diagnostics: [{ severity: 'error', line: firstIndex + 1, column: 5, code: 'document.version.unsupported', message: `unsupported OWT version ${match[1]}; expected 0.1` }] }
   if (firstIndex !== 0) lines.splice(0, firstIndex)
-  const document: OwtDocument = match[2] === 'score' ? parseScore(ctx) : parseTake(ctx)
+  const document: OwtDocument = parseScore(ctx)
   return diagnostics.some((item) => item.severity === 'error') ? { diagnostics } : { document, diagnostics }
 }
 

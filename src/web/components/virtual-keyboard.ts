@@ -25,6 +25,7 @@ function isBlack(note: number): boolean {
 export class VirtualKeyboard {
   private readonly root: HTMLElement
   private readonly keys = new Map<number, HTMLElement>()
+  private readonly expected = new Set<number>()
 
   constructor(container: HTMLElement, private readonly opts: VirtualKeyboardOptions) {
     this.root = container
@@ -45,6 +46,7 @@ export class VirtualKeyboard {
     for (let note = this.opts.minNote; note <= this.opts.maxNote; note++) {
       const el = document.createElement('div')
       el.className = `vk-key${isBlack(note) ? ' black' : ''}`
+      if (this.expected.has(note)) el.classList.add('expected')
       el.dataset.note = String(note)
       const label = document.createElement('span')
       label.className = 'vk-label'
@@ -75,6 +77,12 @@ export class VirtualKeyboard {
 
   clearAll(): void {
     for (const el of this.keys.values()) el.classList.remove('playing')
+  }
+
+  setExpected(notes: readonly number[]): void {
+    this.expected.clear()
+    for (const note of notes) this.expected.add(note)
+    for (const [note, el] of this.keys) el.classList.toggle('expected', this.expected.has(note))
   }
 
   /** Mark the notes currently reachable from the computer keyboard. */

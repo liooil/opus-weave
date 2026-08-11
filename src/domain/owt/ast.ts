@@ -1,7 +1,7 @@
 import type { Rational } from './rational.ts'
 
-export type OwtDocument = OwtScore | OwtTake
-export type OwtDocumentKind = OwtDocument['kind']
+export type OwtDocument = OwtScore
+export type OwtDocumentKind = 'score'
 
 export interface SourceLocation {
   line: number
@@ -102,48 +102,6 @@ export interface OwtScore {
   tracks: OwtScoreTrack[]
 }
 
-interface TakeEventBase extends SourceLocation {
-  atMs: number
-  channel: number
-}
-
-export interface TakeNoteEvent extends TakeEventBase {
-  kind: 'note'
-  pitch: number
-  durationMs: number
-  velocity: number
-}
-
-export interface TakeControlChangeEvent extends TakeEventBase {
-  kind: 'cc'
-  controller: number
-  value: number
-}
-
-export interface TakePitchBendEvent extends TakeEventBase {
-  kind: 'bend'
-  value: number
-}
-
-export type TakeEvent = TakeNoteEvent | TakeControlChangeEvent | TakePitchBendEvent
-
-export interface OwtTake {
-  kind: 'take'
-  version: '0.1'
-  title?: string
-  source?: string
-  unit: 'ms'
-  events: TakeEvent[]
-}
-
-export interface QuantizeOptions {
-  grid: Rational
-  bpm: number
-  meter: { numerator: number; denominator: number }
-  ppq?: number
-  title?: string
-  program?: number
-}
 
 export class OwtSyntaxError extends Error {
   constructor(readonly diagnostics: OwtDiagnostic[]) {

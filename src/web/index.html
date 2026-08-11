@@ -38,7 +38,90 @@
 
     <main class="workspace-pages">
       <section class="workspace-page active" data-workspace-page="studio">
-        <section class="panel arranger-panel" id="playback-panel">
+        <nav class="score-view-toolbar" aria-label="Score views" data-i18n-aria-label="scoreViews.label">
+          <div><span class="eyebrow" data-i18n="scoreViews.eyebrow">Score representation</span><strong data-i18n="scoreViews.title">Choose a view</strong></div>
+          <div class="score-view-tabs" role="tablist">
+            <button class="score-view-tab active" role="tab" aria-selected="true" data-score-view-target="owt" data-i18n="scoreViews.owt">OWT</button>
+            <button class="score-view-tab" role="tab" aria-selected="false" data-score-view-target="timeline" data-i18n="scoreViews.timeline">Timeline</button>
+            <button class="score-view-tab" role="tab" aria-selected="false" data-score-view-target="staff" data-i18n="scoreViews.staff">Staff</button>
+            <button class="score-view-tab" role="tab" aria-selected="false" data-score-view-target="jianpu" data-i18n="scoreViews.jianpu">Jianpu</button>
+          </div>
+          <button id="btn-score-view-play" class="primary" data-i18n="scoreViews.play">Play score</button>
+        </nav>
+        <section class="panel owt-panel active" id="owt-panel" data-score-view="owt">
+          <div class="section-heading inline-heading">
+            <div><span class="eyebrow" data-i18n="section.textLayer">Primary format</span><h2 data-i18n="section.owtWorkspace">OWT Melody Editor</h2></div>
+            <div class="owt-heading-actions">
+              <span class="owt-primary-badge" data-i18n="owt.primaryFormat">PRIMARY .OWT</span>
+              <label class="file-button compact"><span data-i18n="owt.open">Open OWT</span><input id="owt-file" type="file" accept=".owt,.txt,text/plain" /></label>
+            </div>
+          </div>
+          <p class="hint owt-intro" data-i18n="owt.description">Edit a simple melody as text, then play or export it.</p>
+          <div class="owt-simple-toolbar">
+            <div class="owt-edit-mode-tabs" role="group" aria-label="OWT editing mode" data-i18n-aria-label="simpleEdit.modeLabel">
+              <button id="btn-owt-mode-score" class="active" aria-pressed="true" data-i18n="simpleEdit.scoreMode">Score edit</button>
+              <button id="btn-owt-mode-raw" aria-pressed="false" data-i18n="simpleEdit.rawMode">Raw text</button>
+              <button id="btn-owt-mode-improv" aria-pressed="false" data-i18n="simpleEdit.improvMode">Improv</button>
+            </div>
+            <div id="owt-semantic-controls" class="owt-semantic-controls">
+              <div class="owt-selection-levels" role="group" aria-label="Selection level" data-i18n-aria-label="simpleEdit.levelLabel">
+                <button class="active" data-owt-level="event" data-i18n="simpleEdit.event">Event (CHAR)</button>
+                <button data-owt-level="measure" data-i18n="simpleEdit.measure">Measure (WORD)</button>
+                <button data-owt-level="track" data-i18n="simpleEdit.track">Track (LINE)</button>
+              </div>
+              <div class="owt-semantic-actions">
+                <button id="btn-owt-prev-object" class="quiet" data-i18n="simpleEdit.previous">Previous</button>
+                <button id="btn-owt-next-object" class="quiet" data-i18n="simpleEdit.next">Next</button>
+                <label><span data-i18n="simpleEdit.token">Event text</span><input id="owt-event-input" value="C4:1" spellcheck="false" /></label>
+                <button id="btn-owt-insert-before" data-i18n="simpleEdit.insertBefore">Insert before</button>
+                <button id="btn-owt-insert-after" data-i18n="simpleEdit.insertAfter">Insert after</button>
+                <button id="btn-owt-replace-token" data-i18n="simpleEdit.replaceText">Replace</button>
+                <button id="btn-owt-delete-object" class="danger-quiet" data-i18n="simpleEdit.delete">Delete</button>
+                <button id="btn-owt-replace-play" class="primary" data-i18n="simpleEdit.replacePlay">Play to replace event</button>
+              </div>
+            </div>
+            <div id="owt-edit-status" class="status" data-status-key="simpleEdit.ready">Select an event such as C4:1, a measure, or a track.</div>
+          </div>
+          <div class="owt-editor-shell">
+            <pre id="owt-highlight" class="owt-highlight" aria-hidden="true"></pre>
+            <textarea id="owt-editor" class="owt-editor" spellcheck="false" aria-label="OWT editor" data-i18n-aria-label="owt.editorLabel"></textarea>
+          </div>
+          <div class="owt-modal-statusline">
+            <span id="owt-mode" class="owt-mode normal">NORMAL</span>
+            <span id="owt-position">Ln 1, Col 1</span>
+            <span id="owt-selection-count">1 selection</span>
+            <span id="owt-pending"></span>
+          </div>
+          <input id="owt-command" class="owt-command" type="text" autocomplete="off" spellcheck="false" hidden aria-label="OWT command" />
+          <div id="owt-key-hints" class="owt-key-hints" hidden></div>
+          <div class="owt-actions">
+            <button id="btn-owt-validate" data-i18n="owt.validate">Validate</button>
+            <button id="btn-owt-format" data-i18n="owt.format">Format</button>
+            <button id="btn-owt-play" class="primary" data-i18n="owt.play">Play</button>
+            <button id="btn-owt-practice" data-i18n="owt.practice">Perform</button>
+            <button id="btn-owt-export-midi" data-i18n="owt.exportMidi">Export MIDI</button>
+            <button id="btn-owt-save" data-i18n="owt.save">Save OWT</button>
+          </div>
+          <div class="owt-source-row">
+            <div class="owt-source-actions">
+              <button id="btn-owt-new-score" data-i18n="owt.newScore">New melody</button>
+              <button id="btn-owt-from-midi" disabled data-i18n="owt.fromMidi">Extract from MIDI</button>
+              <button id="btn-owt-from-recording" disabled data-i18n="owt.fromRecording">Extract from recording</button>
+            </div>
+            <div class="owt-extract-controls">
+              <label><span data-i18n="owt.grid">Rhythm grid</span><select id="owt-grid"><option value="1/8">1/8</option><option value="1/16" selected>1/16</option><option value="1/32">1/32</option></select></label>
+              <label><span data-i18n="owt.voice">Melody voice</span><select id="owt-voice"><option value="continuous" data-i18n="owt.voiceContinuous">Continuous</option><option value="highest" data-i18n="owt.voiceHighest">Highest</option><option value="lowest" data-i18n="owt.voiceLowest">Lowest</option></select></label>
+            </div>
+          </div>
+          <div class="owt-example-row">
+            <label><span data-i18n="examples.label">Built-in example</span><select id="owt-example"></select></label>
+            <button id="btn-load-example" data-i18n="examples.load">Load example</button>
+            <button id="btn-play-example" class="quiet" data-i18n="examples.loadPlay">Load and play</button>
+          </div>
+          <div id="owt-status" class="status" data-status-key="owt.ready">Ready to edit an OWT melody.</div>
+          <div id="owt-diagnostics" class="owt-diagnostics" aria-live="polite"></div>
+        </section>
+        <section class="panel arranger-panel" id="playback-panel" data-score-view="timeline" hidden>
           <div class="arranger-head">
             <div>
               <span class="eyebrow" data-i18n="arranger.eyebrow">Arrangement</span>
@@ -100,11 +183,51 @@
           </div>
           <div id="midi-status" class="status" data-status-key="playback.dropMidi">Drop in a MIDI file to begin.</div>
         </section>
+        <section class="panel notation-panel staff-panel" id="staff-panel" data-score-view="staff" hidden>
+          <div class="notation-view-head"><div><span class="eyebrow" data-i18n="scoreViews.staffEyebrow">Standard notation</span><h2 data-i18n="scoreViews.staffTitle">Five-line staff</h2><p data-i18n="scoreViews.staffDescription">A readable treble-staff view generated from the current OWT.</p></div></div>
+          <div id="staff-score" class="notation-surface" aria-live="polite"></div>
+        </section>
+        <section class="panel notation-panel jianpu-panel" id="jianpu-panel" data-score-view="jianpu" hidden>
+          <div class="notation-view-head"><div><span class="eyebrow" data-i18n="scoreViews.jianpuEyebrow">Numbered notation</span><h2 data-i18n="scoreViews.jianpuTitle">Jianpu</h2><p data-i18n="scoreViews.jianpuDescription">Scale degrees, octave dots and duration marks generated from the current OWT.</p></div></div>
+          <div id="jianpu-score" class="notation-surface" aria-live="polite"></div>
+        </section>
+        <section class="panel creative-panel" id="creative-panel">
+          <div class="section-heading inline-heading">
+            <div><span class="eyebrow" data-i18n="creative.eyebrow">Compose</span><h2 data-i18n="creative.title">Musical typing and AI</h2></div>
+            <span class="creative-theory" data-i18n="typing.theory">C-major pentatonic · constrained melodic motion · phrase cadence</span>
+          </div>
+          <div class="creative-grid">
+            <section class="creative-card typing-card">
+              <div class="creative-card-head"><div><h3 data-i18n="typing.title">Musical typing</h3><p data-i18n="typing.description">Type words; constrained notes turn the text into a consonant melody.</p></div></div>
+              <div class="creative-controls">
+                <label><span data-i18n="typing.mode">Keyboard layout</span><select id="musical-typing-mode"><option value="default" data-i18n="layout.default">OpusWeave default</option><option value="english" data-i18n="layout.english">English word melody</option><option value="pinyin" data-i18n="layout.pinyin">Pinyin melody</option><option value="freepiano" data-i18n="layout.freepiano">FreePiano classic</option></select></label>
+              </div>
+              <textarea id="musical-typing-input" rows="4" spellcheck="false" data-i18n-placeholder="typing.placeholder" placeholder="Type a phrase here…"></textarea>
+              <div class="creative-actions"><button id="btn-typing-to-owt" data-i18n="typing.toOwt">Write to OWT</button><button id="btn-typing-play" class="primary" data-i18n="typing.play">Write and play</button><button id="btn-typing-clear" class="quiet" data-i18n="typing.clear">Clear</button></div>
+              <div id="typing-status" class="status" data-status-key="typing.ready">Each letter stays inside a pentatonic scale; spaces create cadences.</div>
+            </section>
+            <section class="creative-card ai-card">
+              <div class="creative-card-head"><div><h3 data-i18n="ai.title">AI score editor</h3><p data-i18n="ai.description">Prompt, score media, or your latest played phrase → validated OWT → playback.</p></div><button id="btn-ai-settings" class="quiet" aria-expanded="false" data-i18n="ai.settings">Model settings</button></div>
+              <div id="ai-settings" class="ai-settings" hidden>
+                <label><span data-i18n="ai.endpoint">Endpoint</span><input id="ai-endpoint" type="url" value="http://192.168.6.130:8080" spellcheck="false" /></label>
+                <label><span data-i18n="ai.model">Model</span><input id="ai-model" value="gemma4-vl-long" spellcheck="false" /></label>
+                <label><span data-i18n="ai.apiKey">API key (optional)</span><input id="ai-api-key" type="password" autocomplete="off" /></label>
+                <button id="btn-ai-test" class="quiet" data-i18n="ai.test">Test connection</button>
+              </div>
+              <textarea id="ai-prompt" rows="4" data-i18n-placeholder="ai.placeholder" placeholder="Example: 哈尔的移动城堡 — create an original lyrical waltz with a soaring melody"></textarea>
+              <div class="ai-media-row"><label class="file-button compact"><span data-i18n="ai.chooseMedia">Choose score image / MP4</span><input id="ai-media-file" type="file" accept="image/*,video/mp4,.mp4" /></label><span id="ai-media-name" data-i18n="ai.noMedia">No media selected</span></div>
+              <div class="creative-actions"><button id="btn-ai-compose" class="primary" data-i18n="ai.compose">Edit OWT and play</button><button id="btn-ai-transcribe" data-i18n="ai.transcribe">Transcribe media and play</button><button id="btn-ai-improvise" aria-pressed="false" data-i18n="ai.improviseStart">Start improv mode</button></div>
+              <div class="improv-mode-row"><span id="ai-improv-state" class="improv-state off" data-i18n="ai.improvOff">Improv off</span><span data-i18n="ai.improvHint">Play a phrase, then pause for 1.2 seconds. AI answers automatically; play again to interrupt.</span></div>
+              <div id="ai-status" class="status" data-status-key="ai.ready">Configure an OpenAI-compatible model, then compose.</div>
+            </section>
+          </div>
+        </section>
 
         <section class="panel live-panel" id="live-panel">
           <div class="section-heading inline-heading">
             <div><span class="eyebrow" data-i18n="section.instrument">Instrument</span><h2 data-i18n="section.livePerformance">Live performance</h2></div>
             <div class="performance-controls">
+              <label class="performance-layout-control"><span class="stepper-label" data-i18n="live.layout">Layout</span><select id="computer-layout"><option value="default" data-i18n="layout.default">OpusWeave default</option><option value="english" data-i18n="layout.english">English word melody</option><option value="pinyin" data-i18n="layout.pinyin">Pinyin melody</option><option value="freepiano" data-i18n="layout.freepiano">FreePiano classic</option></select></label>
               <div class="performance-control-group">
                 <span class="stepper-label" data-i18n="live.octave">Octave</span>
                 <button id="oct-down" class="stepper" data-i18n-title="live.octaveDownControl" data-i18n-aria-label="live.octaveDownControl" title="Lower octave (A)" aria-label="Lower octave (A)">−</button>
@@ -118,6 +241,13 @@
                 <button id="velocity-up" class="stepper" data-i18n-title="live.velocityUpControl" data-i18n-aria-label="live.velocityUpControl" title="Increase velocity (4)" aria-label="Increase velocity (4)">+</button>
               </div>
             </div>
+          </div>
+          <div id="practice-guide" class="practice-guide" hidden aria-live="polite">
+            <span class="practice-label" data-i18n="practice.next">Next key</span>
+            <strong id="practice-note">—</strong>
+            <kbd id="practice-computer-key" hidden></kbd>
+            <span id="practice-progress"></span>
+            <button id="btn-practice-stop" class="quiet" data-i18n="practice.stop">End performance</button>
           </div>
           <div id="live-notes" class="live-notes"><span class="notes-placeholder" data-i18n="live.notesPlaceholder">Played notes appear here</span></div>
           <div class="computer-map" aria-labelledby="computer-map-title">
@@ -184,39 +314,6 @@
           </section>
         </div>
 
-        <section class="panel owt-panel" id="owt-panel">
-          <div class="section-heading inline-heading">
-            <div><span class="eyebrow" data-i18n="section.textLayer">Text layer</span><h2 data-i18n="section.owtWorkspace">OpusWeave Text</h2></div>
-            <div class="owt-heading-actions">
-              <span id="owt-kind" class="owt-kind">SCORE</span>
-              <label class="file-button compact"><span data-i18n="owt.open">Open OWT</span><input id="owt-file" type="file" accept=".owt,.txt,text/plain" /></label>
-            </div>
-          </div>
-          <p class="hint owt-intro" data-i18n="owt.description">Write a Score for playback or inspect an exact recorded Take.</p>
-          <textarea id="owt-editor" class="owt-editor" spellcheck="false" aria-label="OWT editor" data-i18n-aria-label="owt.editorLabel"></textarea>
-          <div class="owt-actions">
-            <button id="btn-owt-validate" class="primary" data-i18n="owt.validate">Validate</button>
-            <button id="btn-owt-format" data-i18n="owt.format">Format</button>
-            <button id="btn-owt-play" data-i18n="owt.play">Play</button>
-            <button id="btn-owt-export-midi" data-i18n="owt.exportMidi">Export MIDI</button>
-            <button id="btn-owt-save" class="quiet" data-i18n="owt.save">Save OWT</button>
-          </div>
-          <div class="owt-source-row">
-            <div class="owt-source-actions">
-              <button id="btn-owt-new-score" data-i18n="owt.newScore">New Score</button>
-              <button id="btn-owt-from-midi" disabled data-i18n="owt.fromMidi">Current MIDI → Take</button>
-              <button id="btn-owt-from-recording" disabled data-i18n="owt.fromRecording">Recording → Take</button>
-            </div>
-            <div class="owt-quantize-controls">
-              <label><span data-i18n="owt.grid">Grid</span><input id="owt-grid" type="text" value="1/16" /></label>
-              <label><span data-i18n="owt.bpm">BPM</span><input id="owt-bpm" type="number" min="1" max="1000" value="120" /></label>
-              <label><span data-i18n="owt.meter">Meter</span><input id="owt-meter" type="text" value="4/4" /></label>
-              <button id="btn-owt-quantize" data-i18n="owt.quantize">Quantize Take</button>
-            </div>
-          </div>
-          <div id="owt-status" class="status" data-status-key="owt.ready">Ready for OWT Score or Take text.</div>
-          <div id="owt-diagnostics" class="owt-diagnostics" aria-live="polite"></div>
-        </section>
 
         <section class="panel monitor-panel"><div class="section-heading inline-heading"><div><span class="eyebrow" data-i18n="section.diagnostics">Diagnostics</span><h2 data-i18n="section.messageMonitor">Message monitor</h2></div><span class="mono-label" data-i18n="monitor.liveStream">LIVE STREAM</span></div><div id="midi-monitor" class="monitor" aria-live="polite"><div class="monitor-empty" data-i18n="monitor.waiting">Waiting for MIDI activity…</div></div></section>
       </section>

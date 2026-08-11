@@ -1,0 +1,79 @@
+import { TempoMap } from '../composition/tempo-map.ts'
+import type { OwtScore } from './ast.ts'
+import { rationalToNumber } from './rational.ts'
+
+export interface OwtSourceRange {
+  start: number
+  end: number
+}
+
+export interface OwtPlaybackToken extends OwtSourceRange {
+  startSeconds: number
+  endSeconds: number
+}
+
+function lineOffsets(text: string): number[] {
+  const offsets = [0]
+  for (let index = 0; index < text.length; index++) {
+    if (text[index] === '\n') offsets.push(index + 1)
+  }
+  return offsets
+}
+
+function tokenEnd(text: string, start: number): number {
+  const opening = text[start]
+  if (opening === '<') {
+    const close = text.indexOf('>', start + 1)
+    return close < 0 ? text.length : close + 1
+  }
+  if (opening === '[') {
+    const close = text.indexOf(']', start + 1)
+    if (close < 0) return text.length
+    let end = close + 1
+    while (end < text.length && !/\s|\|/.test(text[end]!)) end++
+    return end
+  }
+  let end = start
+  while (end < text.length && !/\s|\|/.test(text[end]!)) end++
+  return end
+}
+
+export function buildOwtPlaybackMap(text: string, score: OwtScore): OwtPlaybackToken[] {
+  const offsets = lineOffsets(text)
+  const tempoMap = new TempoMap({
+    ppq: score.ppq,
+    tempos: score.tempos.map((tempo) => ({ beat: rationalToNumber(tempo.at), bpm: tempo.bpm })),
+    timeSignatures: score.meters.map((meter) => ({
+      beat: rationalToNumber(meter.at),
+      numerator: meter.numerator,
+      denominator: meter.denominator,
+    })),
+    defaultTempo: score.tempos[0]?.bpm ?? 120,
+  })
+  const tokens: OwtPlaybackToken[] = []
+  for (const track of score.tracks) {
+    for (const event of track.events) {
+      if (event.kind !== 'note' && event.kind !== 'rest') continue
+      const lineStart = offsets[event.line - 1]
+      if (lineStart === undefined || event.column < 1) continue
+      const start = lineStart + event.column - 1
+      const end = tokenEnd(text, start)
+      if (end <= start) continue
+      const startTick = tempoMap.beatToTick(rationalToNumber(event.at))
+      const endTick = tempoMap.beatToTick(rationalToNumber(event.at) + rationalToNumber(event.duration))
+      tokens.push({
+        start,
+        end,
+        startSeconds: tempoMap.tickToSeconds(startTick),
+        endSeconds: tempoMap.tickToSeconds(endTick),
+      })
+    }
+  }
+  return tokens.sort((left, right) => left.startSeconds - right.startSeconds || left.start - right.start)
+}
+
+export function activeOwtSourceRanges(tokens: readonly OwtPlaybackToken[], seconds: number): OwtSourceRange[] {
+  return tokens
+    .filter((token) => seconds >= token.startSeconds && seconds < token.endSeconds)
+    .map(({ start, end }) => ({ start, end }))
+}

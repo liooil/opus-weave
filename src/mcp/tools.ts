@@ -5,7 +5,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import { OpusWeaveService } from '../domain/services/opusweave-service.ts'
-import { parseRational, rational } from '../domain/owt/rational.ts'
 
 const TextContent = (text: string) => ({ content: [{ type: 'text' as const, text }] })
 
@@ -127,84 +126,47 @@ export function registerTools(server: McpServer, service: OpusWeaveService): voi
   )
 
   server.tool(
-    'validate_score_text',
-    'Parse and validate OWT 0.1 Score text. Returns source-located syntax diagnostics plus CompositionSpec validation.',
+    'validate_owt',
+    'Parse and validate an OWT file. Returns source-located syntax diagnostics and composition validation.',
     { text: z.string().describe('OWT 0.1 score text') },
     async ({ text }) => TextContent(JSON.stringify(service.validateOwt(text))),
   )
 
   server.tool(
-    'play_score_text',
-    'Compile OWT Score text into a playable Standard MIDI payload for the OpusWeave internal SoundFont player.',
+    'play_owt',
+    'Compile OWT into a playable MIDI payload for the OpusWeave internal SoundFont player.',
     { text: z.string().describe('OWT 0.1 score text') },
     async ({ text }) => TextContent(JSON.stringify(service.prepareOwtPlayback(text))),
   )
 
   server.tool(
-    'compile_score_text_to_midi',
-    'Compile OWT Score text to a Standard MIDI File and write it to disk.',
+    'export_owt_to_midi',
+    'Compile OWT to a Standard MIDI File and write it to disk.',
     { text: z.string().describe('OWT 0.1 score text'), output: z.string().describe('Output .mid path') },
     async ({ text, output }) => TextContent(JSON.stringify(await service.compileOwtScore(text, output))),
   )
 
   server.tool(
-    'get_take_text',
-    'Register or retrieve an Exact OWT Take. A MIDI file or Take text may initialize the take ID; optional measure bounds return a ranged view.',
+    'import_midi_to_owt',
+    'Extract a simple editable melody from MIDI. This conversion intentionally discards accompaniment, performance controls, and timing detail.',
     {
-      takeId: z.string().optional(),
-      midiFile: z.string().optional(),
-      takeText: z.string().optional(),
-      fromMeasure: z.number().int().positive().optional(),
-      toMeasure: z.number().int().positive().optional(),
-      bpm: z.number().positive().default(120),
-      meterNumerator: z.number().int().positive().default(4),
-      meterDenominator: z.number().int().positive().default(4),
+      file: z.string().describe('Input .mid file path'),
+      grid: z.enum(['1/8', '1/16', '1/32']).default('1/16'),
+      track: z.number().int().positive().optional().describe('Optional one-based MIDI track number'),
+      channel: z.number().int().min(1).max(16).optional().describe('Optional MIDI channel'),
+      voice: z.enum(['continuous', 'highest', 'lowest']).default('continuous'),
+      preserveVelocity: z.boolean().default(false),
     },
     async (args) => {
-      let takeId = args.takeId
-      if (args.midiFile) takeId = (await service.importMidiAsTake(args.midiFile, takeId)).takeId
-      else if (args.takeText) takeId = service.registerTakeText(args.takeText, takeId).takeId
-      if (!takeId) throw new Error('takeId, midiFile, or takeText is required')
-      const range = args.fromMeasure !== undefined || args.toMeasure !== undefined
-        ? {
-            fromMeasure: args.fromMeasure ?? 1,
-            toMeasure: args.toMeasure ?? args.fromMeasure ?? 1,
-            bpm: args.bpm,
-            meter: { numerator: args.meterNumerator, denominator: args.meterDenominator },
-          }
-        : undefined
-      return TextContent(JSON.stringify({ takeId, text: service.getTakeText(takeId, range) }))
-    },
-  )
-
-  server.tool(
-    'quantize_take',
-    'Quantize Exact OWT Take text into OWT Score text while preserving velocities, CC, and pitch bend events.',
-    {
-      takeText: z.string(),
-      grid: z.string().default('1/16').describe('Conventional whole-note fraction, for example 1/16'),
-      bpm: z.number().positive().default(120),
-      meterNumerator: z.number().int().positive().default(4),
-      meterDenominator: z.number().int().positive().default(4),
-      program: z.number().int().min(0).max(127).default(0),
-    },
-    async (args) => {
-      const parsed = parseRational(args.grid)
-      if (!parsed) throw new Error(`invalid quantization grid: ${args.grid}`)
-      const result = service.quantizeTakeText(args.takeText, {
-        grid: rational(parsed.numerator * 4, parsed.denominator),
-        bpm: args.bpm,
-        meter: { numerator: args.meterNumerator, denominator: args.meterDenominator },
-        program: args.program,
+      const denominator = Number(args.grid.slice(2))
+      const result = await service.importMidiAsOwt(args.file, {
+        grid: { numerator: 4, denominator },
+        trackIndex: args.track === undefined ? undefined : args.track - 1,
+        channel: args.channel,
+        voiceStrategy: args.voice,
+        preserveVelocity: args.preserveVelocity,
       })
       return TextContent(JSON.stringify(result))
     },
-  )
-
-  server.tool(
-    'compare_take_with_score',
-    'Compare Exact OWT Take text with OWT Score text and report pitch matches, missing/extra notes, and timing error.',
-    { takeText: z.string(), scoreText: z.string() },
-    async ({ takeText, scoreText }) => TextContent(JSON.stringify(service.compareTakeTextWithScore(takeText, scoreText))),
   )
 }

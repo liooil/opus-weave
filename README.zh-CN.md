@@ -18,32 +18,30 @@ Web 应用：[liooil.github.io/opus-weave](https://liooil.github.io/opus-weave/)
 
 ## 第一阶段交付的纵向链路
 
+OpusWeave 是 `.owt` 文本文件的编辑器和播放器：
+
 ```
-AI / JSON / CLI / MCP  →  创建 MIDI
+MIDI / 录音 / AI 提示词 / 谱面图片 / MP4 画面帧
+       ↓  旋律提取或多模态生成
+OWT 文本（主要可编辑源文件）
        ↓
-Standard MIDI File  (导入 / 导出，SMF Type 1)
-       ↓
-GUI 播放  (spessasynth_lib + Web Audio API)
-       ↓
-WebMIDI  (实体键盘输入，热插拔，自动重连)
-       ↓
-SoundFont 合成  (.sf2 / .sf3 / .sfogg)
-       ↓
-录制演奏  →  导出 .mid（可再次导入）
+MIDI 播放/导出  →  SoundFont 合成
 ```
 
 | # | 能力 |
 |---|---|
-| 1 | 将 `.mid` 导入多轨节拍时间轴，选择片段，通过实时演奏替换，并导出编辑后的 MIDI |
-| 2 | 默认使用与 FreePiano 相同采样来源的 mda Piano，并以轻量 Micro GM 补全其他音色；也可加载自定义 `.sf2` / `.sf3` / `.sfogg` 音色库 |
-| 3 | 通过 WebMIDI 连接实体 MIDI 键盘（权限按钮、端口选择、热插拔、id 变化后按厂商/名称回退匹配） |
-| 4 | 实时监视 Note On/Off、CC、Pitch Bend（含音名显示） |
-| 5 | 录制实时演奏（实体键盘或电脑键盘），导出可再次导入的 Standard MIDI File |
-| 6 | 通过 CLI 或 MCP 用结构化 `CompositionSpec` 创建多轨 MIDI |
-| 7 | 通过可选的系统 FluidSynth 将 MIDI + SoundFont 渲染为 WAV（`render-midi`） |
-| 8 | 通过 MCP 服务器（5 个工具）让 AI Agent 驱动全部功能 |
-| 9 | 用电脑键盘演奏（Z–M / S–L / Q–U，八度升降，固定力度），并支持 MIDI Learn |
-| 10 | 内置可编辑的 MIDIPLUS TINY+ 32 键键盘设备配置 |
+| 1 | 将 `.owt` 按乐谱对象（事件、小节或轨道）编辑，也可直接编辑原始文本或通过实时弹奏替换，并支持词法高亮与播放字符跟随 |
+| 2 | 通过有意的有损转换从 MIDI 提取旋律，支持轨道选择、声部简化和节奏量化 |
+| 3 | 将 OWT 导出为 Standard MIDI，用于播放和交换 |
+| 4 | 默认使用 FreePiano 风格 mda Piano 与 Micro GM，也可加载自定义 SoundFont |
+| 5 | 通过 WebMIDI 连接实体键盘，并从录音中提取简单 OWT 旋律 |
+| 6 | 在多轨节拍时间轴查看和编辑 MIDI，然后提取旋律或导出 |
+| 7 | 实时监视 Note On/Off、CC 和 Pitch Bend |
+| 8 | 通过可选 FluidSynth 将 MIDI + SoundFont 渲染为 WAV |
+| 9 | 通过 MCP 校验、播放、导入和导出 OWT |
+| 10 | 在 OpusWeave 半音阶、英文单词、拼音声调和 FreePiano 经典布局间切换，并从当前实时布局生成 OWT |
+| 11 | 内置《欢乐颂》《致爱丽丝》《D 大调卡农》《G 大调小步舞曲》《月光奏鸣曲》等公版钢琴示例 |
+| 12 | 配置兼容 OpenAI API 的多模态模型，实现提示词创作、谱面图片/MP4 识别与 AI 接奏 |
 
 ## 快速开始
 
@@ -66,6 +64,10 @@ bun run dev --no-browser
 ### CLI
 
 ```bash
+bun run opusweave owt validate examples/twinkle.owt
+bun run opusweave owt play examples/twinkle.owt
+bun run opusweave owt to-midi examples/twinkle.owt -o tmp/twinkle.mid
+bun run opusweave owt from-midi tmp/twinkle.mid --grid 1/16 --voice continuous -o tmp/melody.owt
 bun run opusweave create-midi --spec examples/minimal-composition.json --output tmp/example.mid
 bun run opusweave inspect-midi --file tmp/example.mid
 bun run opusweave render-midi --midi tmp/example.mid --soundfont /path/to/bank.sf2 --output tmp/example.wav
@@ -81,10 +83,9 @@ bun run opusweave mcp   # stdio MCP 服务器
 { "command": "bun", "args": ["<仓库路径>/src/main.ts", "mcp"] }
 ```
 
-工具同时覆盖 CompositionSpec 与 OWT：`create_midi`、`validate_score_text`、
-`compile_score_text_to_midi`、`play_score_text`、`get_take_text`、
-`quantize_take`、`compare_take_with_score`。详见 [docs/mcp.md](docs/mcp.md)
-和 [docs/owt.md](docs/owt.md)。
+OWT 主流程工具为 `validate_owt`、`play_owt`、`export_owt_to_midi` 和
+`import_midi_to_owt`。底层 MIDI 与 CompositionSpec 工具仍然可用。详见
+[docs/mcp.md](docs/mcp.md) 和 [docs/owt.md](docs/owt.md)。
 
 ## 音色库
 
@@ -102,13 +103,11 @@ SoundFont 合成模型而不是原 VST DSP，听感会贴近 FreePiano 默认音
 ## 格式模型
 
 
-- **MIDI** 是演奏/播放格式（Standard MIDI File，默认 Type 1）。
-- **MusicXML / MXL** 是计划中的未来记谱格式（见 [docs/roadmap.md](docs/roadmap.md)）。
-- **OWT Score / Take** 是面向用户和 LLM 的稳定文本表层，用于编写音乐和阅读
-  精确演奏数据。详见 [docs/owt.md](docs/owt.md)。
-- **CompositionSpec** 是 OpusWeave 的 AI/API 输入模型，是 Agent 描述音乐的
-  结构化方式。它**不是**新的音乐文件标准；最终持久化输出仍是标准 MIDI。
-- **图片 / PDF（OMR）** 是计划中的未来入口。
+- **OWT（`.owt`）**是主要持久化格式：简单、稳定、适合人和 AI 编辑的旋律文本。
+- **MIDI** 是导入、播放和导出格式。MIDI → OWT 有意采用有损转换，舍弃伴奏、
+  演奏控制和微小时序。
+- **CompositionSpec** 是 OWT 校验和 MIDI 导出共享的内部编译模型，不是用户文件格式。
+- **谱面图片和 MP4 视频**可交给已配置的多模态模型，并简化为校验通过的 OWT；MP4 通过抽取画面帧识别。
 
 完整的 `CompositionSpec` schema 与校验规则见
 [docs/midi-model.md](docs/midi-model.md)。
@@ -119,8 +118,8 @@ SoundFont 合成模型而不是原 VST DSP，听感会贴近 FreePiano 默认音
 src/
 ├── main.ts                    # BunDesk 桌面应用、CLI actions、--smoke、MCP 路由
 ├── build.ts                   # 单文件二进制构建（bundesk）
-├── domain/                    # 无框架核心：composition、OWT Score/Take、校验、
-│   │                          #   tempo map、MIDI 导入导出、量化、设备与共享服务
+├── domain/                    # 无框架核心：OWT、旋律提取、composition IR、
+│   │                          #   MIDI 导入导出、设备与共享服务
 │   │                          #   MIDI Learn、OpusWeaveService
 ├── audio/                     # SynthEngine 接口、spessasynth 引擎、mock、
 │   │                          #   FluidSynth 渲染器

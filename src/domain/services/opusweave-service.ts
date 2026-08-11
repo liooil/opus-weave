@@ -16,19 +16,10 @@ import type { CompositionSpec } from '../composition/composition-spec.ts'
 import { TempoMap } from '../composition/tempo-map.ts'
 import { FluidSynthRenderer, detectFluidSynth } from '../../audio/fluidsynth-renderer.ts'
 import type { RenderResult } from '../../audio/audio-renderer.ts'
-import { parseOwt, parseOwtOrThrow } from '../owt/parser.ts'
-import { serializeScore, serializeTake } from '../owt/serializer.ts'
-import {
-  compareTakeWithScore,
-  compileScoreText,
-  midiToTake,
-  quantizeTake,
-  scoreToCompositionSpec,
-  takeRangeByMeasure,
-  takeToMidi,
-  type TakeComparison,
-} from '../owt/integration.ts'
-import type { OwtDiagnostic, OwtScore, OwtTake, QuantizeOptions } from '../owt/ast.ts'
+import { parseOwt } from '../owt/parser.ts'
+import { serializeScore } from '../owt/serializer.ts'
+import { compileScoreText, extractMelodyFromMidi, type MelodyExtractionOptions, type MelodyExtractionResult } from '../owt/integration.ts'
+import type { OwtDiagnostic } from '../owt/ast.ts'
 
 export interface CreateMidiResult {
   bytes: number
@@ -42,7 +33,6 @@ export interface CreateMidiResult {
 
 export interface OwtValidationResult {
   valid: boolean
-  kind?: 'score' | 'take'
   diagnostics: OwtDiagnostic[]
   composition?: ValidationResult
 }
@@ -61,7 +51,6 @@ const CHROMIUM_CANDIDATES = ['chrome', 'chromium', 'chromium-browser', 'google-c
 
 export class OpusWeaveService {
   private readonly renderer = new FluidSynthRenderer()
-  private readonly takes = new Map<string, OwtTake>()
 
   /** Validate + encode a spec; optionally writes the file. Returns summary. */
   async createMidi(spec: unknown, outputPath?: string): Promise<CreateMidiResult> {
@@ -103,11 +92,9 @@ export class OpusWeaveService {
   validateOwt(text: string): OwtValidationResult {
     const parsed = parseOwt(text)
     if (!parsed.document) return { valid: false, diagnostics: parsed.diagnostics }
-    if (parsed.document.kind === 'take') return { valid: true, kind: 'take', diagnostics: parsed.diagnostics }
     const composition = validateCompositionSpec(compileScoreText(text).spec)
     return {
       valid: composition.errors.length === 0,
-      kind: 'score',
       diagnostics: parsed.diagnostics,
       composition,
     }
@@ -129,49 +116,10 @@ export class OpusWeaveService {
     }
   }
 
-  async importMidiAsTake(filePath: string, takeId: string = crypto.randomUUID()): Promise<{ takeId: string; take: OwtTake; text: string }> {
+  async importMidiAsOwt(filePath: string, options: MelodyExtractionOptions = {}): Promise<MelodyExtractionResult> {
     if (!existsSync(filePath)) throw new OpusWeaveError('file-not-found', `MIDI file not found: ${filePath}`)
     const file = Bun.file(resolve(filePath))
-    const take = midiToTake(await file.arrayBuffer(), { title: basename(filePath), source: filePath })
-    this.takes.set(takeId, take)
-    return { takeId, take, text: serializeTake(take) }
-  }
-
-  registerTakeText(text: string, takeId: string = crypto.randomUUID()): { takeId: string; take: OwtTake } {
-    const document = parseOwtOrThrow(text)
-    if (document.kind !== 'take') throw new Error('expected an OWT take document')
-    this.takes.set(takeId, document)
-    return { takeId, take: document }
-  }
-
-  getTakeText(
-    takeId: string,
-    range?: { fromMeasure: number; toMeasure: number; bpm: number; meter: { numerator: number; denominator: number } },
-  ): string {
-    const take = this.takes.get(takeId)
-    if (!take) throw new Error(`unknown take id: ${takeId}`)
-    return serializeTake(range ? takeRangeByMeasure(take, range) : take)
-  }
-
-  quantizeTakeText(text: string, options: QuantizeOptions): { score: OwtScore; text: string; midiBase64: string } {
-    const document = parseOwtOrThrow(text)
-    if (document.kind !== 'take') throw new Error('expected an OWT take document')
-    const score = quantizeTake(document, options)
-    const midi = buildMidi(scoreToCompositionSpec(score))
-    return { score, text: serializeScore(score), midiBase64: Buffer.from(midi).toString('base64') }
-  }
-
-  compareTakeTextWithScore(takeText: string, scoreText: string): TakeComparison {
-    const take = parseOwtOrThrow(takeText)
-    const score = parseOwtOrThrow(scoreText)
-    if (take.kind !== 'take' || score.kind !== 'score') throw new Error('compare requires an OWT take and an OWT score')
-    return compareTakeWithScore(take, score)
-  }
-
-  takeTextToMidi(text: string): ArrayBuffer {
-    const document = parseOwtOrThrow(text)
-    if (document.kind !== 'take') throw new Error('expected an OWT take document')
-    return takeToMidi(document)
+    return extractMelodyFromMidi(await file.arrayBuffer(), { title: options.title ?? basename(filePath), ...options })
   }
 
   /** Render MIDI + SoundFont to WAV via FluidSynth. */

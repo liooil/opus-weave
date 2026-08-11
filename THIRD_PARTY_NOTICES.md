@@ -38,6 +38,14 @@ not distribute or execute FreePiano's VST DLL.
 Users may still load their own .sf2 / .sf3 / .sfogg files, subject to those
 files' respective licenses.
 
+## FreePiano keyboard interoperability
+
+The optional “FreePiano classic” computer-keyboard layout reproduces the main
+alphanumeric key-to-note assignments documented in FreePiano 1.8's public
+`data/freepiano.map` for interoperability. OpusWeave implements those factual
+assignments independently and does not copy or distribute FreePiano executable
+code, plugins, or UI assets.
+
 ## Trademarks
 
 OpusWeave is an independent project and is not affiliated with or endorsed by

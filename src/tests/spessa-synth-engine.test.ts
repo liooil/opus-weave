@@ -57,4 +57,25 @@ describe('SpessaSynthEngine live MIDI delivery', () => {
       { method: 'noteOff', args: [0, 60] },
     ])
   })
+
+  test('routes the AudioContext to an explicitly selected output sink', async () => {
+    const selected: string[] = []
+    const context = {
+      state: 'running',
+      destination: {},
+      currentTime: 0,
+      audioWorklet: { addModule: async () => {} },
+      createGain: () => ({
+        gain: { value: 0, setTargetAtTime: () => {} },
+        connect: () => {},
+      }),
+      setSinkId: async (deviceId: string) => { selected.push(deviceId) },
+      close: async () => {},
+    } as unknown as AudioContext
+
+    const engine = new SpessaSynthEngine(context)
+    expect(engine.supportsAudioOutputSelection()).toBe(true)
+    await engine.setAudioOutput('monitor-t32p-30')
+    expect(selected).toEqual(['monitor-t32p-30'])
+  })
 })

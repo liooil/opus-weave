@@ -219,6 +219,22 @@ export function validateCompositionSpec(input: unknown): ValidationResult {
       }
     }
 
+    if (track.programChanges !== undefined) {
+      if (!Array.isArray(track.programChanges)) {
+        errors.push(err(prefix('programChanges'), 'must be an array', ctx))
+      } else {
+        track.programChanges.forEach((rawProgram, n) => {
+          const nctx = { trackIndex: t, eventIndex: n }
+          if (!isRecord(rawProgram)) {
+            errors.push(err(prefix(`programChanges[${n}]`), `must be an object, got ${typeof rawProgram}`, nctx))
+            return
+          }
+          checkNumber(rawProgram.beat, prefix(`programChanges[${n}].beat`), { min: 0, max: Infinity }, nctx, errors, false)
+          checkNumber(rawProgram.program, prefix(`programChanges[${n}].program`), { min: 0, max: 127 }, nctx, errors)
+        })
+      }
+    }
+
     stats.trackDensities.push(noteCount)
     stats.noteCount += noteCount
   })
@@ -265,6 +281,27 @@ export function validateCompositionSpec(input: unknown): ValidationResult {
           }
         } else {
           errors.push(err(`timeSignatures[${n}].denominator`, `must be a positive integer, got ${JSON.stringify(ts.denominator)}`, nctx))
+        }
+      })
+    }
+  }
+
+  if (spec.keySignatures !== undefined) {
+    if (!Array.isArray(spec.keySignatures)) {
+      errors.push(err('keySignatures', 'must be an array'))
+    } else {
+      spec.keySignatures.forEach((rawKey, n) => {
+        const nctx = { eventIndex: n }
+        if (!isRecord(rawKey)) {
+          errors.push(err(`keySignatures[${n}]`, `must be an object, got ${typeof rawKey}`, nctx))
+          return
+        }
+        checkNumber(rawKey.beat, `keySignatures[${n}].beat`, { min: 0, max: Infinity }, nctx, errors, false)
+        if (typeof rawKey.tonic !== 'string' || !/^[A-G](?:#|b)?$/.test(rawKey.tonic)) {
+          errors.push(err(`keySignatures[${n}].tonic`, `must be a tonic such as C, F#, or Bb, got ${JSON.stringify(rawKey.tonic)}`, nctx))
+        }
+        if (rawKey.mode !== 'major' && rawKey.mode !== 'minor') {
+          errors.push(err(`keySignatures[${n}].mode`, `must be major or minor, got ${JSON.stringify(rawKey.mode)}`, nctx))
         }
       })
     }

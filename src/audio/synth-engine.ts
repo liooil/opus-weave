@@ -23,6 +23,10 @@ export interface SynthEngine {
   /** Kill all sounding notes immediately (Panic). */
   panic(): void
   setMasterVolume(value: number): void
+  /** Route Web Audio to an explicitly selected operating-system output device. */
+  setAudioOutput(deviceId: string): Promise<void>
+  /** Whether this browser implements AudioContext.setSinkId. */
+  supportsAudioOutputSelection(): boolean
   /** Free resources; safe to call multiple times. */
   dispose(): void
   /** True when a SoundFont is loaded. */

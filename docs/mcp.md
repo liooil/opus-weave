@@ -83,6 +83,24 @@ Returns a short multi-track example spec (melody + bass, tempo change,
 control changes, pitch bend) for exercising the full
 create → inspect → render pipeline. No arguments.
 
+### OWT tools
+
+OWT tools operate on the text format documented in `docs/owt.md`:
+
+| Tool | Purpose |
+|---|---|
+| `validate_score_text` | Parse OWT and return source-located diagnostics plus composition validation |
+| `play_score_text` | Compile Score text to a MIDI payload for the internal SoundFont player |
+| `compile_score_text_to_midi` | Validate and write Score text as `.mid` |
+| `get_take_text` | Register/retrieve Exact Take text, optionally ranged by measures |
+| `quantize_take` | Convert Exact Take text to quantized Score text and MIDI |
+| `compare_take_with_score` | Compare pitches and timing against a Score |
+
+`get_take_text` accepts an existing `takeId`, a MIDI file to import, or Take
+text to register. Range arguments use `fromMeasure`, `toMeasure`, `bpm`,
+`meterNumerator`, and `meterDenominator`. `quantize_take.grid` uses a
+conventional whole-note fraction such as `1/16`.
+
 ## Example session
 
 ```

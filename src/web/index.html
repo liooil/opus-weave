@@ -43,6 +43,7 @@
           </div>
           <dl class="status-grid">
             <div><dt data-i18n="status.audioEngine">Audio engine</dt><dd id="st-audio">—</dd></div>
+            <div><dt data-i18n="status.audioOutput">Audio output</dt><dd id="st-audio-output">—</dd></div>
             <div><dt data-i18n="status.webMidi">Web MIDI</dt><dd id="st-midi">—</dd></div>
             <div><dt data-i18n="status.permission">Permission</dt><dd id="st-perm">—</dd></div>
             <div><dt data-i18n="status.input">Input</dt><dd id="st-input">—</dd></div>
@@ -134,8 +135,13 @@
             <div class="field-stack compact-fields">
               <label><span data-i18n="sound.preset">Preset</span><select id="preset-select" disabled><option value="" data-i18n="sound.loadFirst">Load a SoundFont first</option></select></label>
               <label><span data-i18n="sound.masterVolume">Master volume</span><input id="master-volume" type="range" min="0" max="100" value="80" /></label>
+              <div class="audio-output-field">
+                <label><span data-i18n="sound.audioOutput">Audio output</span><select id="audio-output-select"></select></label>
+                <button id="btn-choose-audio-output" class="quiet" data-i18n="sound.chooseOutput">Choose…</button>
+              </div>
             </div>
             <div id="sf-status" class="status"></div>
+            <div id="audio-output-status" class="status"></div>
           </section>
 
           <section class="panel module-panel" id="record-panel">
@@ -171,6 +177,40 @@
           </section>
         </div>
 
+
+        <section class="panel owt-panel" id="owt-panel">
+          <div class="section-heading inline-heading">
+            <div><span class="eyebrow" data-i18n="section.textLayer">Text layer</span><h2 data-i18n="section.owtWorkspace">OpusWeave Text</h2></div>
+            <div class="owt-heading-actions">
+              <span id="owt-kind" class="owt-kind">SCORE</span>
+              <label class="file-button compact"><span data-i18n="owt.open">Open OWT</span><input id="owt-file" type="file" accept=".owt,.txt,text/plain" /></label>
+            </div>
+          </div>
+          <p class="hint owt-intro" data-i18n="owt.description">Write a Score for playback or inspect an exact recorded Take.</p>
+          <textarea id="owt-editor" class="owt-editor" spellcheck="false" aria-label="OWT editor" data-i18n-aria-label="owt.editorLabel"></textarea>
+          <div class="owt-actions">
+            <button id="btn-owt-validate" class="primary" data-i18n="owt.validate">Validate</button>
+            <button id="btn-owt-format" data-i18n="owt.format">Format</button>
+            <button id="btn-owt-play" data-i18n="owt.play">Play</button>
+            <button id="btn-owt-export-midi" data-i18n="owt.exportMidi">Export MIDI</button>
+            <button id="btn-owt-save" class="quiet" data-i18n="owt.save">Save OWT</button>
+          </div>
+          <div class="owt-source-row">
+            <div class="owt-source-actions">
+              <button id="btn-owt-new-score" data-i18n="owt.newScore">New Score</button>
+              <button id="btn-owt-from-midi" disabled data-i18n="owt.fromMidi">Current MIDI → Take</button>
+              <button id="btn-owt-from-recording" disabled data-i18n="owt.fromRecording">Recording → Take</button>
+            </div>
+            <div class="owt-quantize-controls">
+              <label><span data-i18n="owt.grid">Grid</span><input id="owt-grid" type="text" value="1/16" /></label>
+              <label><span data-i18n="owt.bpm">BPM</span><input id="owt-bpm" type="number" min="1" max="1000" value="120" /></label>
+              <label><span data-i18n="owt.meter">Meter</span><input id="owt-meter" type="text" value="4/4" /></label>
+              <button id="btn-owt-quantize" data-i18n="owt.quantize">Quantize Take</button>
+            </div>
+          </div>
+          <div id="owt-status" class="status" data-status-key="owt.ready">Ready for OWT Score or Take text.</div>
+          <div id="owt-diagnostics" class="owt-diagnostics" aria-live="polite"></div>
+        </section>
         <section class="panel monitor-panel">
           <div class="section-heading inline-heading">
             <div><span class="eyebrow" data-i18n="section.diagnostics">Diagnostics</span><h2 data-i18n="section.messageMonitor">Message monitor</h2></div>

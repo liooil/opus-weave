@@ -78,8 +78,10 @@ bun run opusweave mcp   # stdio MCP 服务器
 { "command": "bun", "args": ["<仓库路径>/src/main.ts", "mcp"] }
 ```
 
-工具：`create_midi`、`inspect_midi`、`render_midi`、`validate_composition`、
-`create_example_composition`。详见 [docs/mcp.md](docs/mcp.md)。
+工具同时覆盖 CompositionSpec 与 OWT：`create_midi`、`validate_score_text`、
+`compile_score_text_to_midi`、`play_score_text`、`get_take_text`、
+`quantize_take`、`compare_take_with_score`。详见 [docs/mcp.md](docs/mcp.md)
+和 [docs/owt.md](docs/owt.md)。
 
 ## 音色库
 
@@ -87,10 +89,17 @@ OpusWeave 内置 **OpusWeave Micro GM** 轻量合成音色库，覆盖全部 128
 旋律音色和一套标准鼓组，启动后会自动加载，因此无需额外文件即可演奏。你仍可随时
 加载自己的 `.sf2`、`.sf3` 或 `.sfogg` 音色库；请确保拥有相应文件的合法使用权。
 
+“音色库”面板可以将 Web Audio 明确输出到 USB-C/HDMI 显示器、扬声器或耳机。
+如果设备名称不可见，请点击**显示设备**；Chromium 可能请求麦克风权限以获取设备
+标签，OpusWeave 会立即停止临时音频流，不会录音。
+
 ## 格式模型
+
 
 - **MIDI** 是演奏/播放格式（Standard MIDI File，默认 Type 1）。
 - **MusicXML / MXL** 是计划中的未来记谱格式（见 [docs/roadmap.md](docs/roadmap.md)）。
+- **OWT Score / Take** 是面向用户和 LLM 的稳定文本表层，用于编写音乐和阅读
+  精确演奏数据。详见 [docs/owt.md](docs/owt.md)。
 - **CompositionSpec** 是 OpusWeave 的 AI/API 输入模型，是 Agent 描述音乐的
   结构化方式。它**不是**新的音乐文件标准；最终持久化输出仍是标准 MIDI。
 - **图片 / PDF（OMR）** 是计划中的未来入口。
@@ -104,8 +113,8 @@ OpusWeave 内置 **OpusWeave Micro GM** 轻量合成音色库，覆盖全部 128
 src/
 ├── main.ts                    # BunDesk 桌面应用、CLI actions、--smoke、MCP 路由
 ├── build.ts                   # 单文件二进制构建（bundesk）
-├── domain/                    # 无框架核心：spec、校验、tempo map、
-│   │                          #   MIDI 导出/导入/录制、设备配置、映射引擎、
+├── domain/                    # 无框架核心：composition、OWT Score/Take、校验、
+│   │                          #   tempo map、MIDI 导入导出、量化、设备与共享服务
 │   │                          #   MIDI Learn、OpusWeaveService
 ├── audio/                     # SynthEngine 接口、spessasynth 引擎、mock、
 │   │                          #   FluidSynth 渲染器
@@ -113,7 +122,7 @@ src/
 ├── mcp/                       # MCP 服务器与工具定义
 ├── cli/                       # CLI 参数辅助
 ├── web/                       # GUI：HTML/CSS/TS，无框架
-└── tests/                     # 98 个单元测试（bun test）
+└── tests/                     # 确定性的 Bun 测试套件
 ```
 
 GUI、CLI 与 MCP 都调用同一个 `OpusWeaveService` —— 领域逻辑只实现一次，

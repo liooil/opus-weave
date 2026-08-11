@@ -4,6 +4,7 @@
  * spessasynth classes directly (the engine wraps them).
  */
 import { SpessaSynthEngine } from '../audio/spessa-synth-engine.ts'
+import { selectAudioOutputDevice, type AudioOutputDevice, type SavedAudioOutput } from '../audio/audio-output.ts'
 import { WebMidiManager, type MidiManagerState } from '../midi/web-midi-manager.ts'
 import { MidiRecorder, takeToMidi, type RecordedTake } from '../domain/midi/midi-recorder.ts'
 import { applyTrackMutes, importMidi, inspectMidi, type MidiInspection } from '../domain/midi/midi-import.ts'
@@ -14,6 +15,11 @@ import { midiplusTinyPlusProfile } from '../domain/devices/midiplus-tiny-plus.ts
 import { VirtualKeyboard } from './components/virtual-keyboard.ts'
 import type { BasicMIDI } from 'spessasynth_core'
 import { resolveLocale, setLocale, t, translateDocument, type TranslationValues } from './i18n.ts'
+import { compileScoreText, midiToTake, quantizeTake, recordedTakeToOwt, takeToMidi as owtTakeToMidi } from '../domain/owt/integration.ts'
+import { parseOwt } from '../domain/owt/parser.ts'
+import { parseRational, rational } from '../domain/owt/rational.ts'
+import { serializeOwt, serializeScore, serializeTake } from '../domain/owt/serializer.ts'
+import type { OwtDocument, OwtTake } from '../domain/owt/ast.ts'
 import builtInSoundFontUrl from './assets/opusweave-micro-gm.sf2' with { type: 'file' }
 
 // ─── DOM helpers ─────────────────────────────────────────────────────────────
@@ -86,6 +92,7 @@ localeSelect.addEventListener('change', () => {
   renderTrackList()
   renderLearnBindings()
   populatePresets()
+  void refreshAudioOutputs(false)
 })
 
 function fmtTime(secs: number): string {
@@ -104,6 +111,31 @@ function downloadBuffer(buf: ArrayBuffer, name: string, mime: string): void {
   a.click()
   setTimeout(() => URL.revokeObjectURL(url), 5000)
 }
+
+function downloadText(text: string, name: string): void {
+  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = name
+  anchor.click()
+  setTimeout(() => URL.revokeObjectURL(url), 5000)
+}
+
+const DEFAULT_OWT_SCORE = `owt 0.1 score
+
+title "New Score"
+ppq 480
+meter 1:1 4/4
+tempo 1:1 120
+key 1:1 C major
+
+track "Piano" channel=1 program=0 velocity=88
+
+| C4:1 E4:1 G4:1 C5:1 |
+
+end
+`
 
 // ─── State ───────────────────────────────────────────────────────────────────
 
@@ -141,6 +173,19 @@ try {
 }
 
 const midiManager = new WebMidiManager(window.localStorage)
+
+const AUDIO_OUTPUT_STORAGE_KEY = 'opusweave.audio.output'
+let audioOutputDevices: AudioOutputDevice[] = []
+let savedAudioOutput: SavedAudioOutput | null = null
+try {
+  savedAudioOutput = JSON.parse(window.localStorage.getItem(AUDIO_OUTPUT_STORAGE_KEY) ?? 'null') as SavedAudioOutput | null
+} catch {
+  savedAudioOutput = null
+}
+
+interface MediaDevicesWithOutputSelection extends MediaDevices {
+  selectAudioOutput?: (options?: { deviceId?: string }) => Promise<MediaDeviceInfo>
+}
 
 // Virtual keyboard — starts at the TINY+ range, widens when a MIDI loads.
 const keyboard = new VirtualKeyboard($('virtual-keyboard'), {
@@ -194,6 +239,115 @@ async function ensureEngine(): Promise<SpessaSynthEngine> {
   })
   return engine
 }
+
+function audioOutputLabel(device: AudioOutputDevice, index: number): string {
+  if (device.deviceId === 'default' || device.deviceId === '') {
+    return device.label ? `${t('sound.systemDefault')} — ${device.label}` : t('sound.systemDefault')
+  }
+  return device.label || t('sound.unnamedOutput', { index: index + 1 })
+}
+
+function renderAudioOutputs(selected?: AudioOutputDevice | null): void {
+  const select = $<HTMLSelectElement>('audio-output-select')
+  select.innerHTML = ''
+  for (let index = 0; index < audioOutputDevices.length; index++) {
+    const device = audioOutputDevices[index]!
+    const option = document.createElement('option')
+    option.value = device.deviceId
+    option.textContent = audioOutputLabel(device, index)
+    select.appendChild(option)
+  }
+  if (selected) select.value = selected.deviceId
+}
+
+async function applyAudioOutput(device: AudioOutputDevice, persist: boolean): Promise<void> {
+  const label = audioOutputLabel(device, audioOutputDevices.indexOf(device))
+  try {
+    const e = await ensureEngine()
+    if (!e.supportsAudioOutputSelection()) {
+      setTranslatedStatus('audio-output-status', 'sound.outputUnsupported', {}, 'warn')
+      setTranslatedText('st-audio-output', 'sound.systemDefault')
+      return
+    }
+    await e.setAudioOutput(device.deviceId)
+    if (persist) {
+      savedAudioOutput = { deviceId: device.deviceId, label: device.label }
+      window.localStorage.setItem(AUDIO_OUTPUT_STORAGE_KEY, JSON.stringify(savedAudioOutput))
+    }
+    $<HTMLElement>('st-audio-output').textContent = label
+    setTranslatedStatus('audio-output-status', 'sound.outputReady', { device: label }, 'ok')
+  } catch (err) {
+    setTranslatedStatus('audio-output-status', 'sound.outputError', {
+      device: label,
+      error: err instanceof Error ? err.message : String(err),
+    }, 'err')
+  }
+}
+
+async function refreshAudioOutputs(applySaved: boolean): Promise<void> {
+  const select = $<HTMLSelectElement>('audio-output-select')
+  const chooseButton = $<HTMLButtonElement>('btn-choose-audio-output')
+  if (!navigator.mediaDevices || !('setSinkId' in AudioContext.prototype)) {
+    audioOutputDevices = [{ deviceId: 'default', label: '' }]
+    renderAudioOutputs(audioOutputDevices[0])
+    select.disabled = true
+    chooseButton.disabled = true
+    setTranslatedText('st-audio-output', 'sound.systemDefault')
+    setTranslatedStatus('audio-output-status', 'sound.outputUnsupported', {}, 'warn')
+    return
+  }
+  const devices = await navigator.mediaDevices.enumerateDevices()
+  audioOutputDevices = devices
+    .filter((device) => device.kind === 'audiooutput')
+    .map((device) => ({ deviceId: device.deviceId, label: device.label }))
+  const mediaDevices = navigator.mediaDevices as MediaDevicesWithOutputSelection
+  chooseButton.textContent = t(mediaDevices.selectAudioOutput ? 'sound.chooseOutput' : 'sound.revealOutputs')
+  if (audioOutputDevices.length === 0) audioOutputDevices.push({ deviceId: 'default', label: '' })
+  const selected = selectAudioOutputDevice(audioOutputDevices, savedAudioOutput)
+  renderAudioOutputs(selected)
+  select.disabled = false
+  chooseButton.disabled = false
+  if (selected) {
+    $<HTMLElement>('st-audio-output').textContent = audioOutputLabel(selected, audioOutputDevices.indexOf(selected))
+    if (applySaved && savedAudioOutput) await applyAudioOutput(selected, false)
+    else setTranslatedStatus('audio-output-status', mediaDevices.selectAudioOutput ? 'sound.outputChooseHint' : 'sound.outputPermissionHint')
+  }
+}
+
+$<HTMLSelectElement>('audio-output-select').addEventListener('change', (event) => {
+  const deviceId = (event.target as HTMLSelectElement).value
+  const device = audioOutputDevices.find((candidate) => candidate.deviceId === deviceId)
+  if (device) void applyAudioOutput(device, true)
+})
+
+$('btn-choose-audio-output').addEventListener('click', async () => {
+  const mediaDevices = navigator.mediaDevices as MediaDevicesWithOutputSelection
+  try {
+    if (mediaDevices.selectAudioOutput) {
+      const selected = await mediaDevices.selectAudioOutput(savedAudioOutput?.deviceId ? { deviceId: savedAudioOutput.deviceId } : undefined)
+      await refreshAudioOutputs(false)
+      const device = audioOutputDevices.find((candidate) => candidate.deviceId === selected.deviceId)
+        ?? { deviceId: selected.deviceId, label: selected.label }
+      if (!audioOutputDevices.some((candidate) => candidate.deviceId === device.deviceId)) audioOutputDevices.push(device)
+      renderAudioOutputs(device)
+      await applyAudioOutput(device, true)
+      return
+    }
+    const stream = await mediaDevices.getUserMedia({ audio: true })
+    for (const track of stream.getTracks()) track.stop()
+    await refreshAudioOutputs(true)
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'NotAllowedError') return
+    setTranslatedStatus('audio-output-status', 'sound.outputError', {
+      device: savedAudioOutput?.label || t('sound.systemDefault'),
+      error: err instanceof Error ? err.message : String(err),
+    }, 'err')
+  }
+})
+
+navigator.mediaDevices?.addEventListener('devicechange', () => {
+  void refreshAudioOutputs(true)
+})
 
 function setPlaybackUi(playing: boolean): void {
   $<HTMLButtonElement>('btn-play').disabled = !loadedMidi
@@ -509,26 +663,32 @@ $('btn-panic').addEventListener('click', () => {
 
 // ─── MIDI player ─────────────────────────────────────────────────────────────
 
+async function loadMidiData(buffer: ArrayBuffer, fileName: string): Promise<void> {
+  loadedMidi = importMidi(buffer, fileName)
+  loadedInspection = inspectMidi(buffer, fileName)
+  mutedTracks.clear()
+  $<HTMLSpanElement>('st-file').textContent = fileName
+  renderTrackList()
+  const tempo = loadedInspection.tempos[0]?.bpm ?? 120
+  $<HTMLSpanElement>('playback-tempo').textContent = `♩ ${tempo} BPM`
+  const range = loadedInspection.tracks.flatMap((track) =>
+    track.minNote !== null && track.maxNote !== null ? [track.minNote, track.maxNote] : [],
+  )
+  if (range.length >= 2) keyboard.setRange(Math.min(...range), Math.max(...range))
+  setTranslatedStatus('midi-status', 'playback.loaded', {
+    file: fileName,
+    duration: fmtTime(loadedInspection.durationSeconds),
+  }, 'ok')
+  setPlaybackUi(false)
+  updateOwtSourceButtons()
+}
+
 $<HTMLInputElement>('midi-file').addEventListener('change', async (ev) => {
   const file = (ev.target as HTMLInputElement).files?.[0]
   if (!file) return
   setTranslatedStatus('midi-status', 'playback.loading', { file: file.name }, 'warn')
   try {
-    const buf = await file.arrayBuffer()
-    loadedMidi = importMidi(buf, file.name)
-    loadedInspection = inspectMidi(buf, file.name)
-    mutedTracks.clear()
-    $<HTMLSpanElement>('st-file').textContent = file.name
-    renderTrackList()
-    const tempo = loadedInspection.tempos[0]?.bpm ?? 120
-    $<HTMLSpanElement>('playback-tempo').textContent = `♩ ${tempo} BPM`
-    const range = loadedInspection.tracks.flatMap((t) => (t.minNote !== null && t.maxNote !== null ? [t.minNote, t.maxNote] : []))
-    if (range.length >= 2) keyboard.setRange(Math.min(...range), Math.max(...range))
-    setTranslatedStatus('midi-status', 'playback.loaded', {
-      file: file.name,
-      duration: fmtTime(loadedInspection.durationSeconds),
-    }, 'ok')
-    setPlaybackUi(false)
+    await loadMidiData(await file.arrayBuffer(), file.name)
   } catch (err) {
     setTranslatedStatus('midi-status', 'playback.error', { error: err instanceof Error ? err.message : String(err) }, 'err')
   }
@@ -573,6 +733,7 @@ $('btn-play').addEventListener('click', async () => {
     let source = loadedMidi
     if (mutedTracks.size > 0) source = applyTrackMutes(loadedMidi, mutedTracks)
     await e.playMidi(source.writeMIDI(), loadedMidi.fileName ?? 'song.mid')
+    setTranslatedStatus('midi-status', 'playback.playing')
     setPlaybackUi(true)
   } catch (err) {
     setTranslatedStatus('midi-status', 'playback.playError', { error: err instanceof Error ? err.message : String(err) }, 'err')
@@ -591,6 +752,7 @@ $('btn-restart').addEventListener('click', async () => {
   let source = loadedMidi
   if (mutedTracks.size > 0) source = applyTrackMutes(loadedMidi, mutedTracks)
   await e.playMidi(source.writeMIDI(), loadedMidi.fileName ?? 'song.mid')
+  setTranslatedStatus('midi-status', 'playback.playing')
   setPlaybackUi(true)
 })
 
@@ -604,6 +766,7 @@ $('btn-record').addEventListener('click', () => {
   $<HTMLButtonElement>('btn-record-export').disabled = true
   setTranslatedText('st-record', 'status.recording')
   setTranslatedStatus('record-status', 'record.recording', {}, 'warn')
+  updateOwtSourceButtons()
 })
 
 $('btn-record-stop').addEventListener('click', () => {
@@ -619,6 +782,7 @@ $('btn-record-stop').addEventListener('click', () => {
     events: take.events.length,
     duration: (take.durationMs / 1000).toFixed(2),
   }, 'ok')
+  updateOwtSourceButtons()
 })
 
 $('btn-clear-take').addEventListener('click', () => {
@@ -628,6 +792,7 @@ $('btn-clear-take').addEventListener('click', () => {
   $<HTMLButtonElement>('btn-play-take').disabled = true
   $<HTMLButtonElement>('btn-record-export').disabled = true
   setTranslatedStatus('record-status', 'record.cleared')
+  updateOwtSourceButtons()
 })
 
 $('btn-play-take').addEventListener('click', async () => {
@@ -655,6 +820,204 @@ $('btn-record-export').addEventListener('click', () => {
   setTranslatedStatus('record-status', 'record.exported', {}, 'ok')
 })
 
+
+// ─── OpusWeave Text workspace ────────────────────────────────────────────────
+
+function updateOwtSourceButtons(): void {
+  $<HTMLButtonElement>('btn-owt-from-midi').disabled = loadedMidi === null
+  $<HTMLButtonElement>('btn-owt-from-recording').disabled = take === null || take.events.length === 0
+}
+
+function refreshOwtKind(document?: OwtDocument): void {
+  const kind = document?.kind ?? (/^\s*owt\s+0\.1\s+take\b/m.test($<HTMLTextAreaElement>('owt-editor').value) ? 'take' : 'score')
+  const badge = $('owt-kind')
+  badge.textContent = kind.toUpperCase()
+  badge.classList.toggle('take', kind === 'take')
+  $<HTMLButtonElement>('btn-owt-quantize').disabled = kind !== 'take'
+}
+
+function renderOwtDiagnostics(diagnostics: Array<{ line: number; column: number; severity: string; code: string; message: string }>): void {
+  const box = $('owt-diagnostics')
+  box.innerHTML = ''
+  for (const diagnostic of diagnostics) {
+    const row = document.createElement('div')
+    row.className = `owt-diagnostic${diagnostic.severity === 'warning' ? ' warning' : ''}`
+    row.textContent = `${diagnostic.line}:${diagnostic.column} [${diagnostic.code}] ${diagnostic.message}`
+    box.appendChild(row)
+  }
+}
+
+function parseEditorOwt(): OwtDocument | null {
+  const result = parseOwt($<HTMLTextAreaElement>('owt-editor').value)
+  renderOwtDiagnostics(result.diagnostics)
+  refreshOwtKind(result.document)
+  if (!result.document) {
+    setTranslatedStatus('owt-status', 'owt.invalid', { count: result.diagnostics.filter((item) => item.severity === 'error').length }, 'err')
+    return null
+  }
+  return result.document
+}
+
+function owtFileName(document: OwtDocument, extension: 'owt' | 'mid'): string {
+  const title = document.title?.trim() || (document.kind === 'score' ? 'opusweave-score' : 'opusweave-take')
+  const safe = title.replace(/[^\p{L}\p{N}._-]+/gu, '-').replace(/^-+|-+$/g, '') || `opusweave-${document.kind}`
+  return `${safe}.${extension}`
+}
+
+function validateEditorOwt(): OwtDocument | null {
+  const document = parseEditorOwt()
+  if (!document) return null
+  if (document.kind === 'score') {
+    const compiled = compileScoreText($<HTMLTextAreaElement>('owt-editor').value)
+    const notes = compiled.spec.tracks.reduce((sum, track) => sum + track.notes.length, 0)
+    const beats = compiled.spec.tracks.reduce((maximum, track) => Math.max(maximum, ...track.notes.map((note) => note.startBeat + note.durationBeats), 0), 0)
+    setTranslatedStatus('owt-status', 'owt.validScore', { tracks: compiled.spec.tracks.length, notes, beats }, 'ok')
+  } else {
+    const duration = document.events.reduce((maximum, event) => Math.max(maximum, event.kind === 'note' ? event.atMs + event.durationMs : event.atMs), 0)
+    setTranslatedStatus('owt-status', 'owt.validTake', { events: document.events.length, duration: duration.toFixed(3) }, 'ok')
+  }
+  return document
+}
+
+function parseQuantizeGrid(text: string) {
+  const fraction = parseRational(text)
+  if (!fraction || fraction.numerator <= 0) throw new Error(`invalid grid: ${text}`)
+  return rational(fraction.numerator * 4, fraction.denominator)
+}
+
+function parseQuantizeMeter(text: string): { numerator: number; denominator: number } {
+  const match = /^(\d+)\/(\d+)$/.exec(text.trim())
+  if (!match) throw new Error(`invalid meter: ${text}`)
+  const numerator = Number(match[1])
+  const denominator = Number(match[2])
+  if (numerator < 1 || denominator < 1 || (denominator & (denominator - 1)) !== 0) throw new Error(`invalid meter: ${text}`)
+  return { numerator, denominator }
+}
+
+$<HTMLTextAreaElement>('owt-editor').addEventListener('input', () => refreshOwtKind())
+
+$('btn-owt-validate').addEventListener('click', () => {
+  try {
+    validateEditorOwt()
+  } catch (err) {
+    setTranslatedStatus('owt-status', 'owt.error', { error: err instanceof Error ? err.message : String(err) }, 'err')
+  }
+})
+
+$('btn-owt-format').addEventListener('click', () => {
+  const document = parseEditorOwt()
+  if (!document) return
+  $<HTMLTextAreaElement>('owt-editor').value = serializeOwt(document)
+  renderOwtDiagnostics([])
+  refreshOwtKind(document)
+  setTranslatedStatus('owt-status', 'owt.formatted', {}, 'ok')
+})
+
+$('btn-owt-play').addEventListener('click', async () => {
+  const document = parseEditorOwt()
+  if (!document) return
+  try {
+    const midi = document.kind === 'score'
+      ? compileScoreText($<HTMLTextAreaElement>('owt-editor').value).midi
+      : owtTakeToMidi(document)
+    const fileName = owtFileName(document, 'mid')
+    await loadMidiData(midi, fileName)
+    const e = await ensureEngine()
+    await e.playMidi(midi, fileName)
+    setTranslatedStatus('owt-status', 'owt.playing', { kind: document.kind.toUpperCase() }, 'ok')
+    setTranslatedStatus('midi-status', 'playback.playing')
+  } catch (err) {
+    setTranslatedStatus('owt-status', 'owt.error', { error: err instanceof Error ? err.message : String(err) }, 'err')
+  }
+})
+
+$('btn-owt-export-midi').addEventListener('click', () => {
+  const document = parseEditorOwt()
+  if (!document) return
+  try {
+    const midi = document.kind === 'score'
+      ? compileScoreText($<HTMLTextAreaElement>('owt-editor').value).midi
+      : owtTakeToMidi(document)
+    const fileName = owtFileName(document, 'mid')
+    downloadBuffer(midi, fileName, 'audio/midi')
+    setTranslatedStatus('owt-status', 'owt.exported', { file: fileName }, 'ok')
+  } catch (err) {
+    setTranslatedStatus('owt-status', 'owt.error', { error: err instanceof Error ? err.message : String(err) }, 'err')
+  }
+})
+
+$('btn-owt-save').addEventListener('click', () => {
+  const document = parseEditorOwt()
+  if (!document) return
+  const text = serializeOwt(document)
+  const fileName = owtFileName(document, 'owt')
+  downloadText(text, fileName)
+  setTranslatedStatus('owt-status', 'owt.saved', { file: fileName }, 'ok')
+})
+
+$<HTMLInputElement>('owt-file').addEventListener('change', async (event) => {
+  const file = (event.target as HTMLInputElement).files?.[0]
+  if (!file) return
+  $<HTMLTextAreaElement>('owt-editor').value = await file.text()
+  refreshOwtKind()
+  setTranslatedStatus('owt-status', 'owt.loaded', { file: file.name }, 'ok')
+  validateEditorOwt()
+})
+
+$('btn-owt-new-score').addEventListener('click', () => {
+  $<HTMLTextAreaElement>('owt-editor').value = DEFAULT_OWT_SCORE
+  renderOwtDiagnostics([])
+  refreshOwtKind()
+  setTranslatedStatus('owt-status', 'owt.newReady', {}, 'ok')
+})
+
+$('btn-owt-from-midi').addEventListener('click', () => {
+  if (!loadedMidi) {
+    setTranslatedStatus('owt-status', 'owt.sourceMissing', {}, 'warn')
+    return
+  }
+  const title = $<HTMLElement>('st-file').textContent || 'Current MIDI'
+  const exactTake = midiToTake(loadedMidi.writeMIDI(), { title, source: title })
+  $<HTMLTextAreaElement>('owt-editor').value = serializeTake(exactTake)
+  renderOwtDiagnostics([])
+  refreshOwtKind(exactTake)
+  setTranslatedStatus('owt-status', 'owt.midiImported', {}, 'ok')
+})
+
+$('btn-owt-from-recording').addEventListener('click', () => {
+  if (!take || take.events.length === 0) {
+    setTranslatedStatus('owt-status', 'owt.sourceMissing', {}, 'warn')
+    return
+  }
+  const state = midiManager.getState()
+  const source = state.inputs.find((input) => input.id === state.selectedInputId)?.name
+  const exactTake = recordedTakeToOwt(take, { title: 'OpusWeave Recording', source })
+  $<HTMLTextAreaElement>('owt-editor').value = serializeTake(exactTake)
+  renderOwtDiagnostics([])
+  refreshOwtKind(exactTake)
+  setTranslatedStatus('owt-status', 'owt.recordingImported', {}, 'ok')
+})
+
+$('btn-owt-quantize').addEventListener('click', () => {
+  const document = parseEditorOwt()
+  if (!document) return
+  if (document.kind !== 'take') {
+    setTranslatedStatus('owt-status', 'owt.takeRequired', {}, 'warn')
+    return
+  }
+  try {
+    const gridText = $<HTMLInputElement>('owt-grid').value.trim()
+    const bpm = Number($<HTMLInputElement>('owt-bpm').value)
+    const meter = parseQuantizeMeter($<HTMLInputElement>('owt-meter').value)
+    const score = quantizeTake(document, { grid: parseQuantizeGrid(gridText), bpm, meter })
+    $<HTMLTextAreaElement>('owt-editor').value = serializeScore(score)
+    renderOwtDiagnostics([])
+    refreshOwtKind(score)
+    setTranslatedStatus('owt-status', 'owt.quantized', { grid: gridText }, 'ok')
+  } catch (err) {
+    setTranslatedStatus('owt-status', 'owt.error', { error: err instanceof Error ? err.message : String(err) }, 'err')
+  }
+})
 // ─── Computer keyboard (MappingEngine) ───────────────────────────────────────
 
 const TEXT_INPUT: Record<string, true> = { INPUT: true, TEXTAREA: true, SELECT: true }
@@ -748,8 +1111,22 @@ window.addEventListener('beforeunload', () => {
 renderLearnBindings()
 updateOctaveLabel()
 setPlaybackUi(false)
+$<HTMLTextAreaElement>('owt-editor').value = DEFAULT_OWT_SCORE
+refreshOwtKind()
+updateOwtSourceButtons()
 renderMidiState(midiManager.getState())
 builtInSoundFontPromise = loadBuiltInSoundFont()
-void builtInSoundFontPromise
+void builtInSoundFontPromise.then(() => refreshAudioOutputs(true))
+
+void fetch('/api/startup-midi').then(async (response) => {
+  if (response.status === 204 || !response.ok) return
+  const encodedTitle = response.headers.get('x-opusweave-title') ?? 'OWT Score'
+  const title = decodeURIComponent(encodedTitle)
+  await loadMidiData(await response.arrayBuffer(), `${title}.mid`)
+  setTranslatedStatus('midi-status', 'playback.clickToStart', {}, 'warn')
+  window.addEventListener('pointerdown', () => $<HTMLButtonElement>('btn-play').click(), { once: true, capture: true })
+}).catch((err: unknown) => {
+  setTranslatedStatus('midi-status', 'playback.error', { error: err instanceof Error ? err.message : String(err) }, 'err')
+})
 
 // Guard: exported MIDI from a take must re-import — validated by round-trip test in the suite.

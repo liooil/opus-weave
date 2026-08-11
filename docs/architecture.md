@@ -42,16 +42,18 @@ src/build.ts       Single-file binary via bundesk; the AudioWorklet processor
 src/domain/
   composition/     CompositionSpec types, runtime validation, TempoMap
                    (the single beat→tick rounding point).
+  owt/             OWT Score/Take AST, rational parser, stable serializer,
+                   MIDI conversion, exact Take pairing, quantizer, comparison.
   midi/            midi-export (SMF Type 1), midi-import/inspect, recorder.
   devices/         DeviceProfile model + matching, MappingEngine,
                    MIDIPLUS TINY+ profile.
   midi-learn.ts    MIDI Learn: arm parameter → bind control → persist.
-  services/        OpusWeaveService (shared by CLI/MCP/GUI).
+  services/        OpusWeaveService shared by JSON, OWT, CLI, MCP and GUI.
 src/audio/         SynthEngine contract, spessasynth engine, mock, renderers.
 src/midi/          WebMidiManager (browser) + pure port-selection logic.
 src/mcp/           MCP server (stdio) + tool definitions.
 src/web/           GUI: index.html, app.css, app.ts, components/.
-src/tests/         98 unit tests.
+src/tests/         Deterministic Bun test suite.
 ```
 
 ## Key decisions
@@ -84,6 +86,15 @@ on timing. `TempoMap.tickToSeconds` integrates over the tempo map
 (microseconds-per-quarter = 60_000_000 / bpm) with each segment priced at the
 tempo in effect at the segment start.
 
+### OWT and CompositionSpec share one business model
+
+OWT Score uses normalized rational cursor arithmetic, explicit durations and
+human MIDI channels. `scoreToCompositionSpec` converts only at the MIDI/API
+boundary, so OWT and CompositionSpec feed the same validation and exporter.
+OWT Take stores exact millisecond note spans and controls; MIDI import pairs
+Note On/Off events before serialization, while quantization creates a derived
+Score without replacing the Exact Take.
+
 ### Track mute = event stripping, not synth hacks
 
 The sequencer plays whole files, and spessasynth's channel-mute API is not
@@ -104,8 +115,9 @@ by tests).
 
 ### Optional arrays are optional
 
-`CompositionTrack.controlChanges` / `pitchBends` are optional in the type and
-defaulted at export (`?? []`), matching the MCP schema's `.default([])`.
+`CompositionTrack.controlChanges`, `pitchBends`, and `programChanges` are
+optional in the type and defaulted at export (`?? []`), matching the MCP
+schema's `.default([])`.
 
 ### Single instance + port fallback
 

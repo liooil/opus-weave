@@ -34,6 +34,13 @@ export interface PitchBendEvent {
   value: number
 }
 
+export interface ProgramChangeEvent {
+  /** Time in quarter-note beats. Must be >= 0. */
+  beat: number
+  /** GM program number 0–127. */
+  program: number
+}
+
 export interface CompositionTrack {
   /** Track name (MIDI track-name meta event). */
   name: string
@@ -48,7 +55,9 @@ export interface CompositionTrack {
   notes: CompositionNote[]
   controlChanges?: ControlChangeEvent[]
   pitchBends?: PitchBendEvent[]
+  programChanges?: ProgramChangeEvent[]
 }
+
 
 export interface TimeSignatureEvent {
   /** Time in quarter-note beats. Must be >= 0. */
@@ -65,6 +74,14 @@ export interface TempoEvent {
   bpm: number
 }
 
+export interface KeySignatureEvent {
+  /** Time in quarter-note beats. Must be >= 0. */
+  beat: number
+  /** Tonic using C, F#, Bb, and similar spellings. */
+  tonic: string
+  mode: 'major' | 'minor'
+}
+
 export interface CompositionSpec {
   /** Sequence title. */
   title?: string
@@ -72,6 +89,7 @@ export interface CompositionSpec {
   ppq?: number
   timeSignatures?: TimeSignatureEvent[]
   tempos?: TempoEvent[]
+  keySignatures?: KeySignatureEvent[]
   tracks: CompositionTrack[]
 }
 

@@ -1,0 +1,23 @@
+owt 0.1 score
+
+title "Twinkle Twinkle Little Star / 小星星"
+ppq 480
+meter 1:1 4/4
+tempo 1:1 100
+key 1:1 C major
+
+track "Melody / 旋律" channel=1 program=0 velocity=88
+
+| C4:1 C4:1 G4:1 G4:1 |
+| A4:1 A4:1 G4:2 |
+| F4:1 F4:1 E4:1 E4:1 |
+| D4:1 D4:1 C4:2 |
+
+track "Piano Chords / 钢琴和弦" channel=2 program=0 velocity=72
+
+| [C3 E3 G3]:4 |
+| [F3 A3 C4]:2 [C3 E3 G3]:2 |
+| [F3 A3 C4]:2 [C3 E3 G3]:2 |
+| [G2 B2 D3]:2 [C3 E3 G3]:2 |
+
+end

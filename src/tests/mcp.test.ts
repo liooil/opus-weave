@@ -50,7 +50,7 @@ function startServer(): { child: ChildProcess; send: (id: number, method: string
 const children: ChildProcess[] = []
 
 describe('MCP server (stdio)', () => {
-  it('initializes and lists all five tools', async () => {
+  it('initializes and lists CompositionSpec and OWT tools', async () => {
     const { child, send, waitFor } = startServer()
     children.push(child)
     send(1, 'initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '0' } })
@@ -61,7 +61,19 @@ describe('MCP server (stdio)', () => {
     send(2, 'tools/list', {})
     const tools = (await waitFor(2)) as { result?: { tools?: Array<{ name: string }> } }
     const names = tools.result?.tools?.map((t) => t.name).sort()
-    expect(names).toEqual(['create_example_composition', 'create_midi', 'inspect_midi', 'render_midi', 'validate_composition'])
+    expect(names).toEqual([
+      'compare_take_with_score',
+      'compile_score_text_to_midi',
+      'create_example_composition',
+      'create_midi',
+      'get_take_text',
+      'inspect_midi',
+      'play_score_text',
+      'quantize_take',
+      'render_midi',
+      'validate_composition',
+      'validate_score_text',
+    ])
   })
 
   it('validate_composition returns errors/warnings/stats', async () => {
@@ -116,6 +128,34 @@ describe('MCP server (stdio)', () => {
     expect(info.hangingNotes).toBe(0)
   })
 
+
+  it('validates OWT score text and quantizes an Exact Take', async () => {
+    const { child, send, waitFor } = startServer()
+    children.push(child)
+    send(1, 'initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '0' } })
+    await waitFor(1)
+    const scoreText = await Bun.file('examples/twinkle.owt').text()
+    send(2, 'tools/call', { name: 'validate_score_text', arguments: { text: scoreText } })
+    const validation = (await waitFor(2)) as { result?: { content?: Array<{ text?: string }> } }
+    const validated = JSON.parse(validation.result?.content?.[0]?.text ?? '{}') as { valid?: boolean; kind?: string }
+    expect(validated).toMatchObject({ valid: true, kind: 'score' })
+
+    const takeText = await Bun.file('examples/twinkle-take.owt').text()
+    send(3, 'tools/call', { name: 'quantize_take', arguments: { takeText, grid: '1/16', bpm: 120 } })
+    const quantized = (await waitFor(3)) as { result?: { content?: Array<{ text?: string }> } }
+    const result = JSON.parse(quantized.result?.content?.[0]?.text ?? '{}') as { text?: string; midiBase64?: string }
+    expect(result.text).toStartWith('owt 0.1 score')
+    expect(result.midiBase64?.length).toBeGreaterThan(20)
+
+    send(4, 'tools/call', {
+      name: 'get_take_text',
+      arguments: { takeText, fromMeasure: 2, toMeasure: 2, bpm: 120, meterNumerator: 4, meterDenominator: 4 },
+    })
+    const ranged = (await waitFor(4)) as { result?: { content?: Array<{ text?: string }> } }
+    const rangeResult = JSON.parse(ranged.result?.content?.[0]?.text ?? '{}') as { takeId?: string; text?: string }
+    expect(rangeResult.takeId).toBeString()
+    expect(rangeResult.text).toStartWith('owt 0.1 take')
+  })
   it('keeps stdout pure: every stdout line is valid JSON-RPC', async () => {
     const { child, send, waitFor, getStdout } = startServer()
     children.push(child)

@@ -49,6 +49,14 @@ export class MockSynthEngine implements SynthEngine {
     this.record('setMasterVolume', [value])
   }
 
+  async setAudioOutput(deviceId: string): Promise<void> {
+    this.record('setAudioOutput', [deviceId])
+  }
+
+  supportsAudioOutputSelection(): boolean {
+    return true
+  }
+
   get masterVolume(): number {
     return this.volume
   }

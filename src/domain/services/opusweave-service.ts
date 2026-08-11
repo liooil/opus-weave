@@ -5,7 +5,7 @@
 import { writeFile } from 'node:fs/promises'
 import { existsSync, readdirSync } from 'node:fs'
 import { homedir, platform } from 'node:os'
-import { join, resolve } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import { BasicMIDI } from 'spessasynth_core'
 import { OpusWeaveError } from '../../shared/errors.ts'
 import { buildMidi } from '../midi/midi-export.ts'
@@ -16,6 +16,19 @@ import type { CompositionSpec } from '../composition/composition-spec.ts'
 import { TempoMap } from '../composition/tempo-map.ts'
 import { FluidSynthRenderer, detectFluidSynth } from '../../audio/fluidsynth-renderer.ts'
 import type { RenderResult } from '../../audio/audio-renderer.ts'
+import { parseOwt, parseOwtOrThrow } from '../owt/parser.ts'
+import { serializeScore, serializeTake } from '../owt/serializer.ts'
+import {
+  compareTakeWithScore,
+  compileScoreText,
+  midiToTake,
+  quantizeTake,
+  scoreToCompositionSpec,
+  takeRangeByMeasure,
+  takeToMidi,
+  type TakeComparison,
+} from '../owt/integration.ts'
+import type { OwtDiagnostic, OwtScore, OwtTake, QuantizeOptions } from '../owt/ast.ts'
 
 export interface CreateMidiResult {
   bytes: number
@@ -25,6 +38,13 @@ export interface CreateMidiResult {
   warnings: string[]
   /** Absolute output path when one was requested. */
   path?: string
+}
+
+export interface OwtValidationResult {
+  valid: boolean
+  kind?: 'score' | 'take'
+  diagnostics: OwtDiagnostic[]
+  composition?: ValidationResult
 }
 
 export interface DoctorReport {
@@ -41,6 +61,7 @@ const CHROMIUM_CANDIDATES = ['chrome', 'chromium', 'chromium-browser', 'google-c
 
 export class OpusWeaveService {
   private readonly renderer = new FluidSynthRenderer()
+  private readonly takes = new Map<string, OwtTake>()
 
   /** Validate + encode a spec; optionally writes the file. Returns summary. */
   async createMidi(spec: unknown, outputPath?: string): Promise<CreateMidiResult> {
@@ -77,6 +98,80 @@ export class OpusWeaveService {
   /** Validate a spec and return errors/warnings/stats (never throws). */
   validateComposition(spec: unknown): ValidationResult {
     return validateCompositionSpec(spec)
+  }
+
+  validateOwt(text: string): OwtValidationResult {
+    const parsed = parseOwt(text)
+    if (!parsed.document) return { valid: false, diagnostics: parsed.diagnostics }
+    if (parsed.document.kind === 'take') return { valid: true, kind: 'take', diagnostics: parsed.diagnostics }
+    const composition = validateCompositionSpec(compileScoreText(text).spec)
+    return {
+      valid: composition.errors.length === 0,
+      kind: 'score',
+      diagnostics: parsed.diagnostics,
+      composition,
+    }
+  }
+
+  async compileOwtScore(text: string, outputPath?: string): Promise<CreateMidiResult & { text: string }> {
+    const compiled = compileScoreText(text)
+    const result = await this.createMidi(compiled.spec, outputPath)
+    return { ...result, text: serializeScore(compiled.score) }
+  }
+
+  prepareOwtPlayback(text: string): { midiBase64: string; bytes: number; title?: string; text: string } {
+    const compiled = compileScoreText(text)
+    return {
+      midiBase64: Buffer.from(compiled.midi).toString('base64'),
+      bytes: compiled.midi.byteLength,
+      title: compiled.score.title,
+      text: serializeScore(compiled.score),
+    }
+  }
+
+  async importMidiAsTake(filePath: string, takeId: string = crypto.randomUUID()): Promise<{ takeId: string; take: OwtTake; text: string }> {
+    if (!existsSync(filePath)) throw new OpusWeaveError('file-not-found', `MIDI file not found: ${filePath}`)
+    const file = Bun.file(resolve(filePath))
+    const take = midiToTake(await file.arrayBuffer(), { title: basename(filePath), source: filePath })
+    this.takes.set(takeId, take)
+    return { takeId, take, text: serializeTake(take) }
+  }
+
+  registerTakeText(text: string, takeId: string = crypto.randomUUID()): { takeId: string; take: OwtTake } {
+    const document = parseOwtOrThrow(text)
+    if (document.kind !== 'take') throw new Error('expected an OWT take document')
+    this.takes.set(takeId, document)
+    return { takeId, take: document }
+  }
+
+  getTakeText(
+    takeId: string,
+    range?: { fromMeasure: number; toMeasure: number; bpm: number; meter: { numerator: number; denominator: number } },
+  ): string {
+    const take = this.takes.get(takeId)
+    if (!take) throw new Error(`unknown take id: ${takeId}`)
+    return serializeTake(range ? takeRangeByMeasure(take, range) : take)
+  }
+
+  quantizeTakeText(text: string, options: QuantizeOptions): { score: OwtScore; text: string; midiBase64: string } {
+    const document = parseOwtOrThrow(text)
+    if (document.kind !== 'take') throw new Error('expected an OWT take document')
+    const score = quantizeTake(document, options)
+    const midi = buildMidi(scoreToCompositionSpec(score))
+    return { score, text: serializeScore(score), midiBase64: Buffer.from(midi).toString('base64') }
+  }
+
+  compareTakeTextWithScore(takeText: string, scoreText: string): TakeComparison {
+    const take = parseOwtOrThrow(takeText)
+    const score = parseOwtOrThrow(scoreText)
+    if (take.kind !== 'take' || score.kind !== 'score') throw new Error('compare requires an OWT take and an OWT score')
+    return compareTakeWithScore(take, score)
+  }
+
+  takeTextToMidi(text: string): ArrayBuffer {
+    const document = parseOwtOrThrow(text)
+    if (document.kind !== 'take') throw new Error('expected an OWT take document')
+    return takeToMidi(document)
   }
 
   /** Render MIDI + SoundFont to WAV via FluidSynth. */
@@ -167,6 +262,7 @@ export class OpusWeaveService {
       soundfont,
       features: [
         'SMF import/export (spessasynth_core)',
+        'OWT 0.1 Score/Take parsing, quantization and comparison',
         'SoundFont synthesis (spessasynth_lib, browser)',
         'FluidSynth offline rendering (optional)',
         'MCP server (stdio)',

@@ -82,8 +82,10 @@ Add to your MCP client config:
 { "command": "bun", "args": ["<repo>/src/main.ts", "mcp"] }
 ```
 
-Tools: `create_midi`, `inspect_midi`, `render_midi`, `validate_composition`,
-`create_example_composition`. See [docs/mcp.md](docs/mcp.md).
+Tools include CompositionSpec and OWT workflows: `create_midi`,
+`validate_score_text`, `compile_score_text_to_midi`, `play_score_text`,
+`get_take_text`, `quantize_take`, and `compare_take_with_score`. See
+[docs/mcp.md](docs/mcp.md) and [docs/owt.md](docs/owt.md).
 
 ## SoundFonts
 
@@ -92,12 +94,21 @@ bank covering all 128 melodic programs plus a standard drum kit. It loads
 automatically for immediate playback. You can replace it at any time with your
 own `.sf2`, `.sf3`, or `.sfogg` bank; only use files you are legally allowed to use.
 
+The Sound Library panel can explicitly route Web Audio to an operating-system
+output such as a USB-C monitor, HDMI display, speakers, or headset. Use
+**Show devices** if names are hidden; Chromium may request microphone
+permission only to reveal device labels, and OpusWeave immediately stops the
+temporary stream without recording it.
+
 ## Format model
+
 
 - **MIDI** is the performance/playback format (Standard MIDI File, Type 1 by
   default).
 - **MusicXML / MXL** is the planned future notation format (see
   [docs/roadmap.md](docs/roadmap.md)).
+- **OWT Score / Take** is the stable human- and LLM-facing text layer for
+  writing music and reading exact performances. See [docs/owt.md](docs/owt.md).
 - **CompositionSpec** is OpusWeave's AI/API input model — a structured way
   for agents to describe music. It is **not** a new music file standard; the
   persistent output is standard MIDI.
@@ -112,16 +123,16 @@ schema and validation rules.
 src/
 ├── main.ts                    # BunDesk desktop app, CLI actions, --smoke, MCP routing
 ├── build.ts                   # single-file binary build (bundesk)
-├── domain/                    # framework-free core: spec, validation, tempo map,
-│   │                          #   MIDI export/import/recorder, device profiles,
-│   │                          #   mapping engine, MIDI learn, OpusWeaveService
+├── domain/                    # framework-free core: composition, OWT Score/Take,
+│   │                          #   validation, tempo map, MIDI export/import/recorder,
+│   │                          #   quantization, device profiles, MIDI learn, service
 ├── audio/                     # SynthEngine interface, spessasynth engine, mock,
 │   │                          #   FluidSynth renderer
 ├── midi/                      # WebMIDI manager, port selection
 ├── mcp/                       # MCP server + tool definitions
 ├── cli/                       # CLI argument helpers
 ├── web/                       # GUI: HTML/CSS/TS, no framework
-└── tests/                     # 98 unit tests (bun test)
+└── tests/                     # deterministic Bun test suite
 ```
 
 The GUI, CLI and MCP all call the same `OpusWeaveService` — domain logic is

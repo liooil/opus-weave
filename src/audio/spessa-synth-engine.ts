@@ -18,6 +18,11 @@ interface EngineCallbacks {
   onError?: (message: string) => void
 }
 
+interface AudioContextWithSink extends AudioContext {
+  sinkId?: string
+  setSinkId?: (deviceId: string) => Promise<void>
+}
+
 export class SpessaSynthEngine implements SynthEngine {
   private ctx: AudioContext
   private synth: WorkletSynthesizer | null = null
@@ -164,6 +169,20 @@ export class SpessaSynthEngine implements SynthEngine {
   setMasterVolume(value: number): void {
     const v = Math.max(0, Math.min(1, value))
     this.gainNode.gain.setTargetAtTime(v, this.ctx.currentTime, 0.02)
+  }
+
+  supportsAudioOutputSelection(): boolean {
+    return typeof (this.ctx as AudioContextWithSink).setSinkId === 'function'
+  }
+
+  async setAudioOutput(deviceId: string): Promise<void> {
+    const context = this.ctx as AudioContextWithSink
+    if (!context.setSinkId) throw new SynthEngineError('audio output selection is not supported by this browser')
+    try {
+      await context.setSinkId(deviceId)
+    } catch (err) {
+      throw new SynthEngineError(`failed to select audio output: ${err instanceof Error ? err.message : String(err)}`)
+    }
   }
 
   hasSoundFont(): boolean {

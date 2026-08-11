@@ -1,11 +1,11 @@
 /**
  * OpusWeave — main entry point.
  *
- * Order of operations:
- * 1. `mcp` argv is handled BEFORE any BunDesk/GUI code runs (stdio-only mode).
- * 2. BunDesk desktop app: HTTP server + window; CLI actions on all three
+ * 1. `mcp` and `text` argv are handled BEFORE normal GUI startup.
+ * 2. `text play` compiles OWT and opens the GUI with startup MIDI.
+ * 3. BunDesk desktop app: HTTP server + window; CLI actions on all three
  *    layers (CLI / HTTP API / GUI console).
- * 3. Linux (and Windows) use the Chromium-family browser provider because the
+ * 4. Linux (and Windows) use the Chromium-family browser provider because the
  *    product depends on WebMIDI, which WebKitGTK and WebView2 do not expose
  *    without extra permission plumbing.
  */
@@ -16,6 +16,7 @@ import { mainMcp } from './mcp/server.ts'
 import { OpusWeaveService } from './domain/services/opusweave-service.ts'
 import { OpusWeaveError } from './shared/errors.ts'
 import { optionalNumber, optionalString, printJson, requireString, type ActionArgs } from './cli/cli.ts'
+import { runTextCli, type TextCliResult } from './cli/text-cli.ts'
 import page from './web/index.html'
 import { readFileSync } from 'node:fs'
 import workletPath from '../node_modules/spessasynth_lib/dist/spessasynth_processor.min.js' with { type: 'file' }
@@ -31,17 +32,20 @@ const APP_ID = 'io.github.liooil.opusweave'
 const VERSION = '0.1.0'
 const service = new OpusWeaveService()
 
-// ─── MCP mode: before any GUI / server code ──────────────────────────────────
+// ─── Non-GUI modes before desktop startup ───────────────────────────────────
 if (argv[0] === 'mcp') {
   await mainMcp()
   // mainMcp resolves when the stdio transport closes (MCP client ended the
   // session). Exit naturally (event loop drain) — process.exit(0) truncates
   // buffered stdout responses on Windows and must never be used here.
+} else if (argv[0] === 'text') {
+  const result = await runTextCli(argv.slice(1), service)
+  if (result.kind === 'play') await runDesktopApp(result)
 } else {
   await runDesktopApp()
 }
 
-async function runDesktopApp(): Promise<void> {
+async function runDesktopApp(startupPlayback?: Extract<TextCliResult, { kind: 'play' }>): Promise<void> {
   const app = createDesktopApp({
     id: APP_ID,
     version: VERSION,
@@ -60,6 +64,14 @@ async function runDesktopApp(): Promise<void> {
           headers: { 'content-type': 'application/javascript; charset=utf-8' },
         }),
         '/api/health': Response.json({ ok: true, version: VERSION }),
+        '/api/startup-midi': startupPlayback
+          ? new Response(startupPlayback.midi, {
+              headers: {
+                'content-type': 'audio/midi',
+                'x-opusweave-title': encodeURIComponent(startupPlayback.title ?? 'OWT Score'),
+              },
+            })
+          : new Response(null, { status: 204 }),
       },
     },
 

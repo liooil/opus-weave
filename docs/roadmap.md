@@ -1,7 +1,14 @@
 # OpusWeave Roadmap
 
-Planned milestones. Nothing here is implemented in phase 1 — this document
-only records the direction.
+Milestone 1 now includes OWT 0.1 Score/Take parsing, MIDI compilation, Exact
+Take import, quantization, CLI workflows and MCP tools.
+
+## Milestone 1: OWT text layer — implemented
+
+- OWT Score and Exact Take documents with deterministic serialization.
+- Shared CompositionSpec/MIDI compilation path.
+- MIDI-to-Take pairing, velocity-zero normalization and configurable quantization.
+- CLI and MCP validation, compilation, playback preparation, retrieval and comparison.
 
 ## Milestone 2: MusicXML and interactive scores
 
@@ -48,8 +55,9 @@ only records the direction.
 ## Notes on product boundaries
 
 - MIDI is the performance/playback format.
-- MusicXML is the planned formal notation format.
+- OWT Score/Take is the human- and LLM-facing text layer, not an industry exchange format.
+- MusicXML is the planned formal notation format; ABC remains a future compatibility format.
 - Images/PDF (OMR) are planned input entry points.
-- `CompositionSpec` is an AI/API input model, not a new music standard.
+- `CompositionSpec` and OWT Score share one composition business model.
 - The MIDIPLUS TINY+ profile is the first official device profile, not the
   only one.

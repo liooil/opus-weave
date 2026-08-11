@@ -18,6 +18,14 @@ import { TempoMap } from '../composition/tempo-map.ts'
 
 export const TIME_SIGNATURE_META = 0x58
 export const SET_TEMPO_META = 0x51
+export const KEY_SIGNATURE_META = 0x59
+
+const KEY_ACCIDENTALS: Record<string, number> = {
+  Cb: -7, Gb: -6, Db: -5, Ab: -4, Eb: -3, Bb: -2, F: -1,
+  C: 0, G: 1, D: 2, A: 3, E: 4, B: 5, 'F#': 6, 'C#': 7,
+  Abm: -7, Ebm: -6, Bbm: -5, Fm: -4, Cm: -3, Gm: -2, Dm: -1,
+  Am: 0, Em: 1, Bm: 2, 'F#m': 3, 'C#m': 4, 'G#m': 5, 'D#m': 6, 'A#m': 7,
+}
 
 /**
  * Validate and encode a composition as an SMF Type 1 file.
@@ -56,6 +64,13 @@ export function buildMidi(spec: CompositionSpec): ArrayBuffer {
     if (t.tick === 0) continue
     builder.setTempo(t.tick, t.bpm)
   }
+  for (const key of spec.keySignatures ?? []) {
+    const name = key.mode === 'minor' ? `${key.tonic}m` : key.tonic
+    const accidentals = KEY_ACCIDENTALS[name]
+    if (accidentals !== undefined) {
+      builder.addEvent(tempoMap.beatToTick(key.beat), 0, KEY_SIGNATURE_META as MIDIMessageType, [accidentals & 0xff, key.mode === 'minor' ? 1 : 0])
+    }
+  }
 
   for (let i = 0; i < spec.tracks.length; i++) {
     writeTrack(builder, spec.tracks[i]!, i, tempoMap)
@@ -89,6 +104,9 @@ function writeTrack(builder: MIDIBuilder, track: CompositionTrack, trackIndex: n
   }
   for (const pb of track.pitchBends ?? []) {
     builder.pitchWheel(tempoMap.beatToTick(pb.beat), trackNumber, channel, pb.value)
+  }
+  for (const change of track.programChanges ?? []) {
+    builder.programChange(tempoMap.beatToTick(change.beat), trackNumber, channel, change.program)
   }
   for (const note of track.notes) {
     const startTick = tempoMap.beatToTick(note.startBeat)

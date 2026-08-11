@@ -1,0 +1,20 @@
+owt 0.1 take
+
+title "Twinkle - Take 1 / 小星星 - 录音 1"
+source "MIDIPLUS TINY+"
+unit ms
+
+note C4 at=0.000 dur=468.420 velocity=73 channel=1
+note C4 at=502.711 dur=441.287 velocity=79 channel=1
+note G4 at=1004.196 dur=482.551 velocity=92 channel=1
+note G4 at=1501.884 dur=455.109 velocity=88 channel=1
+note A4 at=2008.327 dur=471.662 velocity=86 channel=1
+note A4 at=2503.021 dur=462.445 velocity=89 channel=1
+note G4 at=3001.610 dur=936.227 velocity=84 channel=1
+
+cc 64 at=1490.210 value=127 channel=1
+cc 64 at=3972.118 value=0 channel=1
+bend at=4120.551 value=8350 channel=1
+bend at=4304.882 value=8192 channel=1
+
+end

@@ -16,7 +16,7 @@ import { midiplusTinyPlusProfile } from '../domain/devices/midiplus-tiny-plus.ts
 import { VirtualKeyboard } from './components/virtual-keyboard.ts'
 import { enableHorizontalPointerScroll } from './components/horizontal-pointer-scroll.ts'
 import type { BasicMIDI } from 'spessasynth_core'
-import { resolveLocale, setLocale, t, translateDocument, type TranslationValues } from './i18n.ts'
+import { getLocale, resolveLocale, setLocale, t, translateDocument, type TranslationValues } from './i18n.ts'
 import { compileScoreText, extractMelodyFromMidi, extractMelodyFromRecording, type MelodyExtractionResult, type MelodyVoiceStrategy } from '../domain/owt/integration.ts'
 import { parseOwt } from '../domain/owt/parser.ts'
 import { parseRational, rational } from '../domain/owt/rational.ts'
@@ -30,7 +30,7 @@ import { buildPracticePrompts, PracticeSession } from '../domain/owt/practice-se
 import { BUILTIN_OWT_EXAMPLES, builtinOwtExample } from '../domain/owt/builtin-examples.ts'
 import { buildScoreViewModel } from '../domain/owt/score-views.ts'
 import { renderJianpuScore, renderStaffScore } from './components/score-views.ts'
-import { createOwtWithAi, DEFAULT_OWT_AI_CONFIG, testOwtAiConnection, type OwtAiConfig, type OwtAiRequest } from '../domain/ai/owt-ai.ts'
+import { buildManualOwtPrompt, createOwtWithAi, DEFAULT_OWT_AI_CONFIG, hasConfiguredAiApi, testOwtAiConnection, type OwtAiConfig, type OwtAiRequest } from '../domain/ai/owt-ai.ts'
 import { ConversationalImprovSession } from '../domain/ai/conversational-improv.ts'
 import { mediaFileToAiAttachments } from './ai-media.ts'
 import { scoreFileKind } from './open-file.ts'
@@ -1738,7 +1738,6 @@ function handleModalCommand(command: string, args = ''): void | Promise<void> {
     case 'toggle-theme': themeButton.click(); return
     case 'workspace-studio': showWorkspacePage('studio'); return
     case 'workspace-settings': showWorkspacePage('settings'); return
-    case 'toggle-key-map': $('toggle-computer-map').click(); return
     case 'midi-enable': showWorkspacePage('settings'); $('btn-request-midi').click(); return
     case 'midi-refresh': showWorkspacePage('settings'); $('btn-refresh-midi').click(); return
     case 'panic': showWorkspacePage('settings'); $('btn-panic').click(); return
@@ -1826,6 +1825,9 @@ $('btn-owt-new-score').addEventListener('click', () => {
 
 const fileMenu = document.querySelector<HTMLDetailsElement>('.file-menu')!
 for (const action of fileMenu.querySelectorAll('button')) action.addEventListener('click', () => { fileMenu.open = false })
+fileMenu.addEventListener('toggle', () => {
+  if (!fileMenu.open) fileMenu.querySelector<HTMLDetailsElement>('.file-submenu')!.open = false
+})
 
 // ─── Built-in examples, keyboard layouts and AI composition ─────────────────
 
@@ -2118,14 +2120,56 @@ $('btn-ai-test').addEventListener('click', () => {
 const aiComposeDialog = $<HTMLDialogElement>('ai-compose-dialog')
 const aiComposeForm = $<HTMLFormElement>('ai-compose-form')
 const aiPrompt = $<HTMLTextAreaElement>('ai-prompt')
+const aiManualDialog = $<HTMLDialogElement>('ai-manual-dialog')
+const aiManualForm = $<HTMLFormElement>('ai-manual-form')
+const aiManualPrompt = $<HTMLTextAreaElement>('ai-manual-prompt')
+const aiManualStatus = $<HTMLElement>('ai-manual-status')
+
+function showManualAiDialog(): void {
+  aiManualPrompt.value = buildManualOwtPrompt(owtEditor.value, getLocale())
+  aiManualStatus.className = 'manual-ai-status'
+  aiManualStatus.textContent = t('ai.manualReady')
+  aiManualDialog.showModal()
+  requestAnimationFrame(() => aiManualPrompt.focus())
+}
+
+async function copyManualAiPrompt(): Promise<void> {
+  try {
+    if (!navigator.clipboard?.writeText) throw new Error('Clipboard API unavailable')
+    await navigator.clipboard.writeText(aiManualPrompt.value)
+    aiManualStatus.className = 'manual-ai-status ok'
+    aiManualStatus.textContent = t('ai.manualCopied')
+  } catch {
+    aiManualPrompt.focus()
+    aiManualPrompt.select()
+    aiManualStatus.className = 'manual-ai-status err'
+    aiManualStatus.textContent = t('ai.manualCopyFailed')
+  }
+}
 
 $('btn-ai-compose').addEventListener('click', () => {
   if (aiComposeState !== 'idle') setAiComposeState('idle')
+  if (!hasConfiguredAiApi(currentAiConfig())) {
+    showManualAiDialog()
+    return
+  }
   aiComposeDialog.showModal()
   requestAnimationFrame(() => aiPrompt.focus())
 })
 
 $('btn-ai-cancel').addEventListener('click', () => aiComposeDialog.close())
+$('btn-ai-manual-close').addEventListener('click', () => aiManualDialog.close())
+
+aiManualForm.addEventListener('submit', (event) => {
+  event.preventDefault()
+  void copyManualAiPrompt()
+})
+
+aiManualPrompt.addEventListener('keydown', (event) => {
+  if (event.key !== 'Enter' || (!event.ctrlKey && !event.metaKey)) return
+  event.preventDefault()
+  aiManualForm.requestSubmit()
+})
 
 aiComposeForm.addEventListener('submit', (event) => {
   event.preventDefault()
@@ -2186,24 +2230,92 @@ midiImportForm.addEventListener('submit', (event) => {
   })
 })
 
-async function importMediaFile(file: File): Promise<void> {
+interface AiMediaImportOptions {
+  instruction: string
+  includeCurrentScore: boolean
+  maxVideoFrames: number
+}
+
+async function performAiMediaImport(file: File, options: AiMediaImportOptions): Promise<void> {
   setTranslatedStatus('ai-status', 'ai.mediaReading', { file: file.name }, 'warn')
-  const attachments = await mediaFileToAiAttachments(file)
+  const attachments = await mediaFileToAiAttachments(file, options.maxVideoFrames)
   await applyAiRequest({
     task: 'score-media',
-    instruction: $<HTMLTextAreaElement>('ai-prompt').value.trim() || 'Transcribe the visible score faithfully, simplifying only when notation is ambiguous.',
-    currentOwt: owtEditor.value,
+    instruction: options.instruction,
+    currentOwt: options.includeCurrentScore ? owtEditor.value : '',
     attachments,
   }, 'ai.mediaReading', { file: file.name })
   showScoreView('owt')
 }
+
+const aiMediaImportDialog = $<HTMLDialogElement>('ai-media-import-dialog')
+const aiMediaImportForm = $<HTMLFormElement>('ai-media-import-form')
+const aiMediaPrompt = $<HTMLTextAreaElement>('ai-media-prompt')
+const aiMediaMode = $<HTMLSelectElement>('ai-media-mode')
+const aiMediaFrames = $<HTMLInputElement>('ai-media-frames')
+const aiMediaFramesField = $<HTMLLabelElement>('ai-media-frames-field')
+let pendingAiMediaImport: File | undefined
+
+function isMp4File(file: File): boolean {
+  return file.type.toLowerCase() === 'video/mp4' || file.name.toLowerCase().endsWith('.mp4')
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function requestAiMediaImport(file: File): void {
+  pendingAiMediaImport = file
+  $<HTMLElement>('ai-media-file-name').textContent = file.name
+  $<HTMLElement>('ai-media-file-meta').textContent = `${file.type || t('ai.mediaUnknownType')} · ${formatFileSize(file.size)}`
+  aiMediaMode.value = 'transcribe'
+  aiMediaFrames.value = '8'
+  aiMediaFramesField.hidden = !isMp4File(file)
+  aiMediaPrompt.value = t('ai.mediaPromptDefault')
+  aiMediaPrompt.setCustomValidity('')
+  if (!aiMediaImportDialog.open) aiMediaImportDialog.showModal()
+  requestAnimationFrame(() => aiMediaPrompt.focus())
+}
+
+function cancelAiMediaImport(): void {
+  pendingAiMediaImport = undefined
+  aiMediaImportDialog.close()
+}
+
+$('btn-ai-media-cancel').addEventListener('click', cancelAiMediaImport)
+aiMediaImportDialog.addEventListener('cancel', () => { pendingAiMediaImport = undefined })
+aiMediaPrompt.addEventListener('input', () => aiMediaPrompt.setCustomValidity(''))
+aiMediaImportForm.addEventListener('submit', (event) => {
+  event.preventDefault()
+  const instruction = aiMediaPrompt.value.trim()
+  if (!instruction) {
+    aiMediaPrompt.setCustomValidity(t('ai.promptRequired'))
+    aiMediaPrompt.reportValidity()
+    return
+  }
+  const file = pendingAiMediaImport
+  const options: AiMediaImportOptions = {
+    instruction,
+    includeCurrentScore: aiMediaMode.value === 'edit',
+    maxVideoFrames: Math.max(1, Math.min(16, Number(aiMediaFrames.value) || 8)),
+  }
+  pendingAiMediaImport = undefined
+  aiMediaImportDialog.close()
+  if (file) void performAiMediaImport(file, options).catch((error) => {
+    const message = error instanceof Error ? error.message : String(error)
+    setTranslatedStatus('owt-status', 'owt.error', { error: message }, 'err')
+    setTranslatedStatus('ai-status', 'ai.error', { error: message }, 'err')
+  })
+})
 
 async function openOrImportFile(file: File): Promise<void> {
   try {
     const kind = scoreFileKind(file.name, file.type)
     if (kind === 'owt') await importOwtFile(file)
     else if (kind === 'midi') requestMidiImport(file)
-    else await importMediaFile(file)
+    else requestAiMediaImport(file)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     setTranslatedStatus('owt-status', 'owt.error', { error: message }, 'err')
@@ -2216,6 +2328,7 @@ unifiedFileInput.addEventListener('change', () => {
   const file = unifiedFileInput.files?.[0]
   if (file) void openOrImportFile(file)
   unifiedFileInput.value = ''
+  fileMenu.open = false
 })
 
 const studioDropTarget = document.querySelector<HTMLElement>('[data-workspace-page="studio"]')!
@@ -2240,12 +2353,99 @@ const activeComputerNotes = new Map<string, Uint8Array[]>()
 const pointerComputerKeys = new Set<string>()
 const computerKeycaps = new Map<string, HTMLElement>()
 
-const QWERTY_ROWS = [
+interface ComputerKeyboardSectionSpec {
+  id: string
+  rows: readonly (readonly (string | null)[])[]
+}
+
+const STANDARD_QWERTY_ROWS = [
   ['`', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '='],
   ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']', '\\'],
   ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', "'"],
   ['z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '/'],
 ] as const
+
+const WORD_MELODY_ROWS = [
+  ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p'],
+  ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';'],
+  ['z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.'],
+  [' '],
+] as const
+
+const FREEPIANO_KEYBOARD_SECTIONS: readonly ComputerKeyboardSectionSpec[] = [
+  {
+    id: 'main',
+    rows: [
+      ['`', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', 'back'],
+      ['tab', 'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']', '\\'],
+      ['caps', 'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', "'", 'enter'],
+      ['shift', 'z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '/', 'rshift'],
+    ],
+  },
+  {
+    id: 'navigation',
+    rows: [
+      ['insert', 'home', 'pgup'],
+      ['delete', 'end', 'pgdn'],
+      [null, 'up', null],
+      ['left', 'down', 'right'],
+    ],
+  },
+  {
+    id: 'numpad',
+    rows: [
+      ['numlock', 'num/', 'num*', 'num-'],
+      ['num7', 'num8', 'num9', 'num+'],
+      ['num4', 'num5', 'num6', null],
+      ['num1', 'num2', 'num3', 'numenter'],
+      ['num0', 'num.', null],
+    ],
+  },
+] as const
+
+const COMPUTER_KEY_LABELS: Readonly<Record<string, string>> = {
+  ' ': 'Space', back: '⌫', tab: 'Tab', caps: 'Caps', enter: 'Enter', shift: 'Shift', rshift: 'Shift',
+  left: '←', right: '→', up: '↑', down: '↓', insert: 'Ins', delete: 'Del', home: 'Home', end: 'End', pgup: 'PgUp', pgdn: 'PgDn',
+  numlock: 'Num', 'num/': '/', 'num*': '×', 'num-': '−', 'num+': '+', 'num.': '.', numenter: 'Enter',
+}
+
+const COMPUTER_KEY_WIDTHS: Readonly<Record<string, number>> = {
+  ' ': 6, back: 2, tab: 1.5, caps: 1.75, enter: 2.25, shift: 2.25, rshift: 2.75, num0: 2,
+}
+
+const COMPUTER_CODE_KEYS: Readonly<Record<string, string>> = {
+  Backquote: '`', Digit1: '1', Digit2: '2', Digit3: '3', Digit4: '4', Digit5: '5', Digit6: '6', Digit7: '7', Digit8: '8', Digit9: '9', Digit0: '0', Minus: '-', Equal: '=',
+  KeyQ: 'q', KeyW: 'w', KeyE: 'e', KeyR: 'r', KeyT: 't', KeyY: 'y', KeyU: 'u', KeyI: 'i', KeyO: 'o', KeyP: 'p', BracketLeft: '[', BracketRight: ']', Backslash: '\\',
+  KeyA: 'a', KeyS: 's', KeyD: 'd', KeyF: 'f', KeyG: 'g', KeyH: 'h', KeyJ: 'j', KeyK: 'k', KeyL: 'l', Semicolon: ';', Quote: "'",
+  KeyZ: 'z', KeyX: 'x', KeyC: 'c', KeyV: 'v', KeyB: 'b', KeyN: 'n', KeyM: 'm', Comma: ',', Period: '.', Slash: '/', Space: ' ',
+  Backspace: 'back', Tab: 'tab', CapsLock: 'caps', Enter: 'enter', ShiftLeft: 'shift', ShiftRight: 'rshift',
+  ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down', Insert: 'insert', Delete: 'delete', Home: 'home', End: 'end', PageUp: 'pgup', PageDown: 'pgdn',
+  NumLock: 'numlock', NumpadDivide: 'num/', NumpadMultiply: 'num*', NumpadSubtract: 'num-', NumpadAdd: 'num+', NumpadDecimal: 'num.', NumpadEnter: 'numenter',
+  Numpad0: 'num0', Numpad1: 'num1', Numpad2: 'num2', Numpad3: 'num3', Numpad4: 'num4', Numpad5: 'num5', Numpad6: 'num6', Numpad7: 'num7', Numpad8: 'num8', Numpad9: 'num9',
+}
+
+function keyboardSectionsForLayout(layout: BuiltinComputerLayoutId): readonly ComputerKeyboardSectionSpec[] {
+  if (layout === 'freepiano') return FREEPIANO_KEYBOARD_SECTIONS
+  if (layout === 'english') return [{ id: 'main', rows: WORD_MELODY_ROWS }]
+  if (layout === 'pinyin') return [{ id: 'main', rows: WORD_MELODY_ROWS }]
+  return [{ id: 'main', rows: STANDARD_QWERTY_ROWS }]
+}
+
+function computerKeyLabel(key: string): string {
+  if (COMPUTER_KEY_LABELS[key]) return COMPUTER_KEY_LABELS[key]!
+  if (key.startsWith('num') && /^num\d$/.test(key)) return key.slice(3)
+  return key.toUpperCase()
+}
+
+function computerKeyWidth(key: string): number {
+  const units = COMPUTER_KEY_WIDTHS[key] ?? 1
+  return 44 * units + 5 * (units - 1)
+}
+
+function computerInputKey(event: KeyboardEvent): string {
+  return COMPUTER_CODE_KEYS[event.code] ?? event.key.toLowerCase()
+}
+
 let keyboardMapInitialized = false
 let keyboardLinkFrame = 0
 const COMPUTER_MAP_PREFERENCE_KEY = 'opusweave.computer-map.visibility'
@@ -2259,7 +2459,6 @@ function updateComputerMapToggleCopy(): void {
   button.title = t(key)
   button.setAttribute('aria-label', t(key))
   button.setAttribute('aria-expanded', String(computerMapExpanded))
-  button.textContent = computerMapExpanded ? '⌃' : '⌄'
 }
 
 function setComputerMapExpanded(expanded: boolean, persist = false): void {
@@ -2303,8 +2502,12 @@ function renderComputerKeyMap(): void {
   computerKeycaps.clear()
   const root = $<HTMLDivElement>('computer-key-map')
   root.innerHTML = ''
-  const usesPerformanceShortcuts = currentComputerLayout() === 'default'
-  document.querySelector<HTMLElement>('.map-shortcuts')!.hidden = !usesPerformanceShortcuts
+  const layout = currentComputerLayout()
+  root.dataset.layout = layout
+  const usesPerformanceShortcuts = layout === 'default'
+  for (const hint of document.querySelectorAll<HTMLElement>('.map-shortcut-hint')) {
+    hint.hidden = !usesPerformanceShortcuts
+  }
   const assignments = new Map(mapping.listComputerKeyAssignments().map((assignment) => [assignment.key, assignment]))
   const actionLabels: Record<string, { label: string; velocity?: boolean }> = usesPerformanceShortcuts ? {
     a: { label: t('live.octaveDownKey') },
@@ -2313,42 +2516,55 @@ function renderComputerKeyMap(): void {
     '4': { label: t('live.velocityUpKey'), velocity: true },
   } : {}
 
-  for (const rowKeys of QWERTY_ROWS) {
-    const row = document.createElement('div')
-    row.className = 'qwerty-row'
-    for (const keyName of rowKeys) {
-      const assignment = assignments.get(keyName)
-      const notes = mapping.previewKeyPitches(keyName)
-      const action = actionLabels[keyName]
-      const keycap = document.createElement('span')
-      keycap.className = 'computer-keycap'
-      keycap.dataset.key = keyName
+  for (const sectionSpec of keyboardSectionsForLayout(layout)) {
+    const section = document.createElement('div')
+    section.className = 'keyboard-map-section'
+    section.dataset.keyboardSection = sectionSpec.id
+    for (const rowKeys of sectionSpec.rows) {
+      const row = document.createElement('div')
+      row.className = 'qwerty-row'
+      for (const keyName of rowKeys) {
+        if (keyName === null) {
+          const spacer = document.createElement('span')
+          spacer.className = 'computer-key-spacer'
+          row.appendChild(spacer)
+          continue
+        }
+        const assignment = assignments.get(keyName)
+        const notes = mapping.previewKeyPitches(keyName)
+        const action = actionLabels[keyName]
+        const keycap = document.createElement('span')
+        keycap.className = 'computer-keycap'
+        keycap.dataset.key = keyName
+        keycap.style.setProperty('--computer-key-width', `${computerKeyWidth(keyName)}px`)
 
-      if (assignment && notes.length > 0) {
-        const pitchClass = ((assignment.note % 12) + 12) % 12
-        if ([1, 3, 6, 8, 10].includes(pitchClass)) keycap.classList.add('accidental')
-        keycap.dataset.note = String(assignment.note)
-        const noteCopy = notes.map(noteName).join('→')
-        keycap.title = `${keyName.toUpperCase()} → ${noteCopy}`
-        if (isComputerKeyVisuallyActive(keyName)) keycap.classList.add('active')
-        if (notes.some((note) => practiceExpectedNotes.includes(note))) keycap.classList.add('expected')
-      } else if (action) {
-        keycap.classList.add('action')
-        if (action.velocity) keycap.classList.add('velocity-action')
-        keycap.title = action.label
-      } else {
-        keycap.classList.add('unmapped')
+        if (assignment && notes.length > 0) {
+          const pitchClass = ((assignment.note % 12) + 12) % 12
+          if ([1, 3, 6, 8, 10].includes(pitchClass)) keycap.classList.add('accidental')
+          keycap.dataset.note = String(assignment.note)
+          const noteCopy = notes.map(noteName).join('→')
+          keycap.title = `${computerKeyLabel(keyName)} → ${noteCopy}`
+          if (isComputerKeyVisuallyActive(keyName)) keycap.classList.add('active')
+          if (notes.some((note) => practiceExpectedNotes.includes(note))) keycap.classList.add('expected')
+        } else if (action) {
+          keycap.classList.add('action')
+          if (action.velocity) keycap.classList.add('velocity-action')
+          keycap.title = action.label
+        } else {
+          keycap.classList.add('unmapped')
+        }
+
+        const key = document.createElement('kbd')
+        key.textContent = computerKeyLabel(keyName)
+        const detail = document.createElement('small')
+        detail.textContent = notes.length > 0 ? notes.map(noteName).join('→') : (action?.label ?? '—')
+        keycap.append(key, detail)
+        row.appendChild(keycap)
+        computerKeycaps.set(keyName, keycap)
       }
-
-      const key = document.createElement('kbd')
-      key.textContent = keyName.toUpperCase()
-      const detail = document.createElement('small')
-      detail.textContent = notes.length > 0 ? notes.map(noteName).join('→') : (action?.label ?? '—')
-      keycap.append(key, detail)
-      row.appendChild(keycap)
-      computerKeycaps.set(keyName, keycap)
+      section.appendChild(row)
     }
-    root.appendChild(row)
+    root.appendChild(section)
   }
   scheduleKeyboardLinks()
 }
@@ -2366,14 +2582,9 @@ function updateKeyboardLinks(): void {
   if (bridgeRect.width === 0 || bridgeRect.height === 0) return
   const pianoRect = $<HTMLDivElement>('virtual-keyboard').getBoundingClientRect()
   const assignments = mapping.listComputerKeyAssignments()
-  const traceActiveOnly = currentComputerLayout() !== 'default'
-  const tracedNotes = new Set<number>()
   svg.setAttribute('viewBox', `0 0 ${bridgeRect.width} ${bridgeRect.height}`)
 
   for (const assignment of assignments) {
-    if (traceActiveOnly && !isComputerKeyVisuallyActive(assignment.key)) continue
-    if (traceActiveOnly && tracedNotes.has(assignment.note)) continue
-    tracedNotes.add(assignment.note)
     const keycap = computerKeycaps.get(assignment.key)
     const pianoKey = document.querySelector<HTMLElement>(`#virtual-keyboard [data-note="${assignment.note}"]`)
     if (!keycap || !pianoKey) continue
@@ -2520,7 +2731,7 @@ window.addEventListener('keydown', (ev) => {
   }
   if (ev.repeat) return
 
-  const key = ev.key.toLowerCase()
+  const key = computerInputKey(ev)
   const messages = mapping.keyDownMessages(key)
   if (messages.length === 0) return
   ev.preventDefault()
@@ -2537,7 +2748,7 @@ window.addEventListener('keydown', (ev) => {
 window.addEventListener('keyup', (ev) => {
   const target = ev.target as HTMLElement
   if (TEXT_INPUT[target.tagName]) return
-  const key = ev.key.toLowerCase()
+  const key = computerInputKey(ev)
   const messages = activeComputerNotes.get(key)
   if (!messages) return
   ev.preventDefault()

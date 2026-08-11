@@ -17,9 +17,24 @@
         <img class="brand-mark" src="./assets/app-icon.svg" alt="" aria-hidden="true" />
         <h1>OpusWeave</h1>
       </div>
-      <nav class="topbar-center" data-i18n-aria-label="nav.workspace" aria-label="Workspace pages">
-        <button class="workspace-tab" data-page-target="settings" data-shortcut="Space b c" data-i18n-aria-label="nav.settings" data-i18n-title="nav.settings" aria-label="Settings" title="Settings"><span class="control-icon" aria-hidden="true">⚙</span><span class="control-label" data-i18n="nav.settings">Settings</span></button>
-      </nav>
+      <details class="file-menu topbar-file-menu">
+        <summary class="topbar-control" data-i18n-aria-label="owt.fileActions" data-i18n-title="owt.fileActions" aria-label="File" title="File"><span class="control-icon" aria-hidden="true">↥</span><span class="control-label" data-i18n="owt.fileActions">File</span></summary>
+        <div class="file-menu-popover">
+          <label class="file-menu-item" data-shortcut="Space o"><span class="control-icon" aria-hidden="true">↥</span><span data-i18n="owt.open">Open / Import</span><input id="owt-file" type="file" accept=".owt,.txt,.mid,.midi,text/plain,audio/midi,image/*,video/mp4,.mp4" /></label>
+          <details class="file-submenu">
+            <summary><span><span class="control-icon" aria-hidden="true">♫</span><span data-i18n="examples.load">Open example</span></span><span aria-hidden="true">›</span></summary>
+            <div class="file-submenu-popover">
+              <label class="example-menu-picker"><span data-i18n="examples.label">Built-in example</span><select id="owt-example" data-i18n-aria-label="examples.label" aria-label="Built-in example"></select></label>
+              <button id="btn-load-example" data-shortcut="Space l l" data-i18n="examples.load">Open example</button>
+            </div>
+          </details>
+          <div class="file-menu-separator" role="separator"></div>
+          <button id="btn-owt-new-score" data-shortcut="Space n" data-i18n="owt.newScore">New melody</button>
+          <button id="btn-owt-save" data-shortcut="Space w" data-i18n="owt.save">Save OWT</button>
+          <button id="btn-owt-export-midi" data-shortcut="Space e" data-i18n="owt.exportMidi">Export MIDI</button>
+          <button id="btn-export-arrangement" data-shortcut="Space t e" data-i18n="arranger.export" disabled>Export edit</button>
+        </div>
+      </details>
       <nav id="score-view-toolbar" class="score-view-toolbar" aria-label="Score views" data-i18n-aria-label="scoreViews.label">
         <div class="score-view-tabs" role="tablist">
           <button class="score-view-tab active" role="tab" aria-selected="true" data-score-view-target="owt" data-shortcut="Space g o" data-i18n-aria-label="scoreViews.owt" data-i18n-title="scoreViews.owt" aria-label="OWT" title="OWT"><span class="control-icon text-icon" aria-hidden="true">&lt;&gt;</span><span class="control-label" data-i18n="scoreViews.owt">OWT</span></button>
@@ -27,24 +42,11 @@
           <button class="score-view-tab" role="tab" aria-selected="false" data-score-view-target="staff" data-shortcut="Space g s" data-i18n-aria-label="scoreViews.staff" data-i18n-title="scoreViews.staff" aria-label="Staff" title="Staff"><span class="control-icon" aria-hidden="true">𝄞</span><span class="control-label" data-i18n="scoreViews.staff">Staff</span></button>
           <button class="score-view-tab" role="tab" aria-selected="false" data-score-view-target="jianpu" data-shortcut="Space g j" data-i18n-aria-label="scoreViews.jianpu" data-i18n-title="scoreViews.jianpu" aria-label="Jianpu" title="Jianpu"><span class="control-icon text-icon" aria-hidden="true">1</span><span class="control-label" data-i18n="scoreViews.jianpu">Jianpu</span></button>
         </div>
-        <div class="score-open-actions">
-          <label class="file-button compact topbar-control" data-shortcut="Space o" data-i18n-title="owt.open" title="Open / Import"><span class="control-icon" aria-hidden="true">↥</span><span class="control-label" data-i18n="owt.open">Open / Import</span><input id="owt-file" type="file" accept=".owt,.txt,.mid,.midi,text/plain,audio/midi,image/*,video/mp4,.mp4" /></label>
-          <details class="file-menu">
-            <summary class="topbar-control" data-i18n-aria-label="owt.fileActions" data-i18n-title="owt.fileActions" aria-label="File actions" title="File actions"><span class="control-icon" aria-hidden="true">•••</span><span class="control-label" data-i18n="owt.fileActions">File</span></summary>
-            <div class="file-menu-popover">
-              <button id="btn-owt-new-score" data-shortcut="Space n" data-i18n="owt.newScore">New melody</button>
-              <button id="btn-owt-save" data-shortcut="Space w" data-i18n="owt.save">Save OWT</button>
-              <button id="btn-owt-export-midi" data-shortcut="Space e" data-i18n="owt.exportMidi">Export MIDI</button>
-              <button id="btn-export-arrangement" data-shortcut="Space t e" data-i18n="arranger.export" disabled>Export edit</button>
-            </div>
-          </details>
-          <label class="example-picker" data-i18n-title="examples.label" title="Built-in example"><span class="sr-only" data-i18n="examples.label">Built-in example</span><span class="control-icon example-select-icon" aria-hidden="true">♫</span><select id="owt-example" data-i18n-aria-label="examples.label" aria-label="Built-in example"></select></label>
-          <button id="btn-load-example" class="topbar-control" data-shortcut="Space l l" data-i18n-aria-label="examples.load" data-i18n-title="examples.load" aria-label="Open example" title="Open example"><span class="control-icon" aria-hidden="true">↗</span><span class="control-label" data-i18n="examples.load">Open example</span></button>
-        </div>
         <button id="btn-score-view-play" class="primary topbar-control" data-shortcut="F5 · Ctrl+Space · Space p" aria-keyshortcuts="F5 Control+Space" data-i18n-aria-label="scoreViews.play" data-i18n-title="scoreViews.play" aria-label="Play / pause" title="Play / pause"><span class="control-icon" aria-hidden="true">▶</span><span class="control-label" data-i18n="scoreViews.play">Play / pause</span></button>
         <button id="btn-ai-compose" class="ai-compose-button topbar-control" data-ai-state="idle" data-shortcut="Space z c" data-i18n-aria-label="ai.compose" data-i18n-title="ai.compose" aria-label="AI composition" title="AI composition"><span class="control-icon" aria-hidden="true">✦</span><span class="control-label" data-i18n="ai.compose">AI composition</span></button>
       </nav>
       <div class="topbar-actions">
+        <button class="workspace-tab" data-page-target="settings" data-shortcut="Space b c" data-i18n-aria-label="nav.settings" data-i18n-title="nav.settings" aria-label="Settings" title="Settings"><span class="control-icon" aria-hidden="true">⚙</span><span class="control-label" data-i18n="nav.settings">Settings</span></button>
         <button id="language-toggle" class="language-toggle" type="button" data-shortcut="Space z l" title="Switch to Chinese" aria-label="Switch to Chinese">
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <circle cx="12" cy="12" r="9"></circle>
@@ -157,20 +159,6 @@
         <section class="panel live-panel" id="live-panel">
           <div class="section-heading inline-heading">
             <div><span class="eyebrow" data-i18n="section.instrument">Instrument</span><h2 data-i18n="section.livePerformance">Live performance</h2></div>
-            <div class="performance-controls">
-              <div class="performance-control-group">
-                <span class="stepper-label" data-i18n="live.octave">Octave</span>
-                <button id="oct-down" class="stepper" data-shortcut="A" aria-keyshortcuts="A" data-i18n-title="live.octaveDownControl" data-i18n-aria-label="live.octaveDownControl" title="Lower octave (A)" aria-label="Lower octave (A)">−</button>
-                <strong id="oct-label">0</strong>
-                <button id="oct-up" class="stepper" data-shortcut="K" aria-keyshortcuts="K" data-i18n-title="live.octaveUpControl" data-i18n-aria-label="live.octaveUpControl" title="Raise octave (K)" aria-label="Raise octave (K)">+</button>
-              </div>
-              <div class="performance-control-group">
-                <span class="stepper-label" data-i18n="live.velocity">Velocity</span>
-                <button id="velocity-down" class="stepper" data-shortcut="F" aria-keyshortcuts="F" data-i18n-title="live.velocityDownControl" data-i18n-aria-label="live.velocityDownControl" title="Decrease velocity (F)" aria-label="Decrease velocity (F)">−</button>
-                <input id="key-velocity" class="velocity-input" type="number" min="1" max="127" value="100" data-i18n-aria-label="live.velocity" aria-label="Velocity" />
-                <button id="velocity-up" class="stepper" data-shortcut="4" aria-keyshortcuts="4" data-i18n-title="live.velocityUpControl" data-i18n-aria-label="live.velocityUpControl" title="Increase velocity (4)" aria-label="Increase velocity (4)">+</button>
-              </div>
-            </div>
           </div>
           <div id="practice-guide" class="practice-guide" hidden aria-live="polite">
             <span class="practice-label" data-i18n="practice.next">Next key</span>
@@ -184,14 +172,29 @@
             <div class="computer-map-head">
               <strong id="computer-map-title" data-i18n="live.computerMap">Computer keyboard map</strong>
               <div class="computer-map-actions">
-                <div class="map-shortcuts" aria-label="Performance shortcuts"><span><kbd>A</kbd><kbd>K</kbd><span data-i18n="live.octaveShortcut">octave</span></span><span><kbd>F</kbd><kbd>4</kbd><span data-i18n="live.velocityShortcut">velocity</span></span></div>
-                <button id="toggle-computer-map" class="map-toggle" data-shortcut="Space k m" data-i18n-title="live.collapseMap" data-i18n-aria-label="live.collapseMap" title="Collapse keyboard map" aria-label="Collapse keyboard map" aria-expanded="true">⌃</button>
+                <div class="map-performance-controls">
+                  <div class="map-performance-control">
+                    <span class="map-control-name" data-i18n="live.octave">Octave</span>
+                    <span class="map-shortcut-hint" aria-label="A / K"><kbd>A</kbd><kbd>K</kbd></span>
+                    <button id="oct-down" class="stepper" data-shortcut="A" aria-keyshortcuts="A" data-i18n-title="live.octaveDownControl" data-i18n-aria-label="live.octaveDownControl" title="Lower octave (A)" aria-label="Lower octave (A)">−</button>
+                    <strong id="oct-label">0</strong>
+                    <button id="oct-up" class="stepper" data-shortcut="K" aria-keyshortcuts="K" data-i18n-title="live.octaveUpControl" data-i18n-aria-label="live.octaveUpControl" title="Raise octave (K)" aria-label="Raise octave (K)">+</button>
+                  </div>
+                  <div class="map-performance-control">
+                    <span class="map-control-name" data-i18n="live.velocity">Velocity</span>
+                    <span class="map-shortcut-hint" aria-label="F / 4"><kbd>F</kbd><kbd>4</kbd></span>
+                    <button id="velocity-down" class="stepper" data-shortcut="F" aria-keyshortcuts="F" data-i18n-title="live.velocityDownControl" data-i18n-aria-label="live.velocityDownControl" title="Decrease velocity (F)" aria-label="Decrease velocity (F)">−</button>
+                    <input id="key-velocity" class="velocity-input" type="number" min="1" max="127" value="100" data-i18n-aria-label="live.velocity" aria-label="Velocity" />
+                    <button id="velocity-up" class="stepper" data-shortcut="4" aria-keyshortcuts="4" data-i18n-title="live.velocityUpControl" data-i18n-aria-label="live.velocityUpControl" title="Increase velocity (4)" aria-label="Increase velocity (4)">+</button>
+                  </div>
+                </div>
+                <button id="toggle-computer-map" class="map-toggle" data-shortcut-exempt="disclosure" data-i18n-title="live.collapseMap" data-i18n-aria-label="live.collapseMap" title="Collapse keyboard map" aria-label="Collapse keyboard map" aria-expanded="true"><span class="map-toggle-icon" aria-hidden="true"></span></button>
               </div>
             </div>
             <div id="computer-map-content" class="computer-map-content">
               <label class="performance-layout-control computer-map-layout"><span class="stepper-label" data-i18n="live.layout">Layout</span><select id="computer-layout"><option value="default" data-i18n="layout.default">OpusWeave default</option><option value="english" data-i18n="layout.english">English word melody</option><option value="pinyin" data-i18n="layout.pinyin">Pinyin melody</option><option value="freepiano" data-i18n="layout.freepiano">FreePiano classic</option></select></label>
               <div id="computer-key-map" class="qwerty-map"></div>
-              <div class="keyboard-bridge" aria-hidden="true"><span class="bridge-label" data-i18n="live.mappingBridge">key → note</span><svg id="keyboard-links" class="keyboard-links"></svg></div>
+              <div class="keyboard-bridge" aria-hidden="true"><svg id="keyboard-links" class="keyboard-links"></svg></div>
             </div>
           </div>
           <div class="keyboard-frame"><div id="virtual-keyboard"></div></div>
@@ -231,12 +234,12 @@
           <section class="panel module-panel" id="ai-settings-panel">
             <div class="section-heading"><div><span class="eyebrow" data-i18n="section.ai">AI</span><h2 data-i18n="ai.settings">Model settings</h2></div></div>
             <div id="ai-settings" class="ai-settings settings-ai-fields">
-              <label><span data-i18n="ai.endpoint">Endpoint</span><input id="ai-endpoint" type="url" value="http://192.168.6.130:8080" spellcheck="false" /></label>
-              <label><span data-i18n="ai.model">Model</span><input id="ai-model" value="gemma4-vl-long" spellcheck="false" /></label>
+              <label><span data-i18n="ai.endpoint">Endpoint</span><input id="ai-endpoint" type="url" spellcheck="false" data-i18n-placeholder="ai.endpointPlaceholder" placeholder="Optional OpenAI-compatible endpoint" /></label>
+              <label><span data-i18n="ai.model">Model</span><input id="ai-model" spellcheck="false" data-i18n-placeholder="ai.modelPlaceholder" placeholder="Optional model name" /></label>
               <label><span data-i18n="ai.apiKey">API key (optional)</span><input id="ai-api-key" type="password" autocomplete="off" /></label>
               <button id="btn-ai-test" class="quiet" data-shortcut="Space z t" data-i18n="ai.test">Test connection</button>
             </div>
-            <div id="ai-status" class="status" data-status-key="ai.ready">Configure an OpenAI-compatible model, then compose.</div>
+            <div id="ai-status" class="status" data-status-key="ai.ready">API configuration is optional; without it, AI composition provides a prompt for manual use.</div>
           </section>
         </div>
         <details class="advanced-settings">
@@ -264,6 +267,43 @@
         <div class="dialog-actions">
           <button id="btn-midi-import-cancel" type="button" class="quiet" data-shortcut="Esc" aria-keyshortcuts="Escape" data-i18n="common.cancel">Cancel</button>
           <button id="btn-midi-import-confirm" type="submit" class="primary" data-shortcut="Enter" aria-keyshortcuts="Enter" data-i18n="owt.importMidi">Import MIDI</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="ai-media-import-dialog" class="ai-compose-dialog ai-media-import-dialog" aria-labelledby="ai-media-import-title" aria-describedby="ai-media-import-description">
+      <form id="ai-media-import-form">
+        <div class="dialog-heading">
+          <span class="eyebrow" data-i18n="ai.mediaImport">AI media import</span>
+          <h2 id="ai-media-import-title" data-i18n="ai.mediaDialogTitle">Confirm AI import</h2>
+          <p id="ai-media-import-description" data-i18n="ai.mediaDialogDescription">Review the file and parameters before it is sent to the configured AI model.</p>
+        </div>
+        <div class="ai-media-file-summary">
+          <span class="ai-media-file-icon" aria-hidden="true">▧</span>
+          <span><strong id="ai-media-file-name"></strong><small id="ai-media-file-meta"></small></span>
+        </div>
+        <div class="ai-media-options">
+          <label><span data-i18n="ai.mediaMode">Import mode</span><select id="ai-media-mode"><option value="transcribe" data-i18n="ai.mediaModeTranscribe">Transcribe as a new score</option><option value="edit" data-i18n="ai.mediaModeEdit">Use media to edit the current score</option></select></label>
+          <label id="ai-media-frames-field"><span data-i18n="ai.mediaFrames">Maximum video samples</span><input id="ai-media-frames" type="number" min="1" max="16" value="8" /><small data-i18n="ai.mediaFramesHint">More samples capture longer videos but increase the AI request size.</small></label>
+        </div>
+        <label class="dialog-prompt"><span data-i18n="ai.mediaPromptLabel">Instructions for AI</span><textarea id="ai-media-prompt" rows="5" required data-i18n-placeholder="ai.mediaPromptPlaceholder" placeholder="Transcribe the visible score faithfully and preserve its rhythm, key and voices."></textarea></label>
+        <div class="dialog-actions">
+          <button id="btn-ai-media-cancel" type="button" class="quiet" data-shortcut="Esc" aria-keyshortcuts="Escape" data-i18n="common.cancel">Cancel</button>
+          <button id="btn-ai-media-confirm" type="submit" class="primary" data-shortcut="Enter" aria-keyshortcuts="Enter" data-i18n="ai.mediaConfirm">Send to AI</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="ai-manual-dialog" class="ai-compose-dialog ai-manual-dialog" aria-labelledby="ai-manual-title" aria-describedby="ai-manual-description">
+      <form id="ai-manual-form">
+        <div class="dialog-heading">
+          <span class="eyebrow" data-i18n="ai.manualEyebrow">Manual AI collaboration</span>
+          <h2 id="ai-manual-title" data-i18n="ai.manualTitle">Continue in any AI</h2>
+          <p id="ai-manual-description" data-i18n="ai.manualDescription">Edit or copy this prepared prompt into any AI. Paste the returned OWT directly into the editor; no API configuration is required.</p>
+        </div>
+        <label class="dialog-prompt"><span data-i18n="ai.manualPromptLabel">Prepared OWT prompt</span><textarea id="ai-manual-prompt" rows="16" spellcheck="false"></textarea></label>
+        <div id="ai-manual-status" class="manual-ai-status" aria-live="polite" data-i18n="ai.manualReady">The prompt includes the current score and OWT validation rules.</div>
+        <div class="dialog-actions">
+          <button id="btn-ai-manual-close" type="button" class="quiet" data-shortcut="Esc" aria-keyshortcuts="Escape" data-i18n="common.close">Close</button>
+          <button id="btn-ai-manual-copy" type="submit" class="primary" data-shortcut="Ctrl+Enter" aria-keyshortcuts="Control+Enter" data-i18n="ai.manualCopy">Copy prompt</button>
         </div>
       </form>
     </dialog>

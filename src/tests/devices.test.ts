@@ -121,17 +121,28 @@ describe('MappingEngine (computer keyboard)', () => {
     expect(m.listComputerKeyAssignments()).toHaveLength(30)
     expect(m.keyDownMessages('1')).toHaveLength(0)
     m.setComputerLayout('pinyin')
-    expect(m.keyDownMessages('2').map((message) => message[1])).toEqual([62, 67])
-    expect(m.keyDownMessages('3')).toHaveLength(3)
+    expect(m.listComputerKeyAssignments()).toHaveLength(30)
+    expect(m.keyDownMessages('2')).toHaveLength(0)
+    expect(m.keyDownMessages('n')).toHaveLength(1)
   })
 
-  it('matches the main FreePiano 1.8 classic rows', () => {
+  it('matches the complete note-playing portion of the FreePiano 1.8 classic map', () => {
     const m = new MappingEngine({ layout: 'freepiano' })
+    expect(m.listComputerKeyAssignments()).toHaveLength(80)
+    expect(m.keyToNote('shift')).toBe(35)
     expect(m.keyToNote('z')).toBe(36)
     expect(m.keyToNote('a')).toBe(48)
     expect(m.keyToNote('q')).toBe(60)
     expect(m.keyToNote('1')).toBe(72)
     expect(m.keyToNote('=')).toBe(91)
+    expect(m.keyToNote('back')).toBe(91)
+    expect(m.keyToNote('left')).toBe(48)
+    expect(m.keyToNote('num0')).toBe(55)
+    expect(m.keyToNote('num1')).toBe(60)
+    expect(m.keyToNote('num9')).toBe(74)
+    expect(m.keyToNote('num+')).toBe(76)
+    expect(m.keyToNote('numenter')).toBe(59)
+    expect(m.keyToNote('pgup')).toBe(93)
   })
 
   it('accepts a custom layout contract for future editors', () => {

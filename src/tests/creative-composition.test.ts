@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { ConversationalImprovSession } from '../domain/ai/conversational-improv.ts'
 import { RecentPerformanceCapture } from '../domain/ai/recent-performance.ts'
-import { buildOwtAiMessages, createOwtWithAi, extractOwtFromAiResponse } from '../domain/ai/owt-ai.ts'
+import { buildManualOwtPrompt, buildOwtAiMessages, createOwtWithAi, DEFAULT_OWT_AI_CONFIG, extractOwtFromAiResponse, hasConfiguredAiApi } from '../domain/ai/owt-ai.ts'
 import { keyboardLayoutTextToOwt } from '../domain/composition/keyboard-layout-composition.ts'
 import { musicalTypingPitches, musicalTypingStep, musicalTypingToOwt } from '../domain/composition/musical-typing.ts'
 import { BUILTIN_OWT_EXAMPLES } from '../domain/owt/builtin-examples.ts'
@@ -64,6 +64,19 @@ describe('musical typing', () => {
 })
 
 describe('OWT AI client', () => {
+  test('keeps API configuration optional and builds a complete manual collaboration prompt', () => {
+    expect(DEFAULT_OWT_AI_CONFIG).toMatchObject({ baseUrl: '', model: '' })
+    expect(hasConfiguredAiApi(DEFAULT_OWT_AI_CONFIG)).toBe(false)
+    expect(hasConfiguredAiApi({ baseUrl: 'http://model.test', model: 'local-model' })).toBe(true)
+    expect(hasConfiguredAiApi({ baseUrl: 'http://model.test', model: '' })).toBe(false)
+
+    const prompt = buildManualOwtPrompt(validAiOwt, 'zh-CN')
+    expect(prompt).toContain('OWT 0.1')
+    expect(prompt).toContain('每一小节时值总和必须恰好为 4')
+    expect(prompt).toContain(validAiOwt.trim())
+    expect(prompt).toContain('请在这里写下希望创作或修改的内容')
+  })
+
   test('extracts a validated OWT document from fenced model output', () => {
     expect(extractOwtFromAiResponse(`Here is the score:\n\`\`\`owt\n${validAiOwt}\`\`\``)).toBe(validAiOwt)
   })

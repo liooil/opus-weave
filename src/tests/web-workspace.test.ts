@@ -4,6 +4,8 @@ const html = await Bun.file('src/web/index.html').text()
 const app = await Bun.file('src/web/app.ts').text()
 const css = await Bun.file('src/web/app.css').text()
 const modalEditor = await Bun.file('src/web/editor/modal-editor.ts').text()
+const aiClient = await Bun.file('src/domain/ai/owt-ai.ts').text()
+const owtDocs = await Bun.file('docs/owt.md').text()
 
 describe('web workspace structure', () => {
   test('integrates score controls into the top bar without a local-session badge', () => {
@@ -20,6 +22,15 @@ describe('web workspace structure', () => {
     expect(css).not.toContain('grid-template-rows: auto auto auto')
   })
 
+  test('places file operations on the left and settings immediately after AI on the right', () => {
+    const header = html.slice(html.indexOf('<header'), html.indexOf('</header>'))
+    expect(header.indexOf('class="file-menu topbar-file-menu"')).toBeLessThan(header.indexOf('id="score-view-toolbar"'))
+    expect(header.indexOf('id="btn-ai-compose"')).toBeLessThan(header.indexOf('data-page-target="settings"'))
+    const actionsStart = header.indexOf('<div class="topbar-actions">')
+    expect(header.indexOf('data-page-target="settings"')).toBeGreaterThan(actionsStart)
+    expect(header.indexOf('id="language-toggle"')).toBeGreaterThan(header.indexOf('data-page-target="settings"'))
+  })
+
   test('keeps score editing above the live keyboard in the studio flow', () => {
     const studio = html.slice(html.indexOf('data-workspace-page="studio"'), html.indexOf('data-workspace-page="settings"'))
     expect(studio.indexOf('id="owt-panel"')).toBeGreaterThan(-1)
@@ -30,7 +41,10 @@ describe('web workspace structure', () => {
 
   test('gives every visible button an executable keyboard shortcut', () => {
     const buttons = [...html.matchAll(/<button\b[^>]*>/g)].map((match) => match[0])
-    expect(buttons.filter((button) => !button.includes('data-shortcut') && !button.includes('aria-keyshortcuts'))).toEqual([])
+    expect(buttons.filter((button) => !button.includes('data-shortcut') && !button.includes('aria-keyshortcuts') && !button.includes('data-shortcut-exempt'))).toEqual([])
+    expect(buttons.filter((button) => button.includes('data-shortcut-exempt'))).toEqual([
+      expect.stringContaining('id="toggle-computer-map"'),
+    ])
     expect(app).toContain("case 'workspace-studio': showWorkspacePage('studio')")
     expect(app).toContain("case 'toggle-locale': localeButton.click()")
     expect(app).toContain("case 'toggle-theme': themeButton.click()")
@@ -44,7 +58,8 @@ describe('web workspace structure', () => {
     expect(actions).toContain('data-theme-icon="light"')
     expect(actions).toContain('data-theme-icon="dark"')
     expect(actions).toContain('data-theme-icon="system"')
-    expect(actions).not.toContain('control-label')
+    const themeButton = actions.slice(actions.indexOf('id="theme-toggle"'), actions.indexOf('</button>', actions.indexOf('id="theme-toggle"')))
+    expect(themeButton).not.toContain('control-label')
     expect(app).toContain("window.matchMedia('(prefers-color-scheme: dark)')")
     expect(app).toContain("window.localStorage.setItem('opusweave.theme', themePreference)")
     expect(css).toContain(":root[data-effective-theme='light']")
@@ -86,6 +101,20 @@ describe('web workspace structure', () => {
     expect(app).toContain("setAiComposeState('error')")
   })
 
+  test('uses manual AI collaboration when no optional API is configured', () => {
+    const checkedSources = `${html}\n${app}\n${aiClient}\n${owtDocs}`
+    expect(checkedSources).not.toMatch(/\b(?:10\.\d{1,3}|192\.168|172\.(?:1[6-9]|2\d|3[01]))(?:\.\d{1,3}){2}\b/)
+    expect(html).not.toMatch(/id="ai-endpoint"[^>]*\svalue=/)
+    expect(html).not.toMatch(/id="ai-model"[^>]*\svalue=/)
+    expect(html).toContain('<dialog id="ai-manual-dialog"')
+    expect(html).toContain('id="ai-manual-prompt"')
+    expect(html).toContain('id="btn-ai-manual-copy"')
+    expect(app).toContain('if (!hasConfiguredAiApi(currentAiConfig()))')
+    expect(app).toContain('buildManualOwtPrompt(owtEditor.value, getLocale())')
+    expect(app).toContain('navigator.clipboard.writeText(aiManualPrompt.value)')
+    expect(modalEditor).toContain("textarea.addEventListener('paste'")
+  })
+
   test('keeps contextual motion help inside the focused OWT editor', () => {
     expect(html).toContain('class="owt-editor-overlay"')
     expect(html).toContain('class="owt-motion-hints"')
@@ -100,7 +129,12 @@ describe('web workspace structure', () => {
   })
 
   test('moves file and MIDI import options out of the editor chrome', () => {
-    expect(html).toContain('class="file-menu"')
+    expect(html).toContain('class="file-menu topbar-file-menu"')
+    expect(html.match(/id="owt-file"/g)).toHaveLength(1)
+    expect(html).toContain('class="file-submenu"')
+    expect(html.indexOf('id="owt-example"')).toBeGreaterThan(html.indexOf('class="file-submenu"'))
+    expect(html).not.toContain('class="score-open-actions"')
+    expect(html).not.toContain('class="example-picker"')
     expect(html).toContain('id="midi-import-dialog"')
     expect(html).toContain('id="owt-grid"')
     expect(html.indexOf('id="owt-grid"')).toBeGreaterThan(html.indexOf('id="midi-import-dialog"'))
@@ -113,5 +147,48 @@ describe('web workspace structure', () => {
     expect(html).toContain('aria-keyshortcuts="F5 Control+Space"')
     expect(app).toContain("ev.key === 'F5'")
     expect(app).toContain("handleModalCommand('play-pause')")
+  })
+
+  test('merges octave and velocity controls into the keyboard-map header', () => {
+    const livePanel = html.slice(html.indexOf('id="live-panel"'), html.indexOf('</section>', html.indexOf('id="live-panel"')))
+    const mapHeader = livePanel.slice(livePanel.indexOf('class="computer-map-head"'), livePanel.indexOf('class="computer-map-content"'))
+    expect(mapHeader).toContain('id="oct-down"')
+    expect(mapHeader).toContain('id="oct-label"')
+    expect(mapHeader).toContain('id="velocity-down"')
+    expect(mapHeader).toContain('id="key-velocity"')
+    expect(mapHeader).toContain('class="map-shortcut-hint"')
+    expect(mapHeader).toContain('id="toggle-computer-map"')
+    expect(mapHeader).not.toContain('data-shortcut="Space k m"')
+    expect(modalEditor).not.toContain("m: 'toggle-key-map'")
+    expect(app).not.toContain("case 'toggle-key-map'")
+    expect(css).toContain(".map-toggle[aria-expanded='false'] .map-toggle-icon")
+  })
+
+  test('renders layout-specific key maps including the complete FreePiano keyboard', () => {
+    expect(html).not.toContain('class="bridge-label"')
+    expect(html).not.toContain('data-i18n="live.mappingBridge"')
+    expect(app).toContain("id: 'navigation'")
+    expect(app).toContain("id: 'numpad'")
+    expect(app).toContain("['numlock', 'num/', 'num*', 'num-']")
+    expect(app).toContain("NumpadEnter: 'numenter'")
+    expect(app).toContain("root.dataset.layout = layout")
+    expect(app).not.toContain('traceActiveOnly')
+    expect(css).toContain('.keyboard-map-section + .keyboard-map-section')
+  })
+
+  test('confirms AI-bound file imports before reading or sending the file', () => {
+    expect(html).toContain('<dialog id="ai-media-import-dialog"')
+    expect(html).toContain('id="ai-media-file-name"')
+    expect(html).toContain('id="ai-media-mode"')
+    expect(html).toContain('id="ai-media-frames"')
+    expect(html).toContain('id="ai-media-prompt"')
+    expect(html).toContain('id="btn-ai-media-confirm"')
+    expect(app).toContain('else requestAiMediaImport(file)')
+    expect(app).toContain('aiMediaImportDialog.showModal()')
+    expect(app).toContain('mediaFileToAiAttachments(file, options.maxVideoFrames)')
+    expect(app).toContain("includeCurrentScore: aiMediaMode.value === 'edit'")
+    const requestStart = app.indexOf('function requestAiMediaImport(file: File)')
+    const requestEnd = app.indexOf('function cancelAiMediaImport()', requestStart)
+    expect(app.slice(requestStart, requestEnd)).not.toContain('mediaFileToAiAttachments')
   })
 })

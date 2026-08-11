@@ -124,11 +124,11 @@ live keystrokes. The selected layout is saved locally.
 - **OpusWeave default** is the existing chromatic two-octave piano layout.
 - **English word melody** maps every letter through constrained C-major
   pentatonic motion; spaces and punctuation create tonic cadences.
-- **Pinyin melody** adds the Mandarin tone contours: `1` level, `2` rising,
-  `3` dipping then rising, and `4` falling.
-- **FreePiano classic** reproduces the main alphanumeric diatonic rows from
-  FreePiano 1.8's canonical `data/freepiano.map`: overlapping rows begin at
-  C2, C3, C4 and C5.
+- **Pinyin melody** maps Pinyin letters through pentatonic motion; spaces and
+  punctuation create cadences without occupying number keys for tones.
+- **FreePiano classic** reproduces every note-playing key from FreePiano 1.8's
+  canonical `data/freepiano.map`: the full main section, navigation cluster,
+  arrow keys and numeric keypad span B1 through A6.
 
 In the default layout, A/K change octave and F/4 change velocity. Those keys
 become ordinary notes in the word, Pinyin and FreePiano layouts.
@@ -150,9 +150,11 @@ another source to open. The source files are also available under `examples/`.
 The **AI composition** button opens a blocking prompt dialog. After submission,
 the dialog closes and the button itself reports working, success or failure by
 its text and color. OpenAI-compatible endpoint, model and optional API key
-settings live on the **Settings** page and are stored locally in the browser.
-The default test configuration is `http://192.168.6.130:8080` with
-`gemma4-vl-long`.
+settings live on the **Settings** page and are stored locally in the browser;
+the source code contains no default endpoint or model. When no endpoint/model
+is configured, the button instead opens a prepared, editable prompt containing
+the current score and OWT validity rules. It can be copied into any AI chat,
+and the returned OWT can always be pasted directly into the editor.
 
 - A prompt edits the current OWT, validates the returned document and plays it.
 - **Open / Import** and drag-and-drop share one dispatcher: OWT opens directly,

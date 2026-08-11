@@ -44,19 +44,24 @@ function musicalKeys(mode: MusicalTypingMode): ComputerKeyboardLayout {
   const keys: Record<string, number> = {}
   for (const key of 'abcdefghijklmnopqrstuvwxyz') keys[key] = 0
   for (const key of [' ', ',', '.', ';']) keys[key] = 0
-  if (mode === 'pinyin') for (const key of ['1', '2', '3', '4']) keys[key] = 0
   return { id: mode, baseNote: 48, keys, musicalMode: mode }
 }
 
-/** Main-key section of FreePiano 1.8's canonical data/freepiano.map. */
+/** Note-playing keys from FreePiano 1.8's canonical data/freepiano.map. */
 const FREEPIANO_CLASSIC_LAYOUT: ComputerKeyboardLayout = {
   id: 'freepiano',
   baseNote: 36,
   keys: {
+    shift: -1,
     z: 0, x: 2, c: 4, v: 5, b: 7, n: 9, m: 11, ',': 12, '.': 14, '/': 16,
-    a: 12, s: 14, d: 16, f: 17, g: 19, h: 21, j: 23, k: 24, l: 26, ';': 28, "'": 29,
-    q: 24, w: 26, e: 28, r: 29, t: 31, y: 33, u: 35, i: 36, o: 38, p: 40, '[': 41, ']': 43, '\\': 45,
-    '`': 35, '1': 36, '2': 38, '3': 40, '4': 41, '5': 43, '6': 45, '7': 47, '8': 48, '9': 50, '0': 52, '-': 53, '=': 55,
+    rshift: 17, caps: 11, a: 12, s: 14, d: 16, f: 17, g: 19, h: 21, j: 23, k: 24, l: 26, ';': 28, "'": 29, enter: 31,
+    tab: 23, q: 24, w: 26, e: 28, r: 29, t: 31, y: 33, u: 35, i: 36, o: 38, p: 40, '[': 41, ']': 43, '\\': 45,
+    '`': 35, '1': 36, '2': 38, '3': 40, '4': 41, '5': 43, '6': 45, '7': 47, '8': 48, '9': 50, '0': 52, '-': 53, '=': 55, back: 55,
+    left: 12, down: 14, right: 16, up: 17,
+    'num0': 19, 'num.': 21, numenter: 23,
+    num1: 24, num2: 26, num3: 28, num4: 29, num5: 31, num6: 33, num7: 35, num8: 36, num9: 38,
+    'num+': 40, numlock: 41, 'num/': 43, 'num*': 45, 'num-': 47,
+    delete: 48, end: 50, pgdn: 52, insert: 53, home: 55, pgup: 57,
   },
 }
 

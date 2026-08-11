@@ -47,10 +47,50 @@ interface ChatBody {
 }
 
 export const DEFAULT_OWT_AI_CONFIG: OwtAiConfig = {
-  baseUrl: 'http://192.168.6.130:8080',
-  model: 'gemma4-vl-long',
+  baseUrl: '',
+  model: '',
   temperature: 0.35,
   maxTokens: 4096,
+}
+
+export function hasConfiguredAiApi(config: Pick<OwtAiConfig, 'baseUrl' | 'model'>): boolean {
+  return config.baseUrl.trim().length > 0 && config.model.trim().length > 0
+}
+
+export function buildManualOwtPrompt(currentOwt: string, locale: 'en' | 'zh-CN' = 'en'): string {
+  const score = currentOwt.trim() || 'owt 0.1 score\n\ntitle "New Melody"\nppq 480\nmeter 1:1 4/4\ntempo 1:1 120\nkey 1:1 C major\n\ntrack "Melody" channel=1 program=0 velocity=88\n| C4:1 D4:1 E4:1 F4:1 |\nend'
+  if (locale === 'zh-CN') {
+    return `你是 OpusWeave 的 OWT 0.1 乐谱编辑助手。请与我讨论创作意图；信息不足时可以先提问。需要给出最终结果时，只输出一份完整、有效的 OWT 文档，不要使用 Markdown 代码围栏，也不要附加解释。
+
+创作要求：
+（请在这里写下希望创作或修改的内容；也可以先把这段提示词发给 AI，再继续对话。）
+
+OWT 约束：
+- 第一行必须是 owt 0.1 score，最后一行必须是 end。
+- 必须包含 title、ppq 480、meter、tempo、key 和至少一个 track。
+- 音符格式如 C4:1、F#4:1/2、R:1、[C4 E4 G4]:2。
+- 4/4 拍的每一小节时值总和必须恰好为 4，不要生成不完整小节。
+- channel 为 1–16；program 和 velocity 为 0–127。
+- 修改时保留当前乐谱中未被要求更改的内容。
+
+当前 OWT：
+${score}`
+  }
+  return `You are an OpusWeave OWT 0.1 score-editing assistant. Discuss the creative intent with me and ask clarifying questions when needed. When a final result is requested, output exactly one complete, valid OWT document without Markdown fences or additional explanation.
+
+CREATIVE REQUEST:
+(Write what you want to create or change here, or send this prompt first and continue the conversation with the AI.)
+
+OWT REQUIREMENTS:
+- The first line must be owt 0.1 score and the last line must be end.
+- Include title, ppq 480, meter, tempo, key and at least one track.
+- Events look like C4:1, F#4:1/2, R:1 or [C4 E4 G4]:2.
+- Every 4/4 measure must total exactly 4 quarter-note units; do not create incomplete measures.
+- channel is 1–16; program and velocity are 0–127.
+- When editing, preserve current-score material that the request does not change.
+
+CURRENT OWT:
+${score}`
 }
 
 const SYSTEM_PROMPT = `You are OpusWeave's score editor. Return one complete, valid OpusWeave Text 0.1 Score and nothing else.

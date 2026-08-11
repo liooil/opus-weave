@@ -9,6 +9,15 @@ export interface OwtTextObject {
   value?: string
 }
 
+export type OwtSelectionLevel = 'event' | 'measure' | 'track'
+export interface OwtSemanticEdit { from: number; to: number; insert: string }
+
+export function selectionLevelForClickCount(clickCount: number): OwtSelectionLevel {
+  if (clickCount >= 3) return 'track'
+  if (clickCount === 2) return 'measure'
+  return 'event'
+}
+
 export interface OwtSyntaxIndex {
   document: OwtTextObject
   tracks: OwtTextObject[]
@@ -79,10 +88,14 @@ export function buildOwtSyntaxIndex(text: string, diagnostics: Array<{ line: num
 
   const bars = lexical.filter((token) => token.className === 'owt-syntax-bar')
   const measures: OwtTextObject[] = []
-  for (let index = 0; index + 1 < bars.length; index++) {
-    const start = bars[index]!.start
-    const end = bars[index + 1]!.end
-    if (!trackStarts.some((track) => track.start > start && track.start < end)) measures.push({ kind: 'measure', start, end })
+  for (const line of sourceLines) {
+    const lineBars = bars.filter((bar) => bar.start >= line.start && bar.end <= line.end)
+    for (let index = 0; index + 1 < lineBars.length; index++) {
+      const startBar = lineBars[index]!
+      const endBar = lineBars[index + 1]!
+      if (!text.slice(startBar.end, endBar.start).trim()) continue
+      measures.push({ kind: 'measure', start: startBar.start, end: endBar.end })
+    }
   }
 
   const diagnosticObjects = diagnostics.flatMap((diagnostic) => {
@@ -133,6 +146,75 @@ export function objectContaining(index: OwtSyntaxIndex, kind: OwtObjectKind, sta
   return objectsOfKind(index, kind)
     .filter((object) => object.start <= start && object.end >= end)
     .sort((left, right) => (left.end - left.start) - (right.end - right.start))[0]
+}
+
+/** Snap a native textarea selection to a continuous range of OWT objects. */
+export function semanticRangeFromNativeSelection(
+  index: OwtSyntaxIndex,
+  level: OwtSelectionLevel,
+  start: number,
+  end: number,
+): { start: number; end: number } | undefined {
+  const objects = objectsOfKind(index, level).slice().sort((left, right) => left.start - right.start)
+  if (!objects.length) return undefined
+  const normalizedStart = Math.min(start, end)
+  const normalizedEnd = Math.max(start, end)
+  const endPoint = normalizedEnd > normalizedStart ? normalizedEnd - 1 : normalizedStart
+  const near = (position: number): OwtTextObject => objects.find((object) => object.start <= position && object.end > position)
+    ?? objects.find((object) => object.start >= position)
+    ?? objects.at(-1)!
+  const first = near(normalizedStart)
+  const last = near(endPoint)
+  return { start: Math.min(first.start, last.start), end: Math.max(first.end, last.end) }
+}
+
+export function selectionLevelForRange(index: OwtSyntaxIndex, start: number, end: number): OwtSelectionLevel | undefined {
+  const matchesLevel = (level: OwtSelectionLevel): boolean => {
+    const objects = objectsOfKind(index, level).filter((object) => object.start >= start && object.end <= end)
+    return objects.length > 0 && objects[0]!.start === start && objects.at(-1)!.end === end
+  }
+  if (matchesLevel('track')) return 'track'
+  if (matchesLevel('measure')) return 'measure'
+  if (objectsOfKind(index, 'event').some((object) => object.start >= start && object.end <= end)) return 'event'
+  return undefined
+}
+
+export function replaceOwtEventWithRest(eventText: string): string | null {
+  const colon = eventText.lastIndexOf(':')
+  if (colon < 0) return null
+  return `R${eventText.slice(colon)}`
+}
+
+/** Delete score objects without exposing raw source-text behavior to score mode. */
+export function semanticDeletionEdits(
+  text: string,
+  index: OwtSyntaxIndex,
+  ranges: readonly { start: number; end: number }[],
+): OwtSemanticEdit[] {
+  const edits: OwtSemanticEdit[] = []
+  for (const range of ranges) {
+    const level = selectionLevelForRange(index, range.start, range.end)
+    if (level === 'track') {
+      edits.push({ from: range.start, to: range.end, insert: '' })
+      continue
+    }
+    if (level === 'measure') {
+      const lineStart = text.lastIndexOf('\n', Math.max(0, range.start - 1)) + 1
+      const nextNewline = text.indexOf('\n', range.end)
+      const lineEnd = nextNewline < 0 ? text.length : nextNewline
+      const fillsLines = !text.slice(lineStart, range.start).trim() && !text.slice(range.end, lineEnd).trim()
+      edits.push(fillsLines
+        ? { from: lineStart, to: nextNewline < 0 ? lineEnd : lineEnd + 1, insert: '' }
+        : { from: Math.min(range.end, range.start + 1), to: range.end, insert: '' })
+      continue
+    }
+    for (const event of index.events.filter((object) => object.start >= range.start && object.end <= range.end)) {
+      const insert = replaceOwtEventWithRest(text.slice(event.start, event.end))
+      if (insert !== null) edits.push({ from: event.start, to: event.end, insert })
+    }
+  }
+  const unique = new Map(edits.map((edit) => [`${edit.from}:${edit.to}`, edit]))
+  return [...unique.values()].sort((left, right) => left.from - right.from)
 }
 
 export function syntaxParent(index: OwtSyntaxIndex, start: number, end: number): OwtTextObject {

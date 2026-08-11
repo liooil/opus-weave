@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { activeOwtSourceRanges, buildOwtPlaybackMap } from '../domain/owt/playback-map.ts'
+import { activeOwtPlaybackIds, activeOwtSourceRanges, buildOwtPlaybackMap } from '../domain/owt/playback-map.ts'
 import { parseOwtOrThrow } from '../domain/owt/parser.ts'
 import { owtLexicalRanges, renderOwtHighlight } from '../web/components/owt-highlighter.ts'
 
@@ -46,6 +46,7 @@ describe('OWT playback source mapping', () => {
     const first = activeOwtSourceRanges(map, 0.1)
     expect(first).toHaveLength(1)
     expect(melody.slice(first[0]!.start, first[0]!.end)).toBe('C4:1')
+    expect(activeOwtPlaybackIds(map, 0.1)).toEqual(['0:0'])
 
     const second = activeOwtSourceRanges(map, 0.6)
     expect(second).toHaveLength(1)

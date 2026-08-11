@@ -22,7 +22,7 @@ Install it from the browser to keep the complete workstation—including the syn
 OpusWeave is an editor and player for `.owt` text files:
 
 ```
-MIDI / recording / AI prompt / score image / MP4 frames
+MIDI / AI prompt / score image / MP4 frames
        ↓  melody extraction or multimodal generation
 OWT text  (primary editable source)
        ↓
@@ -31,18 +31,18 @@ MIDI playback/export  →  SoundFont synthesis
 
 | # | Capability |
 |---|---|
-| 1 | Edit `.owt` as score objects (event, measure or track), as raw text, or through live performance replacement, with syntax highlighting and playback-following source highlights |
+| 1 | Navigate and edit `.owt` with Helix modal score units—CHAR is an event, WORD a measure and LINE a track—or use raw text and live performance replacement |
 | 2 | Import MIDI through intentional lossy melody extraction with track selection, voice reduction and rhythm quantization |
 | 3 | Export OWT to Standard MIDI for playback and interchange |
 | 4 | Play immediately with the FreePiano-style mda Piano default and lightweight Micro GM fallback, or load a custom `.sf2` / `.sf3` / `.sfogg` bank |
-| 5 | Connect a physical MIDI keyboard via WebMIDI and extract a simple OWT melody from a recording |
+| 5 | Connect a physical MIDI keyboard via WebMIDI for live performance, guided practice and AI improvisation |
 | 6 | Inspect and edit imported MIDI on a multi-track beat timeline before extracting or exporting |
 | 7 | Monitor Note On/Off, CC and Pitch Bend in real time |
 | 8 | Render MIDI + SoundFont to WAV via the optional system FluidSynth (`render-midi`) |
 | 9 | Drive OWT validation, playback, import and export through MCP |
-| 10 | Switch the live computer keyboard between OpusWeave chromatic, English-word, Pinyin-tone and FreePiano classic layouts; generate OWT from the active layout |
+| 10 | Switch the live computer keyboard between OpusWeave chromatic, English-word, Pinyin-tone and FreePiano classic performance layouts |
 | 11 | Load public-domain piano examples including Ode to Joy, Für Elise, Canon in D, Minuet in G and Moonlight Sonata |
-| 12 | Configure an OpenAI-compatible multimodal model for prompt composition, score-image/MP4 transcription and AI call-and-response |
+| 12 | Open or drop OWT directly, convert MIDI deterministically, or send score images/MP4 to an OpenAI-compatible multimodal model through one unified import path |
 
 ## Quick start
 

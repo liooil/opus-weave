@@ -1,8 +1,7 @@
-import { buildOwtSyntaxIndex, nextObject, objectsOfKind, syntaxChild, syntaxParent, type OwtObjectKind, type OwtSyntaxIndex } from './owt-objects.ts'
+import { buildOwtSyntaxIndex, nextObject, objectContaining, objectsOfKind, selectionLevelForClickCount, semanticRangeFromNativeSelection, syntaxChild, syntaxParent, type OwtObjectKind, type OwtSyntaxIndex } from './owt-objects.ts'
 
-export type EditorMode = 'normal' | 'insert' | 'select' | 'command' | 'semantic' | 'raw'
-export type PromptKind = 'command' | 'search-forward' | 'search-backward' | 'select-regex'
-export type EditorInteractionMode = 'helix' | 'semantic' | 'raw'
+export type EditorMode = 'normal' | 'insert' | 'select' | 'command' | 'raw'
+export type EditorInteractionMode = 'helix' | 'raw'
 
 export interface EditorSelection { anchor: number; head: number }
 export interface TextEdit { from: number; to: number; insert: string }
@@ -13,7 +12,6 @@ export interface ModalEditorViewState {
   pending: string
   line: number
   column: number
-  searchRanges: Array<{ start: number; end: number }>
 }
 export interface ModalEditorCallbacks {
   onChange: (text: string) => void
@@ -24,7 +22,6 @@ export interface ModalEditorCallbacks {
 interface Snapshot { text: string; selections: EditorSelection[]; primary: number }
 
 const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
-const words = new Intl.Segmenter(undefined, { granularity: 'word' })
 
 export function normalizedSelection(selection: EditorSelection): { start: number; end: number } {
   return selection.anchor <= selection.head ? { start: selection.anchor, end: selection.head } : { start: selection.head, end: selection.anchor }
@@ -55,6 +52,22 @@ export function previousGrapheme(text: string, position: number): number {
   for (const boundary of boundaries(text).reverse()) if (boundary < position) return boundary
   return 0
 }
+
+export interface OwtSemanticMotion {
+  kind: 'event' | 'measure' | 'track'
+  direction: 1 | -1
+}
+
+/** Map Helix motions onto OWT events and score rows (measures). */
+export function owtSemanticMotion(key: string): OwtSemanticMotion | undefined {
+  switch (key) {
+    case 'h': case 'b': case 'ArrowLeft': return { kind: 'event', direction: -1 }
+    case 'l': case 'w': case 'e': case 'ArrowRight': return { kind: 'event', direction: 1 }
+    case 'k': case 'ArrowUp': return { kind: 'measure', direction: -1 }
+    case 'j': case 'ArrowDown': return { kind: 'measure', direction: 1 }
+    default: return undefined
+  }
+}
 export function nextGrapheme(text: string, position: number): number {
   for (const boundary of boundaries(text)) if (boundary > position) return boundary
   return text.length
@@ -83,14 +96,6 @@ function vertical(text: string, position: number, direction: 1 | -1): number {
   const next = end + 1
   return Math.min(next + column, lineEnd(text, next))
 }
-function wordPosition(text: string, position: number, kind: 'next' | 'previous' | 'end'): number {
-  const items = [...words.segment(text)].filter((part) => part.isWordLike)
-  if (kind === 'next') return items.find((part) => part.index > position)?.index ?? text.length
-  if (kind === 'previous') return items.slice().reverse().find((part) => part.index < position)?.index ?? 0
-  const item = items.find((part) => part.index + part.segment.length > position) ?? items.find((part) => part.index > position)
-  return item ? item.index + item.segment.length : text.length
-}
-
 export class ModalOwtEditor {
   mode: EditorMode = 'normal'
   selections: EditorSelection[] = [{ anchor: 0, head: 0 }]
@@ -102,9 +107,6 @@ export class ModalOwtEditor {
   private redoStack: Snapshot[] = []
   private insertStart?: Snapshot
   private pendingTimer?: number
-  private promptKind: PromptKind = 'command'
-  private lastSearchDirection: 1 | -1 = 1
-  private searchRanges: Array<{ start: number; end: number }> = []
   private composing = false
   private interactionMode: EditorInteractionMode = 'helix'
 
@@ -126,18 +128,18 @@ export class ModalOwtEditor {
   primaryRange(): { start: number; end: number } { return normalizedSelection(this.selections[this.primary] ?? { anchor: 0, head: 0 }) }
   setInteractionMode(mode: EditorInteractionMode): void {
     this.interactionMode = mode
-    this.mode = mode === 'raw' ? 'raw' : mode === 'semantic' ? 'semantic' : 'normal'
+    this.mode = mode === 'raw' ? 'raw' : 'normal'
     this.textarea.readOnly = mode !== 'raw'
     this.selections = [mode === 'raw'
       ? { anchor: this.textarea.selectionStart, head: this.textarea.selectionEnd }
-      : cursor(this.text, this.primaryRange().start)]
+      : this.eventSelectionAt(this.primaryRange().start)]
     this.primary = 0
     this.clearPending(); this.sync(); this.render()
   }
-  selectRange(start: number, end: number): void {
+  selectRange(start: number, end: number, normal = false): void {
     this.selections = [{ anchor: Math.max(0, start), head: Math.min(this.text.length, Math.max(start, end)) }]
     this.primary = 0
-    this.mode = this.interactionMode === 'semantic' ? 'semantic' : 'select'
+    this.mode = this.interactionMode === 'raw' ? 'raw' : normal ? 'normal' : 'select'
     this.textarea.readOnly = this.interactionMode !== 'raw'
     this.sync(); this.render()
   }
@@ -150,7 +152,7 @@ export class ModalOwtEditor {
   insertText(at: number, insert: string): void { this.replaceTextRange(at, at, insert) }
   setText(text: string, record = false): void {
     if (record) this.pushUndo()
-    this.textarea.value = text; this.selections = [cursor(text, 0)]; this.primary = 0; this.searchRanges = []
+    this.textarea.value = text; this.selections = [this.interactionMode === 'helix' ? this.eventSelectionAt(0) : cursor(text, 0)]; this.primary = 0
     this.sync(); this.callbacks.onChange(text); this.render()
   }
 
@@ -179,7 +181,7 @@ export class ModalOwtEditor {
       this.selections = this.selections.map((selection) => { const range = normalizedSelection(selection); return { anchor: range.start, head: range.start } })
     } else if (mode === 'normal') {
       this.insertStart = undefined
-      this.selections = this.selections.map((selection) => cursor(this.text, normalizedSelection(selection).start))
+      this.selections = this.selections.map((selection) => this.eventSelectionAt(normalizedSelection(selection).start))
     }
     this.clearPending(); this.sync(); this.render()
   }
@@ -190,38 +192,29 @@ export class ModalOwtEditor {
   }
   private render(): void {
     const position = lineColumn(this.text, this.primaryRange().start)
-    this.callbacks.onRender({ mode: this.mode, selections: cloneSelections(this.selections), primary: this.primary, pending: this.pending, line: position.line, column: position.column, searchRanges: this.searchRanges.slice() })
+    this.callbacks.onRender({ mode: this.mode, selections: cloneSelections(this.selections), primary: this.primary, pending: this.pending, line: position.line, column: position.column })
+  }
+  applyEdits(edits: TextEdit[]): void {
+    this.commit(edits, false)
+    this.enterMode('normal')
   }
 
-  private target(kind: string, position: number): number {
-    switch (kind) {
-      case 'left': return previousGrapheme(this.text, position)
-      case 'right': return nextGrapheme(this.text, position)
-      case 'up': return vertical(this.text, position, -1)
-      case 'down': return vertical(this.text, position, 1)
-      case 'word-next': return wordPosition(this.text, position, 'next')
-      case 'word-prev': return wordPosition(this.text, position, 'previous')
-      case 'word-end': return wordPosition(this.text, position, 'end')
-      case 'line-start': return lineStart(this.text, position)
-      case 'line-end': return lineEnd(this.text, position)
-      case 'file-start': return 0
-      case 'file-end': return Math.max(0, this.text.length - 1)
-      default: return position
-    }
+  private eventSelectionAt(position: number): EditorSelection {
+    if (this.interactionMode !== 'helix') return cursor(this.text, position)
+    const index = this.syntax()
+    const event = index.events.find((item) => item.start <= position && item.end > position)
+      ?? index.events.find((item) => item.start >= position)
+      ?? index.events.at(-1)
+    return event ? { anchor: event.start, head: event.end } : cursor(this.text, position)
   }
-  private move(kind: string): void {
+
+  private selectTracks(extend: boolean): void {
+    const index = this.syntax()
     this.selections = this.selections.map((selection) => {
       const range = normalizedSelection(selection)
-      const position = this.mode === 'select' ? selection.head : range.start
-      const target = this.target(kind, position)
-      return this.mode === 'select' ? { anchor: selection.anchor, head: target } : cursor(this.text, target)
-    })
-    this.sync(); this.render()
-  }
-  private selectLines(extend: boolean): void {
-    this.selections = this.selections.map((selection) => {
-      const range = normalizedSelection(selection), start = lineStart(this.text, range.start), end = Math.min(this.text.length, lineEnd(this.text, range.end) + 1)
-      return extend ? { anchor: selection.anchor, head: end } : { anchor: start, head: end }
+      const track = objectContaining(index, 'track', range.start, range.end) ?? nextObject(index, 'track', Math.max(-1, range.start - 1), 1)
+      if (!track) return selection
+      return extend ? { anchor: selection.anchor, head: track.end } : { anchor: track.start, head: track.end }
     })
     this.mode = 'select'; this.sync(); this.render()
   }
@@ -292,8 +285,32 @@ export class ModalOwtEditor {
   private syntax(): OwtSyntaxIndex { return this.callbacks.getSyntaxIndex?.() ?? buildOwtSyntaxIndex(this.text) }
   private semanticMove(kind: OwtObjectKind, direction: 1 | -1): void {
     const index = this.syntax()
-    this.selections = this.selections.map((selection) => { const object = nextObject(index, kind, normalizedSelection(selection).start, direction); return object ? { anchor: object.start, head: object.end } : selection })
+    this.selections = this.selections.map((selection) => {
+      const range = normalizedSelection(selection)
+      const objects = objectsOfKind(index, kind).slice().sort((left, right) => left.start - right.start)
+      const point = this.mode === 'select'
+        ? Math.max(0, selection.head - (direction > 0 ? 1 : 0))
+        : range.start
+      const currentIndex = objects.findIndex((item) => item.start <= point && item.end > point)
+      const object = currentIndex >= 0
+        ? objects[(currentIndex + direction + objects.length) % objects.length]
+        : nextObject(index, kind, point, direction)
+      if (!object) return selection
+      if (this.mode === 'select') return { anchor: selection.anchor, head: direction > 0 ? object.end : object.start }
+      return { anchor: object.start, head: object.end }
+    })
     this.sync(); this.render()
+  }
+
+  private semanticBoundary(scope: 'document' | 'track', atEnd: boolean): void {
+    const index = this.syntax()
+    const current = this.primaryRange()
+    const track = scope === 'track' ? objectContaining(index, 'track', current.start, current.end) : undefined
+    const events = track ? index.events.filter((event) => event.start >= track.start && event.end <= track.end) : index.events
+    const object = atEnd ? events.at(-1) : events[0]
+    if (!object) return
+    this.selections = [{ anchor: object.start, head: object.end }]
+    this.primary = 0; this.sync(); this.render()
   }
   private selectObjects(kind: OwtObjectKind, all: boolean): void {
     const index = this.syntax(), current = this.primaryRange()
@@ -319,9 +336,9 @@ export class ModalOwtEditor {
     this.hints.hidden = false; this.render()
   }
   private clearPending(): void { this.pending = ''; window.clearTimeout(this.pendingTimer); this.hints.hidden = true; this.render() }
-  private promptOpen(kind: PromptKind): void {
-    this.promptKind = kind; this.mode = 'command'; this.prompt.hidden = false
-    this.prompt.value = kind === 'command' ? ':' : kind === 'search-backward' ? '?' : '/'
+  private promptOpen(): void {
+    this.mode = 'command'; this.prompt.hidden = false
+    this.prompt.value = ':'
     this.prompt.focus(); this.prompt.setSelectionRange(this.prompt.value.length, this.prompt.value.length); this.render()
   }
   private promptClose(): void { this.prompt.hidden = true; this.prompt.value = ''; this.textarea.focus(); this.enterMode('normal') }
@@ -329,9 +346,7 @@ export class ModalOwtEditor {
     if (event.key === 'Escape') { event.preventDefault(); this.promptClose(); return }
     if (event.key !== 'Enter') return
     event.preventDefault(); const value = this.prompt.value.slice(1).trim()
-    if (this.promptKind === 'command') this.commandLine(value)
-    else if (this.promptKind === 'select-regex') this.selectRegex(value)
-    else this.search(value, this.promptKind === 'search-forward' ? 1 : -1)
+    this.commandLine(value)
     this.promptClose()
   }
   private commandLine(value: string): void {
@@ -343,23 +358,6 @@ export class ModalOwtEditor {
     }
     void this.callbacks.onCommand(command, args.join(' '))
   }
-  private search(query: string, direction: 1 | -1): void {
-    if (!query) return; this.lastSearchDirection = direction; this.searchRanges = []
-    try { const regex = new RegExp(query, 'giu'); for (const match of this.text.matchAll(regex)) if (match[0].length) this.searchRanges.push({ start: match.index!, end: match.index! + match[0].length }) }
-    catch { let at = 0; const source = this.text.toLowerCase(), wanted = query.toLowerCase(); while ((at = source.indexOf(wanted, at)) >= 0) { this.searchRanges.push({ start: at, end: at + query.length }); at += Math.max(1, query.length) } }
-    this.searchNext(direction)
-  }
-  private searchNext(direction = this.lastSearchDirection): void {
-    if (!this.searchRanges.length) return; const position = this.primaryRange().start
-    const range = direction > 0 ? this.searchRanges.find((item) => item.start > position) ?? this.searchRanges[0] : this.searchRanges.slice().reverse().find((item) => item.start < position) ?? this.searchRanges.at(-1)
-    if (range) this.selections = [{ anchor: range.start, head: range.end }]; this.primary = 0; this.sync(); this.render()
-  }
-  private selectRegex(query: string): void {
-    if (!query) return; const output: EditorSelection[] = []
-    try { const regex = new RegExp(query, 'gu'); for (const selection of this.selections) { const range = normalizedSelection(selection); for (const match of this.text.slice(range.start, range.end).matchAll(regex)) if (match[0].length) output.push({ anchor: range.start + match.index!, head: range.start + match.index! + match[0].length }) } } catch { return }
-    if (output.length) { this.selections = output; this.primary = 0; this.mode = 'select'; this.sync(); this.render() }
-  }
-
   private copy(event: ClipboardEvent): void {
     if (this.interactionMode === 'raw') return
     const value = this.selections.map((selection) => { const range = normalizedSelection(selection); return this.text.slice(range.start, range.end) }).join('\n')
@@ -383,24 +381,85 @@ export class ModalOwtEditor {
     if (this.interactionMode === 'raw') {
       this.selections = [{ anchor: start, head: end }]; this.primary = 0; this.render(); return
     }
-    const selection = start === end && this.mode !== 'insert' ? cursor(this.text, start) : { anchor: start, head: end }
+    const clickCount = Math.max(1, Math.min(3, event.detail || 1))
+    const level = selectionLevelForClickCount(clickCount)
+    const range = semanticRangeFromNativeSelection(this.syntax(), level, start, end)
+    if (!range) return
+    const backward = this.textarea.selectionDirection === 'backward'
+    const selection = backward ? { anchor: range.end, head: range.start } : { anchor: range.start, head: range.end }
     if (event.altKey) { this.selections.push(selection); this.primary = this.selections.length - 1 } else { this.selections = [selection]; this.primary = 0 }
-    if (start !== end && this.mode === 'normal') this.mode = 'select'; this.sync(); this.render()
+    const oneEvent = level === 'event' && this.syntax().events.some((object) => object.start === range.start && object.end === range.end)
+    this.mode = oneEvent && start === end ? 'normal' : 'select'
+    this.sync(); this.render()
   }
 
   private pendingKey(key: string): boolean {
     const prefix = this.pending
     if (prefix === 'replace') { if (key.length === 1) this.replaceCharacter(key); this.clearPending(); return true }
-    if (prefix === 'g') { const map: Record<string, string> = { g: 'file-start', e: 'file-end', h: 'line-start', l: 'line-end' }; if (map[key]) this.move(map[key]!); this.clearPending(); return true }
+    if (prefix === 'g') {
+      if (key === 'g') this.semanticBoundary('document', false)
+      else if (key === 'e') this.semanticBoundary('document', true)
+      else if (key === 'h') this.semanticBoundary('track', false)
+      else if (key === 'l') this.semanticBoundary('track', true)
+      this.clearPending(); return true
+    }
     if (prefix === ']' || prefix === '[') { const map: Record<string, OwtObjectKind> = { n: 'note', r: 'rest', b: 'measure', t: 'track', d: 'directive', e: 'diagnostic' }; if (map[key]) this.semanticMove(map[key]!, prefix === ']' ? 1 : -1); this.clearPending(); return true }
     if (prefix === 'space') {
       if (key === 'x') { this.setPending('space-x'); return true }
+      if (key === 'm') { this.setPending('space-mode'); return true }
+      if (key === 'g') { this.setPending('space-view'); return true }
+      if (key === 'a') { this.setPending('space-action'); return true }
+      if (key === 'l') { this.setPending('space-example'); return true }
+      if (key === 't') { this.setPending('space-timeline'); return true }
+      if (key === 'z') { this.setPending('space-ai'); return true }
+      if (key === 'b') { this.setPending('space-workspace'); return true }
+      if (key === 'k') { this.setPending('space-control'); return true }
       const map: Record<string, string> = { p: 'play-pause', P: 'play-from-cursor', r: 'play-selection', s: 'stop', w: 'save', o: 'open', n: 'new', v: 'validate', f: 'format', e: 'export-midi', i: 'import-midi', d: 'diagnostics', q: 'perform', '?': 'help' }
       if (map[key]) void this.callbacks.onCommand(map[key]!); this.clearPending(); return true
     }
     if (prefix === 'space-x') {
       const one: Record<string, OwtObjectKind> = { n: 'note', p: 'pitch', d: 'duration', b: 'measure', t: 'track', a: 'document' }, all: Record<string, OwtObjectKind> = { N: 'note', R: 'rest', D: 'duration', B: 'measure', E: 'diagnostic' }
       if (key === 'P') this.samePitch(); else if (one[key]) this.selectObjects(one[key]!, false); else if (all[key]) this.selectObjects(all[key]!, true)
+      this.clearPending(); return true
+    }
+    if (prefix === 'space-mode') {
+      const map: Record<string, string> = { s: 'mode-score', r: 'mode-raw', i: 'improv' }
+      if (map[key]) void this.callbacks.onCommand(map[key]!)
+      this.clearPending(); return true
+    }
+    if (prefix === 'space-view') {
+      const map: Record<string, string> = { o: 'view-owt', t: 'view-timeline', s: 'view-staff', j: 'view-jianpu' }
+      if (map[key]) void this.callbacks.onCommand(map[key]!)
+      this.clearPending(); return true
+    }
+    if (prefix === 'space-action') {
+      const map: Record<string, string> = { p: 'replace-by-playing' }
+      if (map[key]) void this.callbacks.onCommand(map[key]!)
+      this.clearPending(); return true
+    }
+    if (prefix === 'space-example') {
+      const map: Record<string, string> = { l: 'load-example', p: 'play-example' }
+      if (map[key]) void this.callbacks.onCommand(map[key]!)
+      this.clearPending(); return true
+    }
+    if (prefix === 'space-timeline') {
+      const map: Record<string, string> = { r: 'timeline-restart', e: 'timeline-export', c: 'timeline-clear', p: 'timeline-replace', f: 'timeline-finish' }
+      if (map[key]) void this.callbacks.onCommand(map[key]!)
+      this.clearPending(); return true
+    }
+    if (prefix === 'space-ai') {
+      const map: Record<string, string> = { s: 'ai-settings', t: 'ai-test', c: 'ai-compose', l: 'toggle-locale', h: 'toggle-theme' }
+      if (map[key]) void this.callbacks.onCommand(map[key]!)
+      this.clearPending(); return true
+    }
+    if (prefix === 'space-workspace') {
+      const map: Record<string, string> = { s: 'workspace-studio', c: 'workspace-settings' }
+      if (map[key]) void this.callbacks.onCommand(map[key]!)
+      this.clearPending(); return true
+    }
+    if (prefix === 'space-control') {
+      const map: Record<string, string> = { m: 'toggle-key-map', e: 'midi-enable', r: 'midi-refresh', p: 'panic', o: 'audio-output', '1': 'learn-volume', '2': 'learn-panic', '3': 'learn-octave-up', '4': 'learn-octave-down' }
+      if (map[key]) void this.callbacks.onCommand(map[key]!)
       this.clearPending(); return true
     }
     return false
@@ -410,11 +469,6 @@ export class ModalOwtEditor {
     if (this.composing || event.isComposing) return
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') { event.preventDefault(); void this.callbacks.onCommand('save'); return }
     if (this.interactionMode === 'raw') return
-    if (this.interactionMode === 'semantic') {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') { event.preventDefault(); event.shiftKey ? this.redo() : this.undo() }
-      else if (!(event.ctrlKey || event.metaKey) || !['c', 'a'].includes(event.key.toLowerCase())) event.preventDefault()
-      return
-    }
     if (this.mode === 'insert') {
       if (event.key === 'Escape') { event.preventDefault(); this.enterMode('normal') }
       else if (this.selections.length > 1 && !event.ctrlKey && !event.metaKey && !event.altKey && event.key.length === 1) { event.preventDefault(); this.insertAll(event.key) }
@@ -429,7 +483,7 @@ export class ModalOwtEditor {
       return
     }
     if (event.altKey) {
-      if (event.key === 'o' || event.key === 'ArrowUp') { event.preventDefault(); this.expand() }
+      if (event.key === 'o' || event.key === 'O' || event.key === 'ArrowUp') { event.preventDefault(); this.expand() }
       else if (event.key === 'i' || event.key === 'ArrowDown') { event.preventDefault(); this.shrink() }
       else if (event.key === 'c') { event.preventDefault(); this.duplicateLine(-1) }
       else if (event.key === ',') { event.preventDefault(); if (this.selections.length > 1) this.selections.splice(this.primary, 1); this.primary = Math.max(0, Math.min(this.primary, this.selections.length - 1)); this.sync(); this.render() }
@@ -439,18 +493,15 @@ export class ModalOwtEditor {
     if (this.pending && this.pendingKey(event.key)) return
     if (/^[1-9]$/.test(event.key) || (this.count && event.key === '0')) { this.count += event.key; this.render(); return }
     const repeat = Math.max(1, Number(this.count) || 1); this.count = ''
-    const move = (kind: string) => { for (let index = 0; index < repeat; index++) this.move(kind) }
+    const semanticMotion = owtSemanticMotion(event.key)
+    if (semanticMotion) {
+      for (let index = 0; index < repeat; index++) this.semanticMove(semanticMotion.kind, semanticMotion.direction)
+      return
+    }
     switch (event.key) {
       case 'Escape': this.enterMode('normal'); break
-      case 'h': case 'ArrowLeft': move('left'); break
-      case 'j': case 'ArrowDown': move('down'); break
-      case 'k': case 'ArrowUp': move('up'); break
-      case 'l': case 'ArrowRight': move('right'); break
-      case 'w': move('word-next'); break
-      case 'b': move('word-prev'); break
-      case 'e': move('word-end'); break
-      case 'Home': move('line-start'); break
-      case 'End': move('line-end'); break
+      case 'Home': this.semanticBoundary('track', false); break
+      case 'End': this.semanticBoundary('track', true); break
       case 'g': this.setPending('g'); break
       case ']': this.setPending(']'); break
       case '[': this.setPending('['); break
@@ -463,7 +514,7 @@ export class ModalOwtEditor {
       case 'A': this.selections = this.selections.map((selection) => { const at = lineEnd(this.text, normalizedSelection(selection).end); return { anchor: at, head: at } }); this.enterMode('insert'); break
       case 'o': this.openLine(1); break
       case 'O': this.openLine(-1); break
-      case 'd': this.deleteSelections(); break
+      case 'd': void this.callbacks.onCommand('delete-object'); break
       case 'c': this.deleteSelections(true); break
       case 'y': void this.yank(); break
       case 'p': this.paste(true); break
@@ -472,18 +523,13 @@ export class ModalOwtEditor {
       case 'U': this.redo(); break
       case '>': this.indent(1); break
       case '<': this.indent(-1); break
-      case 'x': this.selectLines(this.mode === 'select'); break
-      case 'X': this.selectLines(true); break
+      case 'x': this.selectTracks(this.mode === 'select'); break
+      case 'X': this.selectTracks(true); break
       case '%': this.selections = [{ anchor: 0, head: this.text.length }]; this.mode = 'select'; this.sync(); this.render(); break
-      case ';': this.selections = this.selections.map((selection) => cursor(this.text, normalizedSelection(selection).start)); this.mode = 'normal'; this.sync(); this.render(); break
+      case ';': this.enterMode('normal'); break
       case ',': this.selections = [this.selections[this.primary]!]; this.primary = 0; this.sync(); this.render(); break
       case 'C': this.duplicateLine(1); break
-      case '/': this.promptOpen('search-forward'); break
-      case '?': this.promptOpen('search-backward'); break
-      case 'n': this.searchNext(); break
-      case 'N': this.searchNext(this.lastSearchDirection === 1 ? -1 : 1); break
-      case 's': this.promptOpen('select-regex'); break
-      case ':': this.promptOpen('command'); break
+      case ':': this.promptOpen(); break
     }
   }
 }

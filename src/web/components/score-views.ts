@@ -11,10 +11,12 @@ function staffLedgerLines(y: number, x: number): string {
   return lines.map((line) => `<line class="staff-ledger" x1="${x - 8}" y1="${line}" x2="${x + 8}" y2="${line}" />`).join('')
 }
 
-function staffEvent(event: ScoreViewEvent, measure: ScoreViewMeasure): string {
-  const x = 28 + (event.beat / Math.max(0.001, measure.quarterLength)) * 164
-  if (event.kind === 'rest') return `<g class="staff-rest" transform="translate(${x} 60)"><path d="M-5 -4h10l-7 8h8"/><text x="0" y="18">${event.duration}</text></g>`
-  return event.pitches.map((pitch, index) => {
+function staffEvent(event: ScoreViewEvent, measure: ScoreViewMeasure, first: boolean): string {
+  const left = first ? 58 : 10
+  const right = 210
+  const x = left + (event.beat / Math.max(0.001, measure.quarterLength)) * (right - left)
+  if (event.kind === 'rest') return `<g class="staff-event staff-rest" data-owt-event="${event.playbackId}" transform="translate(${x} 60)"><path d="M-5 -4h10l-7 8h8"/><text x="0" y="18">${event.duration}</text></g>`
+  const notes = event.pitches.map((pitch, index) => {
     const position = staffPosition(pitch)
     const noteX = x + index * 4
     const stemUp = position.y >= 60
@@ -27,12 +29,13 @@ function staffEvent(event: ScoreViewEvent, measure: ScoreViewMeasure): string {
     }).join('')
     return `<g class="staff-note">${staffLedgerLines(position.y, noteX)}${position.accidental ? `<text class="staff-accidental" x="${noteX - 10}" y="${position.y + 4}">♯</text>` : ''}<ellipse cx="${noteX}" cy="${position.y}" rx="6" ry="4" transform="rotate(-18 ${noteX} ${position.y})"/><line class="staff-stem" x1="${stemX}" y1="${position.y}" x2="${stemX}" y2="${stemEnd}"/>${flagPath}</g>`
   }).join('')
+  return `<g class="staff-event" data-owt-event="${event.playbackId}">${notes}</g>`
 }
 
 function staffMeasure(measure: ScoreViewMeasure, first: boolean): string {
-  const lines = [40, 50, 60, 70, 80].map((y) => `<line class="staff-line" x1="18" y1="${y}" x2="202" y2="${y}"/>`).join('')
-  const events = measure.events.map((event) => staffEvent(event, measure)).join('')
-  return `<div class="staff-measure"><svg viewBox="0 0 220 112" role="img" aria-label="Measure ${measure.number}">${lines}<line class="staff-barline" x1="202" y1="40" x2="202" y2="80"/>${first ? `<text class="staff-clef" x="1" y="78">𝄞</text><text class="staff-meter" x="25" y="54">${measure.numerator}</text><text class="staff-meter" x="25" y="72">${measure.denominator}</text>` : ''}${events}<text class="staff-measure-number" x="18" y="18">${measure.number}</text></svg></div>`
+  const lines = [40, 50, 60, 70, 80].map((y) => `<line class="staff-line" x1="0" y1="${y}" x2="220" y2="${y}"/>`).join('')
+  const events = measure.events.map((event) => staffEvent(event, measure, first)).join('')
+  return `<div class="staff-measure"><svg viewBox="0 0 220 112" role="img" aria-label="Measure ${measure.number}">${lines}${first ? '<line class="staff-barline" x1="0" y1="40" x2="0" y2="80"/>' : ''}<line class="staff-barline" x1="220" y1="40" x2="220" y2="80"/>${first ? `<text class="staff-clef" x="4" y="78">𝄞</text><text class="staff-meter" x="43" y="54">${measure.numerator}</text><text class="staff-meter" x="43" y="72">${measure.denominator}</text>` : ''}${events}<text class="staff-measure-number" x="6" y="18">${measure.number}</text></svg></div>`
 }
 
 export function renderStaffScore(model: ScoreViewModel): string {
@@ -61,7 +64,7 @@ function jianpuEvent(event: ScoreViewEvent, model: ScoreViewModel): string {
   const underlines = marks.underlines > 0 ? `<span class="jianpu-underlines">${'―'.repeat(marks.underlines)}</span>` : ''
   const dashes = marks.dashes > 0 ? `<span class="jianpu-dashes">${'—'.repeat(marks.dashes)}</span>` : ''
   const label = marks.label ? `<small>${marks.label}</small>` : ''
-  return `<span class="jianpu-event">${content}${underlines}${dashes}${label}</span>`
+  return `<span class="jianpu-event" data-owt-event="${event.playbackId}">${content}${underlines}${dashes}${label}</span>`
 }
 
 export function renderJianpuScore(model: ScoreViewModel): string {

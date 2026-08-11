@@ -2,6 +2,7 @@ import type { KeyDirective, MeterDirective, OwtScore } from './ast.ts'
 import { rationalToNumber } from './rational.ts'
 
 export interface ScoreViewEvent {
+  playbackId: string
   kind: 'note' | 'rest'
   pitches: number[]
   duration: number
@@ -60,9 +61,11 @@ export function buildScoreViewModel(score: OwtScore): ScoreViewModel {
   const tracks: ScoreViewTrack[] = []
   let maximumMeasure = 1
 
-  for (const track of score.tracks) {
+  for (let trackIndex = 0; trackIndex < score.tracks.length; trackIndex++) {
+    const track = score.tracks[trackIndex]!
     const byMeasure = new Map<number, ScoreViewMeasure>()
-    for (const event of track.events) {
+    for (let eventIndex = 0; eventIndex < track.events.length; eventIndex++) {
+      const event = track.events[eventIndex]!
       if (event.kind !== 'note' && event.kind !== 'rest') continue
       const at = rationalToNumber(event.at)
       const position = locateQuarter(at, score.meters)
@@ -75,6 +78,7 @@ export function buildScoreViewModel(score: OwtScore): ScoreViewModel {
         events: [],
       }
       measure.events.push({
+        playbackId: `${trackIndex}:${eventIndex}`,
         kind: event.kind,
         pitches: event.kind === 'note' ? event.pitches.slice() : [],
         duration,

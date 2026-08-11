@@ -77,20 +77,25 @@ per-note velocity unless explicitly requested.
 The OpusWeave editor colors directives, strings, notes, rests, chords,
 controls, attributes, numbers, bars and comments. During OWT playback, the
 source token for every currently sounding note or rest is highlighted. The
-highlight follows tempo changes and supports simultaneous events on multiple
-tracks. Editing the text stops the stale playback mapping before rebuilding
-the lexical layer.
+same event is highlighted in the staff and Jianpu views. The highlight follows
+tempo changes and supports simultaneous events on multiple tracks. Editing the
+text stops the stale playback mapping before rebuilding the lexical layer.
 
 ## Direct score editing
 
-The default **Score edit** mode selects complete musical objects instead of
-individual text characters. The three levels mirror familiar text units:
+The default **Score edit** mode applies Helix motions directly to complete
+musical objects instead of exposing a separate selection-level control:
 
 - **Event (CHAR)** — one note, rest, chord or control event, such as `C4:1`.
 - **Measure (WORD)** — the events between a pair of bar lines.
 - **Track (LINE)** — one complete musical track.
 
-Click the score or use **Previous** and **Next** to move at the selected level.
+Use `h`/`l` to move between events, `b`/`w`/`e` between measures and `k`/`j`
+between tracks. Arrow keys mirror `h`/`l` and `k`/`j`. Search commands are not
+part of the OWT modal language. `Space` opens the button-command hierarchy,
+including play/pause, views, editing actions, import, examples and AI actions.
+`Ctrl+Space` toggles play/pause globally, including from the timeline, staff and
+Jianpu views.
 For events, enter a complete token and use **Insert before**, **Insert after**
 or **Replace**. **Delete** applies to the selected event, measure or track.
 **Play to replace event** waits for one Note On from MIDI, the computer
@@ -112,10 +117,9 @@ after every pitch in that chord has been played. Wrong notes do not advance.
 
 ## Real-time computer-keyboard layouts
 
-The Live Performance panel and Musical Typing card share one active keyboard
-layout. Changing either selector immediately updates both controls, the visible
-key-to-note map, piano range, live keystrokes and OWT generation. The selected
-layout is saved locally.
+The Live Performance panel owns the active computer-keyboard layout. Changing
+its selector immediately updates the visible key-to-note map, piano range and
+live keystrokes. The selected layout is saved locally.
 
 - **OpusWeave default** is the existing chromatic two-octave piano layout.
 - **English word melody** maps every letter through constrained C-major
@@ -127,9 +131,7 @@ layout is saved locally.
   C2, C3, C4 and C5.
 
 In the default layout, A/K change octave and F/4 change velocity. Those keys
-become ordinary notes in the word, Pinyin and FreePiano layouts. **Write to
-OWT** quantizes the characters played by the active layout as eighth notes,
-pads complete 4/4 measures and adds a quiet repeating harmony track.
+become ordinary notes in the word, Pinyin and FreePiano layouts.
 
 `ComputerKeyboardLayout` is a public domain contract accepted by
 `MappingEngine.setComputerLayout`, so a future layout editor can install user
@@ -140,17 +142,23 @@ key maps without changing input handlers.
 The editor includes public-domain material: *Twinkle Twinkle Little Star*,
 Beethoven's *Ode to Joy*, the opening of *Für Elise*, Pachelbel's *Canon in D*,
 Petzold's *Minuet in G*, and the opening texture of Beethoven's *Moonlight
-Sonata*. The source files are also available under `examples/`.
+Sonata*. The example picker sits beside **Open / Import**, because examples are
+another source to open. The source files are also available under `examples/`.
 
 ## AI score editor
 
-The AI panel targets OpenAI-compatible chat-completion servers. Endpoint,
-model and optional API key are stored locally in the browser. The default test
-configuration is `http://192.168.6.130:8080` with `gemma4-vl-long`.
+The **AI composition** button opens a blocking prompt dialog. After submission,
+the dialog closes and the button itself reports working, success or failure by
+its text and color. OpenAI-compatible endpoint, model and optional API key
+settings live on the **Settings** page and are stored locally in the browser.
+The default test configuration is `http://192.168.6.130:8080` with
+`gemma4-vl-long`.
 
 - A prompt edits the current OWT, validates the returned document and plays it.
-- Score images are sent as multimodal image content. MP4 files are decoded in
-  the browser and sampled into up to eight JPEG frames before transcription.
+- **Open / Import** and drag-and-drop share one dispatcher: OWT opens directly,
+  MIDI is converted deterministically, and score images or MP4 files go to AI.
+  Images are sent as multimodal content; MP4 files are decoded in the browser
+  and sampled into up to eight JPEG frames before transcription.
 - **Improv mode** listens continuously to MIDI, computer-keyboard or virtual-keyboard input. The first Note On starts a user turn; once all notes are released and input is silent for 1.2 seconds, the phrase is converted to OWT and sent automatically. The AI response is validated and played, then the mode returns to listening. Playing during the AI response interrupts it immediately and begins the next user turn.
 
 Invalid model output is returned to the model with parser diagnostics for up to

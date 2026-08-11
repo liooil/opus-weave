@@ -8,6 +8,7 @@ export interface OwtSourceRange {
 }
 
 export interface OwtPlaybackToken extends OwtSourceRange {
+  playbackId: string
   startSeconds: number
   endSeconds: number
 }
@@ -51,8 +52,10 @@ export function buildOwtPlaybackMap(text: string, score: OwtScore): OwtPlaybackT
     defaultTempo: score.tempos[0]?.bpm ?? 120,
   })
   const tokens: OwtPlaybackToken[] = []
-  for (const track of score.tracks) {
-    for (const event of track.events) {
+  for (let trackIndex = 0; trackIndex < score.tracks.length; trackIndex++) {
+    const track = score.tracks[trackIndex]!
+    for (let eventIndex = 0; eventIndex < track.events.length; eventIndex++) {
+      const event = track.events[eventIndex]!
       if (event.kind !== 'note' && event.kind !== 'rest') continue
       const lineStart = offsets[event.line - 1]
       if (lineStart === undefined || event.column < 1) continue
@@ -62,6 +65,7 @@ export function buildOwtPlaybackMap(text: string, score: OwtScore): OwtPlaybackT
       const startTick = tempoMap.beatToTick(rationalToNumber(event.at))
       const endTick = tempoMap.beatToTick(rationalToNumber(event.at) + rationalToNumber(event.duration))
       tokens.push({
+        playbackId: `${trackIndex}:${eventIndex}`,
         start,
         end,
         startSeconds: tempoMap.tickToSeconds(startTick),
@@ -76,4 +80,10 @@ export function activeOwtSourceRanges(tokens: readonly OwtPlaybackToken[], secon
   return tokens
     .filter((token) => seconds >= token.startSeconds && seconds < token.endSeconds)
     .map(({ start, end }) => ({ start, end }))
+}
+
+export function activeOwtPlaybackIds(tokens: readonly OwtPlaybackToken[], seconds: number): string[] {
+  return tokens
+    .filter((token) => seconds >= token.startSeconds && seconds < token.endSeconds)
+    .map((token) => token.playbackId)
 }

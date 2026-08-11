@@ -14,7 +14,7 @@ describe('web interface localization', () => {
   test('translates and interpolates dynamic interface copy', () => {
     setLocale('zh-CN')
     expect(t('playback.loading', { file: 'demo.mid' })).toBe('正在加载 demo.mid…')
-    expect(t('record.stopped', { events: 12, duration: '3.50' })).toBe('录音已停止，共 12 个事件，时长 3.50 秒。')
+    expect(t('ai.testing', { model: 'demo-model' })).toBe('正在测试 demo-model……')
 
     setLocale('en')
     expect(t('playback.loading', { file: 'demo.mid' })).toBe('Loading demo.mid…')

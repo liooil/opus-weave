@@ -21,7 +21,7 @@ Web 应用：[liooil.github.io/opus-weave](https://liooil.github.io/opus-weave/)
 OpusWeave 是 `.owt` 文本文件的编辑器和播放器：
 
 ```
-MIDI / 录音 / AI 提示词 / 谱面图片 / MP4 画面帧
+MIDI / AI 提示词 / 谱面图片 / MP4 画面帧
        ↓  旋律提取或多模态生成
 OWT 文本（主要可编辑源文件）
        ↓
@@ -30,18 +30,18 @@ MIDI 播放/导出  →  SoundFont 合成
 
 | # | 能力 |
 |---|---|
-| 1 | 将 `.owt` 按乐谱对象（事件、小节或轨道）编辑，也可直接编辑原始文本或通过实时弹奏替换，并支持词法高亮与播放字符跟随 |
+| 1 | 使用 Helix 模态快捷键按乐谱对象移动和编辑 `.owt`：CHAR 对应事件、WORD 对应小节、LINE 对应轨道；也可直接编辑原始文本或通过实时弹奏替换 |
 | 2 | 通过有意的有损转换从 MIDI 提取旋律，支持轨道选择、声部简化和节奏量化 |
 | 3 | 将 OWT 导出为 Standard MIDI，用于播放和交换 |
 | 4 | 默认使用 FreePiano 风格 mda Piano 与 Micro GM，也可加载自定义 SoundFont |
-| 5 | 通过 WebMIDI 连接实体键盘，并从录音中提取简单 OWT 旋律 |
+| 5 | 通过 WebMIDI 连接实体键盘，用于实时演奏、引导演奏和 AI 即兴接奏 |
 | 6 | 在多轨节拍时间轴查看和编辑 MIDI，然后提取旋律或导出 |
 | 7 | 实时监视 Note On/Off、CC 和 Pitch Bend |
 | 8 | 通过可选 FluidSynth 将 MIDI + SoundFont 渲染为 WAV |
 | 9 | 通过 MCP 校验、播放、导入和导出 OWT |
-| 10 | 在 OpusWeave 半音阶、英文单词、拼音声调和 FreePiano 经典布局间切换，并从当前实时布局生成 OWT |
+| 10 | 在 OpusWeave 半音阶、英文单词、拼音声调和 FreePiano 经典实时演奏布局间切换 |
 | 11 | 内置《欢乐颂》《致爱丽丝》《D 大调卡农》《G 大调小步舞曲》《月光奏鸣曲》等公版钢琴示例 |
-| 12 | 配置兼容 OpenAI API 的多模态模型，实现提示词创作、谱面图片/MP4 识别与 AI 接奏 |
+| 12 | 通过统一“打开 / 导入”入口或拖放载入 OWT、转换 MIDI，或把谱面图片/MP4 交给兼容 OpenAI API 的多模态模型 |
 
 ## 快速开始
 

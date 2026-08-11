@@ -4,6 +4,7 @@
  * loaded MIDI both get a sane layout. Click-to-play optional.
  */
 import { noteName } from '../../domain/devices/mapping-engine.ts'
+import { enableHorizontalPointerScroll } from './horizontal-pointer-scroll.ts'
 
 export interface VirtualKeyboardOptions {
   /** Lowest MIDI note to render. */
@@ -28,6 +29,14 @@ export class VirtualKeyboard {
   constructor(container: HTMLElement, private readonly opts: VirtualKeyboardOptions) {
     this.root = container
     this.render()
+    enableHorizontalPointerScroll(this.root, {
+      targetSelector: '.vk-key',
+      onHoldStart: (target) => this.startPointerNote(target),
+      onTap: (target) => {
+        const release = this.startPointerNote(target)
+        if (release) window.setTimeout(release, 160)
+      },
+    })
   }
 
   private render(): void {
@@ -36,18 +45,25 @@ export class VirtualKeyboard {
     for (let note = this.opts.minNote; note <= this.opts.maxNote; note++) {
       const el = document.createElement('div')
       el.className = `vk-key${isBlack(note) ? ' black' : ''}`
+      el.dataset.note = String(note)
       const label = document.createElement('span')
       label.className = 'vk-label'
       label.textContent = noteName(note)
       el.appendChild(label)
-      el.addEventListener('pointerdown', (e) => {
-        e.preventDefault()
-        this.opts.onNoteOn?.(note)
-      })
-      el.addEventListener('pointerup', () => this.opts.onNoteOff?.(note))
-      el.addEventListener('pointerleave', () => this.opts.onNoteOff?.(note))
       this.root.appendChild(el)
       this.keys.set(note, el)
+    }
+  }
+
+  private startPointerNote(target: HTMLElement): (() => void) | undefined {
+    const note = Number(target.dataset.note)
+    if (!Number.isInteger(note)) return undefined
+    this.opts.onNoteOn?.(note)
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      this.opts.onNoteOff?.(note)
     }
   }
 
@@ -59,6 +75,27 @@ export class VirtualKeyboard {
 
   clearAll(): void {
     for (const el of this.keys.values()) el.classList.remove('playing')
+  }
+
+  /** Mark the notes currently reachable from the computer keyboard. */
+  setMappedRange(minNote: number, maxNote: number): void {
+    for (const [note, el] of this.keys) {
+      el.classList.toggle('mapped', note >= minNote && note <= maxNote)
+    }
+  }
+
+  /** Center a note range in the horizontal piano viewport. */
+  scrollToRange(minNote: number, maxNote: number, behavior: ScrollBehavior = 'smooth'): void {
+    const first = this.keys.get(minNote)
+    const last = this.keys.get(maxNote)
+    if (!first || !last) return
+    const rootRect = this.root.getBoundingClientRect()
+    const firstRect = first.getBoundingClientRect()
+    const lastRect = last.getBoundingClientRect()
+    const rangeStart = firstRect.left - rootRect.left + this.root.scrollLeft
+    const rangeEnd = lastRect.right - rootRect.left + this.root.scrollLeft
+    const left = Math.max(0, (rangeStart + rangeEnd - this.root.clientWidth) / 2)
+    this.root.scrollTo({ left, behavior })
   }
 
   /** Re-render for a new range (e.g. after loading a MIDI with a wider range). */

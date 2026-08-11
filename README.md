@@ -12,6 +12,9 @@ by people, executable by instruments, and editable by agents.
 
 Application ID: `io.github.liooil.opusweave` · License: Apache-2.0
 
+Web app: [liooil.github.io/opus-weave](https://liooil.github.io/opus-weave/). Every push to `main` publishes the pure browser build through GitHub Pages.
+Install it from the browser to keep the complete workstation—including the synth engine and bundled SoundFonts—available without a network connection after the first load.
+
 ---
 
 ## What phase 1 delivers
@@ -34,8 +37,8 @@ Record performance  →  export .mid (re-importable)
 
 | # | Capability |
 |---|---|
-| 1 | Import a `.mid` file and play it back in the browser |
-| 2 | Play immediately with the bundled lightweight Micro GM SoundFont, or load a custom `.sf2` / `.sf3` / `.sfogg` bank |
+| 1 | Import a `.mid` file into a multi-track beat timeline, select ranges, replace them through live playing, and export the edited MIDI |
+| 2 | Play immediately with the FreePiano-style mda Piano default and lightweight Micro GM fallback, or load a custom `.sf2` / `.sf3` / `.sfogg` bank |
 | 3 | Connect a physical MIDI keyboard via WebMIDI (permission button, port picker, hot-plug, id-change fallback) |
 | 4 | Monitor Note On/Off, CC, and Pitch Bend in real time (with note names) |
 | 5 | Record a live performance (hardware keyboard or computer keyboard) and export a Standard MIDI File that re-imports |
@@ -89,10 +92,14 @@ Tools include CompositionSpec and OWT workflows: `create_midi`,
 
 ## SoundFonts
 
-OpusWeave includes **OpusWeave Micro GM**, a compact synthetic General MIDI
-bank covering all 128 melodic programs plus a standard drum kit. It loads
-automatically for immediate playback. You can replace it at any time with your
-own `.sf2`, `.sf3`, or `.sfogg` bank; only use files you are legally allowed to use.
+OpusWeave starts with **mda Piano**, the same default sampled piano instrument
+used by FreePiano 1.8. The original MIT-licensed PCM samples and key groups are
+packaged as a browser-compatible SoundFont; **OpusWeave Micro GM** remains as a
+fallback for the other 127 melodic programs and drums. The timbre closely
+matches FreePiano's default, though rendering is not bit-identical because
+OpusWeave uses the SoundFont synthesis model rather than the original VST DSP.
+You can replace the default at any time with your own `.sf2`, `.sf3`, or
+`.sfogg` bank; only use files you are legally allowed to use.
 
 The Sound Library panel can explicitly route Web Audio to an operating-system
 output such as a USB-C monitor, HDMI display, speakers, or headset. Use

@@ -11,6 +11,9 @@ AI Agent 可以理解并修改它。
 
 应用 ID：`io.github.liooil.opusweave` · 许可证：Apache-2.0
 
+Web 应用：[liooil.github.io/opus-weave](https://liooil.github.io/opus-weave/)。每次推送到 `main` 都会通过 GitHub Pages 发布纯浏览器版本。
+可直接从浏览器安装；首次加载完成后，完整工作站（包括合成器引擎和内置 SoundFont）无需网络也能运行。
+
 ---
 
 ## 第一阶段交付的纵向链路
@@ -31,8 +34,8 @@ SoundFont 合成  (.sf2 / .sf3 / .sfogg)
 
 | # | 能力 |
 |---|---|
-| 1 | 导入并播放 `.mid` 文件 |
-| 2 | 使用内置轻量 Micro GM SoundFont 直接演奏，或加载自定义 `.sf2` / `.sf3` / `.sfogg` 音色库 |
+| 1 | 将 `.mid` 导入多轨节拍时间轴，选择片段，通过实时演奏替换，并导出编辑后的 MIDI |
+| 2 | 默认使用与 FreePiano 相同采样来源的 mda Piano，并以轻量 Micro GM 补全其他音色；也可加载自定义 `.sf2` / `.sf3` / `.sfogg` 音色库 |
 | 3 | 通过 WebMIDI 连接实体 MIDI 键盘（权限按钮、端口选择、热插拔、id 变化后按厂商/名称回退匹配） |
 | 4 | 实时监视 Note On/Off、CC、Pitch Bend（含音名显示） |
 | 5 | 录制实时演奏（实体键盘或电脑键盘），导出可再次导入的 Standard MIDI File |
@@ -85,9 +88,12 @@ bun run opusweave mcp   # stdio MCP 服务器
 
 ## 音色库
 
-OpusWeave 内置 **OpusWeave Micro GM** 轻量合成音色库，覆盖全部 128 个 GM
-旋律音色和一套标准鼓组，启动后会自动加载，因此无需额外文件即可演奏。你仍可随时
-加载自己的 `.sf2`、`.sf3` 或 `.sfogg` 音色库；请确保拥有相应文件的合法使用权。
+OpusWeave 默认加载 **mda Piano**，即 FreePiano 1.8 默认使用的采样钢琴音源。
+原版 MIT 许可的 PCM 采样与键区被封装为浏览器可用的 SoundFont；其他 127 个
+旋律音色和鼓组继续由 **OpusWeave Micro GM** 回退补全。由于 OpusWeave 使用
+SoundFont 合成模型而不是原 VST DSP，听感会贴近 FreePiano 默认音色，但不会逐采样
+完全一致。你仍可随时加载自己的 `.sf2`、`.sf3` 或 `.sfogg` 音色库；请确保拥有
+相应文件的合法使用权。
 
 “音色库”面板可以将 Web Audio 明确输出到 USB-C/HDMI 显示器、扬声器或耳机。
 如果设备名称不可见，请点击**显示设备**；Chromium 可能请求麦克风权限以获取设备

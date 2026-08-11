@@ -10,6 +10,8 @@
     "dev:mcp": "bun src/main.ts mcp",
     "smoke": "bun src/main.ts --smoke",
     "build": "bun src/build.ts",
+    "build:web": "bun src/build-web.ts",
+    "generate:mda-piano": "bun scripts/generate-mda-piano-sf2.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test 'src/tests/'"
   },

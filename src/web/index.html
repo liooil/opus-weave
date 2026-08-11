@@ -5,101 +5,99 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="theme-color" content="#0b0c10" />
   <title>OpusWeave Studio</title>
+  <link rel="icon" href="./assets/app-icon.svg" type="image/svg+xml" />
+  <link rel="icon" href="./assets/app-icon-32.png" type="image/png" sizes="32x32" />
+  <link rel="apple-touch-icon" href="./assets/app-icon-256.png" />
   <link rel="stylesheet" href="./app.css" />
 </head>
 <body>
   <div class="app-shell">
     <header class="topbar">
       <div class="brand">
-        <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+        <img class="brand-mark" src="./assets/app-icon.svg" alt="" aria-hidden="true" />
         <div>
           <h1>OpusWeave</h1>
           <p data-i18n="brand.subtitle">Performance workstation</p>
         </div>
       </div>
-      <div class="topbar-center" aria-hidden="true">
-        <span class="active" data-i18n="nav.play">Play</span>
-        <span data-i18n="nav.shape">Shape</span>
-        <span data-i18n="nav.connect">Connect</span>
-      </div>
+      <nav class="topbar-center" data-i18n-aria-label="nav.workspace" aria-label="Workspace pages">
+        <button class="workspace-tab active" data-page-target="studio" data-i18n="nav.studio" aria-current="page">Studio</button>
+        <button class="workspace-tab" data-page-target="devices" data-i18n="nav.devices">Devices</button>
+        <button class="workspace-tab" data-page-target="tools" data-i18n="nav.tools">Tools</button>
+      </nav>
       <div class="session-controls">
-        <label class="language-picker">
-          <span class="sr-only" data-i18n="language.label">Interface language</span>
-          <select id="language-select" data-i18n-aria-label="language.label">
-            <option value="en">EN</option>
-            <option value="zh-CN">中文</option>
-          </select>
-        </label>
+        <button id="language-toggle" class="language-toggle" type="button" title="Switch to Chinese" aria-label="Switch to Chinese">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="9"></circle>
+            <path d="M3 12h18M12 3c2.4 2.5 3.7 5.5 3.7 9s-1.3 6.5-3.7 9M12 3c-2.4 2.5-3.7 5.5-3.7 9s1.3 6.5 3.7 9"></path>
+          </svg>
+        </button>
         <div class="session-state"><span class="state-dot"></span><span data-i18n="session.local">Local session</span></div>
       </div>
     </header>
 
-    <main class="workspace">
-      <aside class="sidebar">
-        <section class="panel system-panel" id="status-panel">
-          <div class="section-heading">
-            <div><span class="eyebrow" data-i18n="section.system">System</span><h2 data-i18n="section.studioStatus">Studio status</h2></div>
-            <span class="status-beacon" data-i18n-title="status.applicationReady" title="Application ready"></span>
-          </div>
-          <dl class="status-grid">
-            <div><dt data-i18n="status.audioEngine">Audio engine</dt><dd id="st-audio">—</dd></div>
-            <div><dt data-i18n="status.audioOutput">Audio output</dt><dd id="st-audio-output">—</dd></div>
-            <div><dt data-i18n="status.webMidi">Web MIDI</dt><dd id="st-midi">—</dd></div>
-            <div><dt data-i18n="status.permission">Permission</dt><dd id="st-perm">—</dd></div>
-            <div><dt data-i18n="status.input">Input</dt><dd id="st-input">—</dd></div>
-            <div><dt data-i18n="status.soundFont">SoundFont</dt><dd id="st-soundfont">—</dd></div>
-            <div><dt data-i18n="status.playback">Playback</dt><dd id="st-file">—</dd></div>
-            <div><dt data-i18n="status.recorder">Recorder</dt><dd id="st-record">—</dd></div>
-          </dl>
-          <div id="st-error" class="error-box" hidden></div>
-        </section>
-
-        <section class="panel" id="midi-panel">
-          <div class="section-heading">
-            <div><span class="eyebrow" data-i18n="section.hardware">Hardware</span><h2 data-i18n="section.midiConnections">MIDI connections</h2></div>
-          </div>
-          <div class="stacked-actions">
-            <button id="btn-request-midi" class="primary full-width" data-i18n="midi.enable">Enable MIDI access</button>
-            <button id="btn-refresh-midi" class="quiet full-width" data-i18n="midi.refresh">Refresh devices</button>
-          </div>
-          <div class="field-stack">
-            <label><span data-i18n="midi.inputDevice">Input device</span><select id="midi-input-select"></select></label>
-            <label><span data-i18n="midi.outputDevice">Output device</span><select id="midi-output-select"></select></label>
-          </div>
-          <div id="port-details" class="port-details"></div>
-          <div id="device-profile" class="device-profile" hidden>
-            <strong id="profile-name"></strong>
-            <div id="profile-controls" class="profile-controls"></div>
-          </div>
-        </section>
-      </aside>
-
-      <div class="main-stage">
-        <section class="panel transport-panel" id="playback-panel">
-          <div class="transport-head">
+    <main class="workspace-pages">
+      <section class="workspace-page active" data-workspace-page="studio">
+        <section class="panel arranger-panel" id="playback-panel">
+          <div class="arranger-head">
             <div>
-              <span class="eyebrow" data-i18n="section.nowPlaying">Now playing</span>
-              <h2 data-i18n="section.arrangePerformance">Arrange the performance</h2>
+              <span class="eyebrow" data-i18n="arranger.eyebrow">Arrangement</span>
+              <h2 data-i18n="arranger.title">Performance timeline</h2>
+              <p data-i18n="arranger.description">Edit tracks in time, select a range, then replace it by playing.</p>
             </div>
-            <label class="file-button compact"><span data-i18n="playback.openMidi">Open MIDI</span><input id="midi-file" type="file" accept=".mid,.midi" /></label>
+            <div class="arranger-file-actions">
+              <label class="file-button compact"><span data-i18n="playback.openMidi">Open MIDI</span><input id="midi-file" type="file" accept=".mid,.midi" /></label>
+              <button id="btn-export-arrangement" class="quiet" data-i18n="arranger.export" disabled>Export edit</button>
+            </div>
           </div>
-          <div class="transport-display">
-            <div class="album-art" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
-            <div class="transport-content">
-              <div class="timeline-meta">
-                <span id="playback-time">0:00 / 0:00</span>
-                <span id="playback-tempo">BPM —</span>
-              </div>
+
+          <div class="arranger-transport">
+            <div class="transport-controls">
+              <button id="btn-restart" class="icon-button" data-i18n-title="playback.backToStart" data-i18n-aria-label="playback.backToStart" title="Back to start" aria-label="Back to start">|&lt;</button>
+              <button id="btn-stop" class="icon-button" data-i18n-aria-label="playback.stop" aria-label="Stop">■</button>
+              <button id="btn-play" class="play-button" data-i18n-aria-label="playback.play" aria-label="Play">▶</button>
+              <button id="btn-pause" class="icon-button" data-i18n-aria-label="playback.pause" aria-label="Pause">Ⅱ</button>
+            </div>
+            <div class="transport-position">
+              <div class="timeline-meta"><span id="playback-time">0:00 / 0:00</span><span id="playback-tempo">BPM —</span></div>
               <progress id="progress" value="0" max="1000"></progress>
-              <div class="transport-controls">
-                <button id="btn-restart" class="icon-button" data-i18n-title="playback.backToStart" data-i18n-aria-label="playback.backToStart" title="Back to start" aria-label="Back to start">|&lt;</button>
-                <button id="btn-stop" class="icon-button" data-i18n-aria-label="playback.stop" aria-label="Stop">■</button>
-                <button id="btn-play" class="play-button" data-i18n-aria-label="playback.play" aria-label="Play">▶</button>
-                <button id="btn-pause" class="icon-button" data-i18n-aria-label="playback.pause" aria-label="Pause">Ⅱ</button>
-              </div>
+            </div>
+            <div class="arranger-zoom-control">
+              <span data-i18n="arranger.zoom">Zoom</span>
+              <input id="arranger-zoom" type="range" min="36" max="120" value="64" />
             </div>
           </div>
-          <div id="track-list" class="track-list"></div>
+
+          <div class="arranger-selection-bar">
+            <div>
+              <strong data-i18n="arranger.selection">Selection</strong>
+              <span id="arranger-selection-status" data-i18n="arranger.selectHint">Drag across a track to select a range.</span>
+            </div>
+            <div class="selection-actions">
+              <button id="btn-clear-range" class="quiet" data-i18n="arranger.clearSelection" disabled>Clear</button>
+              <button id="btn-replace-range" class="primary" data-i18n="arranger.replaceSelection" disabled>Replace selection</button>
+              <button id="btn-stop-replace" class="record-stop" data-i18n="arranger.stopReplace" disabled>Finish recording</button>
+            </div>
+          </div>
+
+          <div class="arranger-grid" id="arranger-grid">
+            <div class="track-header-column">
+              <div class="track-header-corner" data-i18n="arranger.tracks">Tracks</div>
+              <div id="track-list" class="track-list"></div>
+            </div>
+            <div id="timeline-viewport" class="timeline-viewport">
+              <div id="timeline-content" class="timeline-content">
+                <div id="timeline-ruler" class="timeline-ruler"></div>
+                <div id="timeline-tracks" class="timeline-tracks"></div>
+                <div id="timeline-selection" class="timeline-selection" hidden></div>
+                <div id="timeline-playhead" class="timeline-playhead" hidden></div>
+              </div>
+            </div>
+            <div id="arranger-empty" class="arranger-empty">
+              <strong data-i18n="arranger.emptyTitle">Open a MIDI file to start editing</strong>
+              <span data-i18n="arranger.emptyDescription">Tracks and notes will appear here on a beat-based timeline.</span>
+            </div>
+          </div>
           <div id="midi-status" class="status" data-status-key="playback.dropMidi">Drop in a MIDI file to begin.</div>
         </section>
 
@@ -107,31 +105,63 @@
           <div class="section-heading inline-heading">
             <div><span class="eyebrow" data-i18n="section.instrument">Instrument</span><h2 data-i18n="section.livePerformance">Live performance</h2></div>
             <div class="performance-controls">
-              <span class="stepper-label" data-i18n="live.octave">Octave</span>
-              <button id="oct-down" class="stepper">−</button>
-              <strong id="oct-label">0</strong>
-              <button id="oct-up" class="stepper">+</button>
-              <label class="velocity-field"><span data-i18n="live.velocity">Velocity</span><input id="key-velocity" type="number" min="1" max="127" value="100" /></label>
+              <div class="performance-control-group">
+                <span class="stepper-label" data-i18n="live.octave">Octave</span>
+                <button id="oct-down" class="stepper" data-i18n-title="live.octaveDownControl" data-i18n-aria-label="live.octaveDownControl" title="Lower octave (A)" aria-label="Lower octave (A)">−</button>
+                <strong id="oct-label">0</strong>
+                <button id="oct-up" class="stepper" data-i18n-title="live.octaveUpControl" data-i18n-aria-label="live.octaveUpControl" title="Raise octave (K)" aria-label="Raise octave (K)">+</button>
+              </div>
+              <div class="performance-control-group">
+                <span class="stepper-label" data-i18n="live.velocity">Velocity</span>
+                <button id="velocity-down" class="stepper" data-i18n-title="live.velocityDownControl" data-i18n-aria-label="live.velocityDownControl" title="Decrease velocity (F)" aria-label="Decrease velocity (F)">−</button>
+                <input id="key-velocity" class="velocity-input" type="number" min="1" max="127" value="100" data-i18n-aria-label="live.velocity" aria-label="Velocity" />
+                <button id="velocity-up" class="stepper" data-i18n-title="live.velocityUpControl" data-i18n-aria-label="live.velocityUpControl" title="Increase velocity (4)" aria-label="Increase velocity (4)">+</button>
+              </div>
             </div>
           </div>
           <div id="live-notes" class="live-notes"><span class="notes-placeholder" data-i18n="live.notesPlaceholder">Played notes appear here</span></div>
+          <div class="computer-map" aria-labelledby="computer-map-title">
+            <div class="computer-map-head">
+              <strong id="computer-map-title" data-i18n="live.computerMap">Computer keyboard map</strong>
+              <div class="computer-map-actions">
+                <div class="map-shortcuts" aria-label="Performance shortcuts"><span><kbd>A</kbd><kbd>K</kbd><span data-i18n="live.octaveShortcut">octave</span></span><span><kbd>F</kbd><kbd>4</kbd><span data-i18n="live.velocityShortcut">velocity</span></span></div>
+                <button id="toggle-computer-map" class="map-toggle" data-i18n-title="live.collapseMap" data-i18n-aria-label="live.collapseMap" title="Collapse keyboard map" aria-label="Collapse keyboard map" aria-expanded="true">⌃</button>
+              </div>
+            </div>
+            <div id="computer-map-content" class="computer-map-content">
+              <div id="computer-key-map" class="qwerty-map"></div>
+              <div class="keyboard-bridge" aria-hidden="true"><span class="bridge-label" data-i18n="live.mappingBridge">key → note</span><svg id="keyboard-links" class="keyboard-links"></svg></div>
+            </div>
+          </div>
           <div class="keyboard-frame"><div id="virtual-keyboard"></div></div>
-          <p class="hint keyboard-hint" data-i18n="live.keyboardHint">Computer keys Z–M, S–L and Q–U play notes. Focused inputs ignore shortcuts.</p>
+          <p class="hint keyboard-hint" data-i18n="live.keyboardHint">Shortcuts are disabled while an input or selector is focused.</p>
         </section>
+      </section>
 
+      <section class="workspace-page" data-workspace-page="devices" hidden>
+        <div class="secondary-page-head"><span class="eyebrow" data-i18n="nav.devices">Devices</span><h2 data-i18n="devices.title">MIDI devices and studio status</h2></div>
+        <div class="secondary-grid">
+          <section class="panel system-panel" id="status-panel">
+            <div class="section-heading"><div><span class="eyebrow" data-i18n="section.system">System</span><h2 data-i18n="section.studioStatus">Studio status</h2></div><span class="status-beacon" data-i18n-title="status.applicationReady" title="Application ready"></span></div>
+            <dl class="status-grid">
+              <div><dt data-i18n="status.audioEngine">Audio engine</dt><dd id="st-audio">—</dd></div><div><dt data-i18n="status.audioOutput">Audio output</dt><dd id="st-audio-output">—</dd></div><div><dt data-i18n="status.webMidi">Web MIDI</dt><dd id="st-midi">—</dd></div><div><dt data-i18n="status.permission">Permission</dt><dd id="st-perm">—</dd></div><div><dt data-i18n="status.input">Input</dt><dd id="st-input">—</dd></div><div><dt data-i18n="status.soundFont">SoundFont</dt><dd id="st-soundfont">—</dd></div><div><dt data-i18n="status.playback">Playback</dt><dd id="st-file">—</dd></div><div><dt data-i18n="status.recorder">Recorder</dt><dd id="st-record">—</dd></div>
+            </dl><div id="st-error" class="error-box" hidden></div>
+          </section>
+          <section class="panel" id="midi-panel">
+            <div class="section-heading"><div><span class="eyebrow" data-i18n="section.hardware">Hardware</span><h2 data-i18n="section.midiConnections">MIDI connections</h2></div></div>
+            <div class="stacked-actions"><button id="btn-request-midi" class="primary full-width" data-i18n="midi.enable">Enable MIDI access</button><button id="btn-refresh-midi" class="quiet full-width" data-i18n="midi.refresh">Refresh devices</button></div>
+            <div class="field-stack"><label><span data-i18n="midi.inputDevice">Input device</span><select id="midi-input-select"></select></label><label><span data-i18n="midi.outputDevice">Output device</span><select id="midi-output-select"></select></label></div>
+            <div id="port-details" class="port-details"></div><div id="device-profile" class="device-profile" hidden><strong id="profile-name"></strong><div id="profile-controls" class="profile-controls"></div></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="workspace-page" data-workspace-page="tools" hidden>
+        <div class="secondary-page-head"><span class="eyebrow" data-i18n="nav.tools">Tools</span><h2 data-i18n="tools.title">Sound, recording and control</h2></div>
         <div class="module-grid">
           <section class="panel module-panel" id="soundfont-panel">
-            <div class="section-heading">
-              <div><span class="eyebrow" data-i18n="section.tone">Tone</span><h2 data-i18n="section.soundLibrary">Sound library</h2></div>
-              <button id="btn-panic" class="danger-quiet" data-i18n="sound.panic">Panic</button>
-            </div>
-            <label class="drop-zone">
-              <input id="sf-file" type="file" accept=".sf2,.sf3,.sfogg" />
-              <span class="drop-icon">SF</span>
-              <span class="built-in-badge" data-i18n="sound.builtInIncluded">Built-in Micro GM</span>
-              <strong data-i18n="sound.load">Load another SoundFont</strong>
-              <small data-i18n="sound.formats">Optional: SF2, SF3 or SFOGG</small>
-            </label>
+            <div class="section-heading"><div><span class="eyebrow" data-i18n="section.tone">Tone</span><h2 data-i18n="section.soundLibrary">Sound library</h2></div><button id="btn-panic" class="danger-quiet" data-i18n="sound.panic">Panic</button></div>
+            <label class="drop-zone"><input id="sf-file" type="file" accept=".sf2,.sf3,.sfogg" /><span class="drop-icon">SF</span><span class="built-in-badge" data-i18n="sound.builtInIncluded">FreePiano-style mda Piano + Micro GM</span><strong data-i18n="sound.load">Load another SoundFont</strong><small data-i18n="sound.formats">Optional: SF2, SF3 or SFOGG</small></label>
             <div class="field-stack compact-fields">
               <label><span data-i18n="sound.preset">Preset</span><select id="preset-select" disabled><option value="" data-i18n="sound.loadFirst">Load a SoundFont first</option></select></label>
               <label><span data-i18n="sound.masterVolume">Master volume</span><input id="master-volume" type="range" min="0" max="100" value="80" /></label>
@@ -143,40 +173,16 @@
             <div id="sf-status" class="status"></div>
             <div id="audio-output-status" class="status"></div>
           </section>
-
           <section class="panel module-panel" id="record-panel">
-            <div class="section-heading">
-              <div><span class="eyebrow" data-i18n="section.capture">Capture</span><h2 data-i18n="section.takeRecorder">Take recorder</h2></div>
-              <span class="record-indicator"></span>
-            </div>
-            <div class="record-hero">
-              <button id="btn-record" class="record-button"><span></span><span data-i18n="record.newTake">Record new take</span></button>
-              <button id="btn-record-stop" data-i18n="record.stop" disabled>Stop</button>
-            </div>
-            <div class="button-row">
-              <button id="btn-play-take" data-i18n="record.playTake" disabled>Play take</button>
-              <button id="btn-record-export" data-i18n="record.exportMidi" disabled>Export MIDI</button>
-              <button id="btn-clear-take" class="quiet" data-i18n="record.clear" disabled>Clear</button>
-            </div>
-            <div id="record-status" class="status" data-status-key="record.ready">Ready to capture MIDI input.</div>
+            <div class="section-heading"><div><span class="eyebrow" data-i18n="section.capture">Capture</span><h2 data-i18n="section.takeRecorder">Take recorder</h2></div><span class="record-indicator"></span></div>
+            <div class="record-hero"><button id="btn-record" class="record-button"><span></span><span data-i18n="record.newTake">Record new take</span></button><button id="btn-record-stop" data-i18n="record.stop" disabled>Stop</button></div>
+            <div class="button-row"><button id="btn-play-take" data-i18n="record.playTake" disabled>Play take</button><button id="btn-record-export" data-i18n="record.exportMidi" disabled>Export MIDI</button><button id="btn-clear-take" class="quiet" data-i18n="record.clear" disabled>Clear</button></div><div id="record-status" class="status" data-status-key="record.ready">Ready to capture MIDI input.</div>
           </section>
-
           <section class="panel module-panel" id="learn-panel">
-            <div class="section-heading">
-              <div><span class="eyebrow" data-i18n="section.control">Control</span><h2 data-i18n="section.midiLearn">MIDI Learn</h2></div>
-            </div>
-            <p class="hint" data-i18n="learn.description">Select a parameter, then move a hardware control to create a binding.</p>
-            <div class="learn-grid">
-              <button data-learn="master-volume" data-i18n="learn.volume">Volume</button>
-              <button data-learn="synth-panic" data-i18n="learn.panic">Panic</button>
-              <button data-learn="octave-up" data-i18n="learn.octaveUp">Octave +</button>
-              <button data-learn="octave-down" data-i18n="learn.octaveDown">Octave −</button>
-            </div>
-            <div id="learn-status" class="status"></div>
-            <ul id="learn-bindings"></ul>
+            <div class="section-heading"><div><span class="eyebrow" data-i18n="section.control">Control</span><h2 data-i18n="section.midiLearn">MIDI Learn</h2></div></div><p class="hint" data-i18n="learn.description">Select a parameter, then move a hardware control to create a binding.</p>
+            <div class="learn-grid"><button data-learn="master-volume" data-i18n="learn.volume">Volume</button><button data-learn="synth-panic" data-i18n="learn.panic">Panic</button><button data-learn="octave-up" data-i18n="learn.octaveUp">Octave +</button><button data-learn="octave-down" data-i18n="learn.octaveDown">Octave −</button></div><div id="learn-status" class="status"></div><ul id="learn-bindings"></ul>
           </section>
         </div>
-
 
         <section class="panel owt-panel" id="owt-panel">
           <div class="section-heading inline-heading">
@@ -211,14 +217,9 @@
           <div id="owt-status" class="status" data-status-key="owt.ready">Ready for OWT Score or Take text.</div>
           <div id="owt-diagnostics" class="owt-diagnostics" aria-live="polite"></div>
         </section>
-        <section class="panel monitor-panel">
-          <div class="section-heading inline-heading">
-            <div><span class="eyebrow" data-i18n="section.diagnostics">Diagnostics</span><h2 data-i18n="section.messageMonitor">Message monitor</h2></div>
-            <span class="mono-label" data-i18n="monitor.liveStream">LIVE STREAM</span>
-          </div>
-          <div id="midi-monitor" class="monitor" aria-live="polite"><div class="monitor-empty" data-i18n="monitor.waiting">Waiting for MIDI activity…</div></div>
-        </section>
-      </div>
+
+        <section class="panel monitor-panel"><div class="section-heading inline-heading"><div><span class="eyebrow" data-i18n="section.diagnostics">Diagnostics</span><h2 data-i18n="section.messageMonitor">Message monitor</h2></div><span class="mono-label" data-i18n="monitor.liveStream">LIVE STREAM</span></div><div id="midi-monitor" class="monitor" aria-live="polite"><div class="monitor-empty" data-i18n="monitor.waiting">Waiting for MIDI activity…</div></div></section>
+      </section>
     </main>
   </div>
   <script type="module" src="./app.ts"></script>

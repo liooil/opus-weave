@@ -7,20 +7,23 @@ import { SpessaSynthEngine } from '../audio/spessa-synth-engine.ts'
 import { selectAudioOutputDevice, type AudioOutputDevice, type SavedAudioOutput } from '../audio/audio-output.ts'
 import { WebMidiManager, type MidiManagerState } from '../midi/web-midi-manager.ts'
 import { MidiRecorder, takeToMidi, type RecordedTake } from '../domain/midi/midi-recorder.ts'
-import { applyTrackMutes, importMidi, inspectMidi, type MidiInspection } from '../domain/midi/midi-import.ts'
-import { MappingEngine, noteName } from '../domain/devices/mapping-engine.ts'
+import { applyTrackMutes, createMidiTempoMap, importMidi, inspectMidi, type MidiInspection } from '../domain/midi/midi-import.ts'
+import { getArrangementNotes, replaceArrangementRange } from '../domain/midi/midi-arrangement.ts'
+import { MappingEngine, noteName, type ComputerKeyAssignment } from '../domain/devices/mapping-engine.ts'
 import { MidiLearn } from '../domain/midi-learn.ts'
 import { findProfileForPort, overrideControl, type DeviceProfile } from '../domain/devices/device-profile.ts'
 import { midiplusTinyPlusProfile } from '../domain/devices/midiplus-tiny-plus.ts'
 import { VirtualKeyboard } from './components/virtual-keyboard.ts'
+import { enableHorizontalPointerScroll } from './components/horizontal-pointer-scroll.ts'
 import type { BasicMIDI } from 'spessasynth_core'
 import { resolveLocale, setLocale, t, translateDocument, type TranslationValues } from './i18n.ts'
 import { compileScoreText, midiToTake, quantizeTake, recordedTakeToOwt, takeToMidi as owtTakeToMidi } from '../domain/owt/integration.ts'
 import { parseOwt } from '../domain/owt/parser.ts'
 import { parseRational, rational } from '../domain/owt/rational.ts'
 import { serializeOwt, serializeScore, serializeTake } from '../domain/owt/serializer.ts'
-import type { OwtDocument, OwtTake } from '../domain/owt/ast.ts'
-import builtInSoundFontUrl from './assets/opusweave-micro-gm.sf2' with { type: 'file' }
+import type { OwtDocument } from '../domain/owt/ast.ts'
+import builtInGmSoundFontUrl from './assets/opusweave-micro-gm.sf2' with { type: 'file' }
+import freePianoSoundFontUrl from './assets/freepiano-mda-piano.sf2' with { type: 'file' }
 
 // ─── DOM helpers ─────────────────────────────────────────────────────────────
 
@@ -75,25 +78,59 @@ function showError(msg: string): void {
   box.hidden = false
 }
 
-const localeSelect = $<HTMLSelectElement>('language-select')
+const localeButton = $<HTMLButtonElement>('language-toggle')
 const initialLocale = resolveLocale(window.localStorage.getItem('opusweave.locale') ?? navigator.language)
 setLocale(initialLocale)
-localeSelect.value = initialLocale
 translateDocument()
 retranslateTrackedCopy()
+updateLanguageToggleCopy()
 
-localeSelect.addEventListener('change', () => {
-  const locale = resolveLocale(localeSelect.value)
+function updateLanguageToggleCopy(): void {
+  const key = document.documentElement.lang === 'en'
+    ? 'language.switchToChinese'
+    : 'language.switchToEnglish'
+  localeButton.title = t(key)
+  localeButton.setAttribute('aria-label', t(key))
+}
+
+localeButton.addEventListener('click', () => {
+  const locale = document.documentElement.lang === 'en' ? 'zh-CN' : 'en'
   setLocale(locale)
   window.localStorage.setItem('opusweave.locale', locale)
   translateDocument()
   retranslateTrackedCopy()
   renderMidiState(midiManager.getState())
-  renderTrackList()
+  renderArrangement()
   renderLearnBindings()
   populatePresets()
   void refreshAudioOutputs(false)
+  renderComputerKeyMap()
+  updateComputerMapToggleCopy()
+  updateLanguageToggleCopy()
 })
+
+const workspaceTabs = [...document.querySelectorAll<HTMLButtonElement>('[data-page-target]')]
+const workspacePages = [...document.querySelectorAll<HTMLElement>('[data-workspace-page]')]
+
+function showWorkspacePage(pageId: string): void {
+  for (const page of workspacePages) {
+    const active = page.dataset.workspacePage === pageId
+    page.hidden = !active
+    page.classList.toggle('active', active)
+  }
+  for (const tab of workspaceTabs) {
+    const active = tab.dataset.pageTarget === pageId
+    tab.classList.toggle('active', active)
+    if (active) tab.setAttribute('aria-current', 'page')
+    else tab.removeAttribute('aria-current')
+  }
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+  if (pageId === 'studio') requestAnimationFrame(scheduleKeyboardLinks)
+}
+
+for (const tab of workspaceTabs) {
+  tab.addEventListener('click', () => showWorkspacePage(tab.dataset.pageTarget!))
+}
 
 function fmtTime(secs: number): string {
   if (!Number.isFinite(secs) || secs < 0) secs = 0
@@ -141,12 +178,25 @@ end
 
 let engine: SpessaSynthEngine | null = null
 let builtInSoundFontPromise: Promise<void> | null = null
-const BUILT_IN_SOUND_FONT_NAME = 'OpusWeave Micro GM'
+const BUILT_IN_SOUND_FONT_NAME = 'FreePiano mda Piano + OpusWeave Micro GM'
 let loadedMidi: BasicMIDI | null = null
 let loadedInspection: MidiInspection | null = null
 const mutedTracks = new Set<number>()
 let take: RecordedTake | null = null
 let playingTake = false
+
+interface TimelineSelection {
+  trackIndex: number
+  startTick: number
+  endTick: number
+}
+
+let timelineSelection: TimelineSelection | null = null
+let selectedTrackIndex = 0
+let timelineBeatWidth = 64
+let replacementTimer: number | undefined
+let replacementRecording: { selection: TimelineSelection; durationMs: number } | null = null
+let playbackPositionFrame = 0
 
 const recorder = new MidiRecorder()
 const mapping = new MappingEngine()
@@ -187,10 +237,10 @@ interface MediaDevicesWithOutputSelection extends MediaDevices {
   selectAudioOutput?: (options?: { deviceId?: string }) => Promise<MediaDeviceInfo>
 }
 
-// Virtual keyboard — starts at the TINY+ range, widens when a MIDI loads.
+// Full MIDI keyboard; the viewport follows the two octaves mapped to QWERTY.
 const keyboard = new VirtualKeyboard($('virtual-keyboard'), {
-  minNote: 36,
-  maxNote: 67,
+  minNote: 0,
+  maxNote: 127,
   onNoteOn: (note) => handleMidiMessage(new Uint8Array([0x90, note, mapping.fixedVelocity]), performance.now()),
   onNoteOff: (note) => handleMidiMessage(new Uint8Array([0x80, note, 0x40]), performance.now()),
 })
@@ -199,16 +249,22 @@ const keyboard = new VirtualKeyboard($('virtual-keyboard'), {
 
 async function ensureEngine(): Promise<SpessaSynthEngine> {
   if (engine) return engine
-  engine = new SpessaSynthEngine(undefined, '/spessasynth_processor.min.js', {
-    onPlaybackTime: (time, duration) => {
-      $<HTMLProgressElement>('progress').value = duration > 0 ? (time / duration) * 1000 : 0
-      $<HTMLSpanElement>('playback-time').textContent = `${fmtTime(time)} / ${fmtTime(duration)}`
-    },
+  engine = new SpessaSynthEngine(undefined, new URL('./spessasynth_processor.min.js', document.baseURI).href, {
+    onPlaybackTime: (time, duration) => renderPlaybackPosition(time, duration),
     onPlaybackEnded: () => {
       setPlaybackUi(false)
       setTranslatedStatus('midi-status', 'playback.finished', {}, 'ok')
+      updateTimelinePlayhead(0, 0)
+      if (replacementRecording) window.setTimeout(finishReplacementRecording, 0)
     },
-    onPlaybackState: (playing) => setPlaybackUi(playing),
+    onPlaybackState: (playing) => {
+      clearPlaybackNotes()
+      setPlaybackUi(playing)
+      if (playing) startPlaybackPositionUpdates()
+      else stopPlaybackPositionUpdates()
+    },
+    onPlaybackNoteOn: (_channel, note) => updatePlaybackNote(note, true),
+    onPlaybackNoteOff: (_channel, note) => updatePlaybackNote(note, false),
     onSoundFontLoaded: (info) => {
       setTranslatedText('st-soundfont', 'sound.summary', { name: info.name, count: info.presetCount })
     },
@@ -230,14 +286,36 @@ async function ensureEngine(): Promise<SpessaSynthEngine> {
   midiLearn.register({
     id: 'octave-up',
     label: t('params.octaveUp'),
-    apply: () => { mapping.shiftOctave(1); updateOctaveLabel() },
+    apply: () => changeOctave(1),
   })
+
   midiLearn.register({
     id: 'octave-down',
     label: t('params.octaveDown'),
-    apply: () => { mapping.shiftOctave(-1); updateOctaveLabel() },
+    apply: () => changeOctave(-1),
   })
   return engine
+}
+function renderPlaybackPosition(time: number, duration: number): void {
+  $<HTMLProgressElement>('progress').value = duration > 0 ? (time / duration) * 1000 : 0
+  $<HTMLSpanElement>('playback-time').textContent = `${fmtTime(time)} / ${fmtTime(duration)}`
+  updateTimelinePlayhead(time, duration)
+}
+
+function startPlaybackPositionUpdates(): void {
+  cancelAnimationFrame(playbackPositionFrame)
+  const update = (): void => {
+    const position = engine?.getPlaybackPosition()
+    if (!position) return
+    renderPlaybackPosition(position.seconds, position.duration)
+    if (!$<HTMLButtonElement>('btn-pause').disabled) playbackPositionFrame = requestAnimationFrame(update)
+  }
+  playbackPositionFrame = requestAnimationFrame(update)
+}
+
+function stopPlaybackPositionUpdates(): void {
+  cancelAnimationFrame(playbackPositionFrame)
+  playbackPositionFrame = 0
 }
 
 function audioOutputLabel(device: AudioOutputDevice, index: number): string {
@@ -448,6 +526,36 @@ function appendMonitorLine(data: Uint8Array): void {
 // ─── Live notes display ──────────────────────────────────────────────────────
 
 const liveNotes = new Map<number, { el: HTMLElement; count: number }>()
+const playbackNotes = new Map<number, number>()
+
+function refreshPianoNote(note: number): void {
+  keyboard.setPressed(note, liveNotes.has(note) || (playbackNotes.get(note) ?? 0) > 0)
+}
+
+function refreshComputerKeysForNote(note: number): void {
+  for (const assignment of mapping.listComputerKeyAssignments()) {
+    if (assignment.note === note) setComputerKeyActive(assignment.key)
+  }
+}
+
+function updatePlaybackNote(note: number, pressed: boolean): void {
+  const count = playbackNotes.get(note) ?? 0
+  if (pressed) playbackNotes.set(note, count + 1)
+  else if (count <= 1) playbackNotes.delete(note)
+  else playbackNotes.set(note, count - 1)
+  refreshPianoNote(note)
+  refreshComputerKeysForNote(note)
+}
+
+function clearPlaybackNotes(): void {
+  if (playbackNotes.size === 0) return
+  const notes = [...playbackNotes.keys()]
+  playbackNotes.clear()
+  for (const note of notes) {
+    refreshPianoNote(note)
+    refreshComputerKeysForNote(note)
+  }
+}
 
 function updateLiveNotes(data: Uint8Array): void {
   const status = data[0]! & 0xf0
@@ -464,7 +572,7 @@ function updateLiveNotes(data: Uint8Array): void {
     }
     entry.count++
     entry.el.textContent = `${noteName(note)} ${note} · v${vel}`
-    keyboard.setPressed(note, true)
+    refreshPianoNote(note)
   } else if (status === 0x80 || (status === 0x90 && vel === 0)) {
     const entry = liveNotes.get(note)
     if (entry) {
@@ -472,9 +580,9 @@ function updateLiveNotes(data: Uint8Array): void {
       if (entry.count === 0) {
         entry.el.remove()
         liveNotes.delete(note)
-        keyboard.setPressed(note, false)
       }
     }
+    refreshPianoNote(note)
   }
 }
 
@@ -599,10 +707,20 @@ function detectProfile(state: MidiManagerState): void {
 async function loadBuiltInSoundFont(): Promise<void> {
   setTranslatedStatus('sf-status', 'sound.builtInLoading', {}, 'warn')
   try {
-    const response = await fetch(builtInSoundFontUrl)
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const [gmResponse, pianoResponse] = await Promise.all([
+      fetch(builtInGmSoundFontUrl),
+      fetch(freePianoSoundFontUrl),
+    ])
+    if (!gmResponse.ok) throw new Error(`Micro GM: HTTP ${gmResponse.status}`)
+    if (!pianoResponse.ok) throw new Error(`mda Piano: HTTP ${pianoResponse.status}`)
     const e = await ensureEngine()
-    const info = await e.loadSoundBank(await response.arrayBuffer(), BUILT_IN_SOUND_FONT_NAME)
+    await e.loadSoundBank(await pianoResponse.arrayBuffer(), 'FreePiano mda Piano')
+    const info = await e.addSoundBankLayer(
+      await gmResponse.arrayBuffer(),
+      'micro-gm-fallback',
+      BUILT_IN_SOUND_FONT_NAME,
+      false,
+    )
     setTranslatedText('st-audio', 'status.readyAudio')
     setTranslatedStatus('sf-status', 'sound.builtInReady', { count: info.presetCount }, 'ok')
     populatePresets()
@@ -661,7 +779,27 @@ $('btn-panic').addEventListener('click', () => {
   })
 })
 
-// ─── MIDI player ─────────────────────────────────────────────────────────────
+// ─── Arrangement timeline ───────────────────────────────────────────────────
+
+function arrangementTotalTicks(): number {
+  if (!loadedMidi || !loadedInspection) return 0
+  return Math.max(loadedMidi.lastVoiceEventTick, Math.round(loadedInspection.durationBeats * (loadedMidi.timeDivision || 480)))
+}
+
+function arrangementTrackName(trackIndex: number): string {
+  const track = loadedInspection?.tracks[trackIndex]
+  return track?.name || t('playback.track', { index: trackIndex })
+}
+
+function refreshArrangementInspection(): void {
+  if (!loadedMidi) return
+  const data = loadedMidi.writeMIDI()
+  loadedMidi = importMidi(data, loadedMidi.fileName)
+  loadedInspection = inspectMidi(data, loadedMidi.fileName)
+  $<HTMLButtonElement>('btn-export-arrangement').disabled = false
+  renderArrangement()
+  setPlaybackUi(false)
+}
 
 async function loadMidiData(buffer: ArrayBuffer, fileName: string): Promise<void> {
   loadedMidi = importMidi(buffer, fileName)
@@ -686,13 +824,34 @@ async function loadMidiData(buffer: ArrayBuffer, fileName: string): Promise<void
 $<HTMLInputElement>('midi-file').addEventListener('change', async (ev) => {
   const file = (ev.target as HTMLInputElement).files?.[0]
   if (!file) return
+  if (replacementRecording) finishReplacementRecording()
   setTranslatedStatus('midi-status', 'playback.loading', { file: file.name }, 'warn')
   try {
-    await loadMidiData(await file.arrayBuffer(), file.name)
+    const buf = await file.arrayBuffer()
+    loadedMidi = importMidi(buf, file.name)
+    loadedInspection = inspectMidi(buf, file.name)
+    mutedTracks.clear()
+    timelineSelection = null
+    selectedTrackIndex = loadedInspection.tracks.find((track) => track.noteCount > 0)?.index ?? 0
+    $<HTMLSpanElement>('st-file').textContent = file.name
+    $<HTMLButtonElement>('btn-export-arrangement').disabled = false
+    const tempo = loadedInspection.tempos[0]?.bpm ?? 120
+    $<HTMLSpanElement>('playback-tempo').textContent = `♩ ${tempo} BPM`
+    renderArrangement()
+    setTranslatedStatus('midi-status', 'playback.loaded', { file: file.name, duration: fmtTime(loadedInspection.durationSeconds) }, 'ok')
+    setPlaybackUi(false)
+    updateOwtSourceButtons()
   } catch (err) {
     setTranslatedStatus('midi-status', 'playback.error', { error: err instanceof Error ? err.message : String(err) }, 'err')
   }
 })
+
+function renderArrangement(): void {
+  renderTrackList()
+  renderTimeline()
+  updateTimelineSelection()
+  $('arranger-grid').classList.toggle('has-midi', Boolean(loadedMidi))
+}
 
 function renderTrackList(): void {
   const list = $<HTMLDivElement>('track-list')
@@ -700,65 +859,263 @@ function renderTrackList(): void {
   if (!loadedInspection) return
   for (const track of loadedInspection.tracks) {
     const row = document.createElement('div')
-    row.className = `track-row${mutedTracks.has(track.index) ? ' muted' : ''}`
+    row.className = `track-header${track.index === selectedTrackIndex ? ' selected' : ''}${mutedTracks.has(track.index) ? ' muted' : ''}`
+    row.dataset.trackIndex = String(track.index)
+    row.addEventListener('click', () => selectArrangementTrack(track.index))
+
     const muteBtn = document.createElement('button')
     muteBtn.className = 'mute-btn'
-    muteBtn.textContent = t(mutedTracks.has(track.index) ? 'playback.unmute' : 'playback.mute')
-    muteBtn.addEventListener('click', () => {
+    muteBtn.textContent = 'M'
+    muteBtn.title = t(mutedTracks.has(track.index) ? 'playback.unmute' : 'playback.mute')
+    muteBtn.addEventListener('click', (event) => {
+      event.stopPropagation()
       if (mutedTracks.has(track.index)) mutedTracks.delete(track.index)
       else mutedTracks.add(track.index)
       renderTrackList()
     })
-    const name = document.createElement('span')
-    name.className = 'track-name'
-    name.textContent = track.name || t('playback.track', { index: track.index })
+
+    const copy = document.createElement('div')
+    copy.className = 'track-header-copy'
+    const name = document.createElement('strong')
+    name.textContent = arrangementTrackName(track.index)
     const meta = document.createElement('span')
-    meta.className = 'track-meta'
-    meta.textContent = t('playback.trackMeta', {
-      channels: track.channels.join(',') || '—',
-      program: track.program ?? '—',
-      notes: track.noteCount,
-      cc: track.hasControlChanges ? ' cc' : '',
-      pitchBend: track.hasPitchBend ? ' pb' : '',
-    })
-    row.append(muteBtn, name, meta)
+    meta.textContent = `${track.noteCount} notes · ch ${track.channels.join(',') || '—'}`
+    copy.append(name, meta)
+    row.append(muteBtn, copy)
     list.appendChild(row)
   }
 }
 
-$('btn-play').addEventListener('click', async () => {
-  if (!loadedMidi) return
-  try {
-    const e = await ensureEngine()
-    let source = loadedMidi
-    if (mutedTracks.size > 0) source = applyTrackMutes(loadedMidi, mutedTracks)
-    await e.playMidi(source.writeMIDI(), loadedMidi.fileName ?? 'song.mid')
-    setTranslatedStatus('midi-status', 'playback.playing')
-    setPlaybackUi(true)
-  } catch (err) {
-    setTranslatedStatus('midi-status', 'playback.playError', { error: err instanceof Error ? err.message : String(err) }, 'err')
+function renderTimeline(): void {
+  const content = $<HTMLDivElement>('timeline-content')
+  const ruler = $<HTMLDivElement>('timeline-ruler')
+  const tracks = $<HTMLDivElement>('timeline-tracks')
+  ruler.innerHTML = ''
+  tracks.innerHTML = ''
+  if (!loadedMidi || !loadedInspection) {
+    content.style.width = '100%'
+    return
   }
+
+  const ppq = loadedMidi.timeDivision || 480
+  const totalBeats = Math.max(16, Math.ceil(arrangementTotalTicks() / ppq) + 1)
+  const width = totalBeats * timelineBeatWidth
+  content.style.width = `${width}px`
+  content.style.setProperty('--beat-width', `${timelineBeatWidth}px`)
+
+  for (let beat = 0; beat <= totalBeats; beat++) {
+    const marker = document.createElement('div')
+    marker.className = `ruler-beat${beat % 4 === 0 ? ' bar' : ''}`
+    marker.style.left = `${beat * timelineBeatWidth}px`
+    if (beat % 4 === 0) {
+      const label = document.createElement('span')
+      label.textContent = String(beat / 4 + 1)
+      marker.appendChild(label)
+    }
+    ruler.appendChild(marker)
+  }
+
+  for (const track of loadedInspection.tracks) {
+    const lane = document.createElement('div')
+    lane.className = `timeline-track${track.index === selectedTrackIndex ? ' selected' : ''}`
+    lane.dataset.trackIndex = String(track.index)
+    const notes = getArrangementNotes(loadedMidi, track.index)
+    const minNote = track.minNote ?? 0
+    const pitchSpan = Math.max(1, (track.maxNote ?? minNote) - minNote)
+    for (const note of notes) {
+      const block = document.createElement('span')
+      block.className = 'timeline-note'
+      block.style.left = `${(note.startTick / ppq) * timelineBeatWidth}px`
+      block.style.width = `${Math.max(3, ((note.endTick - note.startTick) / ppq) * timelineBeatWidth)}px`
+      block.style.top = `${7 + (1 - (note.note - minNote) / pitchSpan) * 40}px`
+      block.title = `${noteName(note.note)} · ${note.startTick / ppq}–${note.endTick / ppq}`
+      lane.appendChild(block)
+    }
+    tracks.appendChild(lane)
+  }
+}
+
+function selectArrangementTrack(trackIndex: number): void {
+  selectedTrackIndex = trackIndex
+  if (timelineSelection) timelineSelection = { ...timelineSelection, trackIndex }
+  renderArrangement()
+}
+
+function tickFromTimelinePointer(clientX: number): number {
+  if (!loadedMidi) return 0
+  const rect = $<HTMLDivElement>('timeline-content').getBoundingClientRect()
+  const beat = Math.max(0, (clientX - rect.left) / timelineBeatWidth)
+  const snappedBeat = Math.round(beat * 4) / 4
+  return Math.min(arrangementTotalTicks(), Math.round(snappedBeat * (loadedMidi.timeDivision || 480)))
+}
+
+let selectionDrag: { trackIndex: number; anchorTick: number } | null = null
+$<HTMLDivElement>('timeline-tracks').addEventListener('pointerdown', (event) => {
+  if (!loadedMidi || event.button !== 0 || replacementRecording) return
+  const lane = (event.target as HTMLElement).closest<HTMLElement>('.timeline-track')
+  if (!lane) return
+  const trackIndex = Number(lane.dataset.trackIndex)
+  selectedTrackIndex = trackIndex
+  const anchorTick = tickFromTimelinePointer(event.clientX)
+  selectionDrag = { trackIndex, anchorTick }
+  lane.setPointerCapture(event.pointerId)
+  timelineSelection = { trackIndex, startTick: anchorTick, endTick: anchorTick + Math.max(1, Math.round((loadedMidi.timeDivision || 480) / 4)) }
+  renderTrackList()
+  for (const track of document.querySelectorAll<HTMLElement>('.timeline-track')) {
+    track.classList.toggle('selected', Number(track.dataset.trackIndex) === trackIndex)
+  }
+  updateTimelineSelection()
+})
+$<HTMLDivElement>('timeline-tracks').addEventListener('pointermove', (event) => {
+  if (!selectionDrag || !loadedMidi) return
+  const tick = tickFromTimelinePointer(event.clientX)
+  const step = Math.max(1, Math.round((loadedMidi.timeDivision || 480) / 4))
+  timelineSelection = tick < selectionDrag.anchorTick
+    ? { trackIndex: selectionDrag.trackIndex, startTick: tick, endTick: selectionDrag.anchorTick }
+    : { trackIndex: selectionDrag.trackIndex, startTick: selectionDrag.anchorTick, endTick: Math.max(selectionDrag.anchorTick + step, tick) }
+  updateTimelineSelection()
+})
+window.addEventListener('pointerup', () => { selectionDrag = null })
+$<HTMLDivElement>('timeline-viewport').addEventListener('scroll', (event) => {
+  const viewport = event.currentTarget as HTMLDivElement
+  $<HTMLDivElement>('track-list').style.transform = `translateY(${-viewport.scrollTop}px)`
 })
 
+function updateTimelineSelection(): void {
+  const overlay = $<HTMLDivElement>('timeline-selection')
+  const clearButton = $<HTMLButtonElement>('btn-clear-range')
+  const replaceButton = $<HTMLButtonElement>('btn-replace-range')
+  if (!timelineSelection || !loadedMidi) {
+    overlay.hidden = true
+    clearButton.disabled = true
+    replaceButton.disabled = true
+    setTranslatedText('arranger-selection-status', 'arranger.selectHint')
+    return
+  }
+  const ppq = loadedMidi.timeDivision || 480
+  overlay.hidden = false
+  overlay.style.left = `${(timelineSelection.startTick / ppq) * timelineBeatWidth}px`
+  overlay.style.top = `${34 + timelineSelection.trackIndex * 62}px`
+  overlay.style.width = `${Math.max(2, ((timelineSelection.endTick - timelineSelection.startTick) / ppq) * timelineBeatWidth)}px`
+  overlay.style.height = '62px'
+  overlay.classList.toggle('recording', Boolean(replacementRecording))
+  clearButton.disabled = Boolean(replacementRecording)
+  replaceButton.disabled = Boolean(replacementRecording)
+  setTranslatedText('arranger-selection-status', replacementRecording ? 'arranger.recording' : 'arranger.range', {
+    track: arrangementTrackName(timelineSelection.trackIndex),
+    start: (timelineSelection.startTick / ppq).toFixed(2),
+    end: (timelineSelection.endTick / ppq).toFixed(2),
+  })
+}
+
+function updateTimelinePlayhead(time: number, duration: number): void {
+  const playhead = $<HTMLDivElement>('timeline-playhead')
+  if (!loadedMidi || duration <= 0 || time <= 0) {
+    playhead.hidden = true
+    return
+  }
+  playhead.hidden = false
+  const width = $<HTMLDivElement>('timeline-content').getBoundingClientRect().width
+  playhead.style.left = `${Math.max(0, Math.min(width, (time / duration) * width))}px`
+}
+
+$<HTMLInputElement>('arranger-zoom').addEventListener('input', (event) => {
+  timelineBeatWidth = Number((event.target as HTMLInputElement).value)
+  renderTimeline()
+  updateTimelineSelection()
+})
+$('btn-clear-range').addEventListener('click', () => {
+  timelineSelection = null
+  updateTimelineSelection()
+})
+
+async function playArrangement(startSeconds = 0, source = loadedMidi): Promise<void> {
+  if (!source) return
+  const e = await ensureEngine()
+  let playbackSource = source
+  if (mutedTracks.size > 0) playbackSource = applyTrackMutes(source, mutedTracks)
+  await e.playMidi(playbackSource.writeMIDI(), source.fileName ?? 'song.mid', startSeconds)
+  setPlaybackUi(true)
+}
+
+$('btn-play').addEventListener('click', () => void playArrangement().catch((err) => {
+  setTranslatedStatus('midi-status', 'playback.playError', { error: err instanceof Error ? err.message : String(err) }, 'err')
+}))
 $('btn-pause').addEventListener('click', () => engine?.pause())
 $('btn-stop').addEventListener('click', () => {
-  engine?.stop()
+  if (replacementRecording) finishReplacementRecording()
+  else engine?.stop()
   $<HTMLProgressElement>('progress').value = 0
 })
-$('btn-restart').addEventListener('click', async () => {
-  if (!loadedMidi) return
+$('btn-restart').addEventListener('click', () => {
   engine?.stop()
-  const e = await ensureEngine()
-  let source = loadedMidi
-  if (mutedTracks.size > 0) source = applyTrackMutes(loadedMidi, mutedTracks)
-  await e.playMidi(source.writeMIDI(), loadedMidi.fileName ?? 'song.mid')
-  setTranslatedStatus('midi-status', 'playback.playing')
-  setPlaybackUi(true)
+  void playArrangement()
 })
+$('btn-export-arrangement').addEventListener('click', () => {
+  if (!loadedMidi) return
+  const baseName = (loadedMidi.fileName ?? 'opusweave').replace(/\.(mid|midi)$/i, '')
+  downloadBuffer(loadedMidi.writeMIDI(), `${baseName}-edited.mid`, 'audio/midi')
+  setTranslatedStatus('midi-status', 'arranger.exported', {}, 'ok')
+})
+
+async function startReplacementRecording(): Promise<void> {
+  if (!loadedMidi || !timelineSelection || replacementRecording || recorder.isRecording) return
+  const selection = { ...timelineSelection }
+  const tempoMap = createMidiTempoMap(loadedMidi)
+  const startSeconds = tempoMap.tickToSeconds(selection.startTick)
+  const durationMs = Math.max(50, (tempoMap.tickToSeconds(selection.endTick) - startSeconds) * 1000)
+  const preview = replaceArrangementRange(loadedMidi, selection)
+  replacementRecording = { selection, durationMs }
+  recorder.start(performance.now())
+  $<HTMLButtonElement>('btn-stop-replace').disabled = false
+  $<HTMLButtonElement>('btn-replace-range').disabled = true
+  updateTimelineSelection()
+  try {
+    await playArrangement(startSeconds, preview)
+    replacementTimer = window.setTimeout(finishReplacementRecording, durationMs)
+  } catch (err) {
+    replacementRecording = null
+    recorder.stop(performance.now())
+    updateTimelineSelection()
+    throw err
+  }
+}
+
+function finishReplacementRecording(): void {
+  if (!loadedMidi || !replacementRecording) return
+  const context = replacementRecording
+  replacementRecording = null
+  if (replacementTimer !== undefined) window.clearTimeout(replacementTimer)
+  replacementTimer = undefined
+  const replacementTake = recorder.stop(performance.now())
+  engine?.stop()
+  loadedMidi = replaceArrangementRange(loadedMidi, {
+    ...context.selection,
+    take: replacementTake,
+    selectionDurationMs: context.durationMs,
+  })
+  refreshArrangementInspection()
+  timelineSelection = context.selection
+  $<HTMLButtonElement>('btn-stop-replace').disabled = true
+  updateTimelineSelection()
+  const ppq = loadedMidi.timeDivision || 480
+  setTranslatedStatus('midi-status', 'arranger.replaced', {
+    track: arrangementTrackName(context.selection.trackIndex),
+    start: (context.selection.startTick / ppq).toFixed(2),
+    end: (context.selection.endTick / ppq).toFixed(2),
+    events: replacementTake.events.length,
+  }, 'ok')
+}
+
+$('btn-replace-range').addEventListener('click', () => void startReplacementRecording().catch((err) => {
+  setTranslatedStatus('midi-status', 'playback.playError', { error: err instanceof Error ? err.message : String(err) }, 'err')
+}))
+$('btn-stop-replace').addEventListener('click', finishReplacementRecording)
 
 // ─── Recording ───────────────────────────────────────────────────────────────
 
 $('btn-record').addEventListener('click', () => {
+  if (replacementRecording || recorder.isRecording) return
   recorder.start(performance.now())
   take = null
   $<HTMLButtonElement>('btn-record').disabled = true
@@ -770,6 +1127,7 @@ $('btn-record').addEventListener('click', () => {
 })
 
 $('btn-record-stop').addEventListener('click', () => {
+  if (replacementRecording) return
   take = recorder.stop(performance.now())
   const hasEvents = take.events.length > 0
   $<HTMLButtonElement>('btn-record').disabled = false
@@ -1021,14 +1379,257 @@ $('btn-owt-quantize').addEventListener('click', () => {
 // ─── Computer keyboard (MappingEngine) ───────────────────────────────────────
 
 const TEXT_INPUT: Record<string, true> = { INPUT: true, TEXTAREA: true, SELECT: true }
+const VELOCITY_STEP = 10
+const activeComputerNotes = new Map<string, Uint8Array>()
+const pointerComputerKeys = new Set<string>()
+const computerKeycaps = new Map<string, HTMLElement>()
+
+const QWERTY_ROWS = [
+  ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '='],
+  ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']'],
+  ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', "'"],
+  ['z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '/'],
+] as const
+let keyboardMapInitialized = false
+let keyboardLinkFrame = 0
+const COMPUTER_MAP_PREFERENCE_KEY = 'opusweave.computer-map.visibility'
+let computerMapExpanded = true
+
+function updateComputerMapToggleCopy(): void {
+  const button = $<HTMLButtonElement>('toggle-computer-map')
+  const key = computerMapExpanded ? 'live.collapseMap' : 'live.expandMap'
+  button.dataset.i18nTitle = key
+  button.dataset.i18nAriaLabel = key
+  button.title = t(key)
+  button.setAttribute('aria-label', t(key))
+  button.setAttribute('aria-expanded', String(computerMapExpanded))
+  button.textContent = computerMapExpanded ? '⌃' : '⌄'
+}
+
+function setComputerMapExpanded(expanded: boolean, persist = false): void {
+  computerMapExpanded = expanded
+  $<HTMLDivElement>('computer-map-content').hidden = !expanded
+  updateComputerMapToggleCopy()
+  if (persist) {
+    window.localStorage.setItem(COMPUTER_MAP_PREFERENCE_KEY, expanded ? 'expanded' : 'collapsed')
+  }
+  if (expanded) requestAnimationFrame(scheduleKeyboardLinks)
+  else ($('keyboard-links') as unknown as SVGSVGElement).innerHTML = ''
+}
+
+async function detectHardwareKeyboard(): Promise<boolean | null> {
+  const keyboardApi = (navigator as Navigator & {
+    keyboard?: { getLayoutMap?: () => Promise<{ size: number }> }
+  }).keyboard
+  if (keyboardApi?.getLayoutMap) {
+    try {
+      return (await keyboardApi.getLayoutMap()).size > 0
+    } catch {
+      // Permission or platform limitation; continue with input-capability hints.
+    }
+  }
+  if (window.matchMedia('(any-pointer: fine)').matches) return true
+  if (navigator.maxTouchPoints > 0 && window.matchMedia('(any-pointer: coarse)').matches) return false
+  return null
+}
+
+async function initializeComputerMapDisclosure(): Promise<void> {
+  const preference = window.localStorage.getItem(COMPUTER_MAP_PREFERENCE_KEY)
+  if (preference === 'expanded' || preference === 'collapsed') {
+    setComputerMapExpanded(preference === 'expanded')
+    return
+  }
+  const detected = await detectHardwareKeyboard()
+  setComputerMapExpanded(detected ?? true)
+}
+
+function renderComputerKeyMap(): void {
+  computerKeycaps.clear()
+  const root = $<HTMLDivElement>('computer-key-map')
+  root.innerHTML = ''
+  const assignments = new Map(mapping.listComputerKeyAssignments().map((assignment) => [assignment.key, assignment]))
+  const actionLabels: Record<string, { label: string; velocity?: boolean }> = {
+    a: { label: t('live.octaveDownKey') },
+    k: { label: t('live.octaveUpKey') },
+    f: { label: t('live.velocityDownKey'), velocity: true },
+    '4': { label: t('live.velocityUpKey'), velocity: true },
+  }
+
+  for (const rowKeys of QWERTY_ROWS) {
+    const row = document.createElement('div')
+    row.className = 'qwerty-row'
+    for (const keyName of rowKeys) {
+      const assignment = assignments.get(keyName)
+      const action = actionLabels[keyName]
+      const keycap = document.createElement('span')
+      keycap.className = 'computer-keycap'
+      keycap.dataset.key = keyName
+
+      if (assignment) {
+        const pitchClass = ((assignment.note % 12) + 12) % 12
+        if ([1, 3, 6, 8, 10].includes(pitchClass)) keycap.classList.add('accidental')
+        keycap.dataset.note = String(assignment.note)
+        keycap.title = `${keyName.toUpperCase()} → ${noteName(assignment.note)} (${assignment.note})`
+        if (isComputerKeyVisuallyActive(keyName)) keycap.classList.add('active')
+      } else if (action) {
+        keycap.classList.add('action')
+        if (action.velocity) keycap.classList.add('velocity-action')
+        keycap.title = action.label
+      } else {
+        keycap.classList.add('unmapped')
+      }
+
+      const key = document.createElement('kbd')
+      key.textContent = keyName.toUpperCase()
+      const detail = document.createElement('small')
+      detail.textContent = assignment ? noteName(assignment.note) : (action?.label ?? '—')
+      keycap.append(key, detail)
+      row.appendChild(keycap)
+      computerKeycaps.set(keyName, keycap)
+    }
+    root.appendChild(row)
+  }
+  scheduleKeyboardLinks()
+}
+
+function scheduleKeyboardLinks(): void {
+  cancelAnimationFrame(keyboardLinkFrame)
+  keyboardLinkFrame = requestAnimationFrame(updateKeyboardLinks)
+}
+
+function updateKeyboardLinks(): void {
+  const svg = $('keyboard-links') as unknown as SVGSVGElement
+  svg.innerHTML = ''
+  if (!computerMapExpanded) return
+  const bridgeRect = svg.getBoundingClientRect()
+  if (bridgeRect.width === 0 || bridgeRect.height === 0) return
+  const pianoRect = $<HTMLDivElement>('virtual-keyboard').getBoundingClientRect()
+  svg.setAttribute('viewBox', `0 0 ${bridgeRect.width} ${bridgeRect.height}`)
+
+  for (const assignment of mapping.listComputerKeyAssignments()) {
+    const keycap = computerKeycaps.get(assignment.key)
+    const pianoKey = document.querySelector<HTMLElement>(`#virtual-keyboard [data-note="${assignment.note}"]`)
+    if (!keycap || !pianoKey) continue
+    const from = keycap.getBoundingClientRect()
+    const to = pianoKey.getBoundingClientRect()
+    const pianoCenter = to.left + to.width / 2
+    if (pianoCenter < pianoRect.left || pianoCenter > pianoRect.right) continue
+
+    const x1 = from.left + from.width / 2 - bridgeRect.left
+    const x2 = pianoCenter - bridgeRect.left
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+    path.setAttribute('d', `M ${x1} 0 C ${x1} ${bridgeRect.height * 0.55}, ${x2} ${bridgeRect.height * 0.45}, ${x2} ${bridgeRect.height}`)
+    if (isComputerKeyVisuallyActive(assignment.key)) path.classList.add('active')
+    svg.appendChild(path)
+  }
+}
+
+function syncPianoToComputerMap(behavior: ScrollBehavior): void {
+  const assignments = mapping.listComputerKeyAssignments()
+  const minNote = assignments[0]!.note
+  const maxNote = assignments[assignments.length - 1]!.note
+  keyboard.setMappedRange(minNote, maxNote)
+  requestAnimationFrame(() => {
+    keyboard.scrollToRange(minNote, maxNote, behavior)
+    scheduleKeyboardLinks()
+  })
+}
+
+function isComputerKeyVisuallyActive(key: string): boolean {
+  const note = mapping.keyToNote(key)
+  return activeComputerNotes.has(key)
+    || pointerComputerKeys.has(key)
+    || (note !== null && (playbackNotes.get(note) ?? 0) > 0)
+}
+
+function setComputerKeyActive(key: string): void {
+  computerKeycaps.get(key)?.classList.toggle('active', isComputerKeyVisuallyActive(key))
+  scheduleKeyboardLinks()
+}
+
+function releaseComputerNotes(): void {
+  const timestamp = performance.now()
+  const heldNotes = [...activeComputerNotes]
+  activeComputerNotes.clear()
+  for (const [key, message] of heldNotes) {
+    handleMidiMessage(message, timestamp)
+    setComputerKeyActive(key)
+  }
+}
+
+function changeOctave(delta: number): void {
+  releaseComputerNotes()
+  mapping.shiftOctave(delta)
+  updateOctaveLabel()
+}
+
+function updateOctaveLabel(): void {
+  const octaves = mapping.currentOctaveShift / 12
+  $<HTMLSpanElement>('oct-label').textContent = octaves > 0 ? `+${octaves}` : String(octaves)
+  renderComputerKeyMap()
+  syncPianoToComputerMap(keyboardMapInitialized ? 'smooth' : 'auto')
+  keyboardMapInitialized = true
+}
+
+function setKeyboardVelocity(value: number): void {
+  mapping.setVelocity(value)
+  $<HTMLInputElement>('key-velocity').value = String(mapping.fixedVelocity)
+}
+
+function changeKeyboardVelocity(delta: number): void {
+  setKeyboardVelocity(mapping.fixedVelocity + delta)
+}
+
+function startComputerPointerNote(key: string): (() => void) | undefined {
+  const message = mapping.keyDownMessage(key)
+  if (!message) return undefined
+  const noteOff = new Uint8Array([0x80 | (message[0]! & 0x0f), message[1]!, 0x40])
+  let released = false
+  pointerComputerKeys.add(key)
+  setComputerKeyActive(key)
+  handleMidiMessage(message, performance.now())
+  return () => {
+    if (released) return
+    released = true
+    handleMidiMessage(noteOff, performance.now())
+    pointerComputerKeys.delete(key)
+    setComputerKeyActive(key)
+  }
+}
+
+function activateComputerMapControl(key: string): boolean {
+  switch (key) {
+    case 'a': changeOctave(-1); return true
+    case 'k': changeOctave(1); return true
+    case 'f': changeKeyboardVelocity(-VELOCITY_STEP); return true
+    case '4': changeKeyboardVelocity(VELOCITY_STEP); return true
+    default: return false
+  }
+}
 
 window.addEventListener('keydown', (ev) => {
   const target = ev.target as HTMLElement
   if (TEXT_INPUT[target.tagName]) return
+
+  const plainShortcut = !ev.ctrlKey && !ev.metaKey && !ev.altKey
+  if (plainShortcut && (ev.code === 'KeyA' || ev.code === 'KeyK')) {
+    ev.preventDefault()
+    if (!ev.repeat) changeOctave(ev.code === 'KeyA' ? -1 : 1)
+    return
+  }
+  if (plainShortcut && (ev.code === 'KeyF' || ev.code === 'Digit4')) {
+    ev.preventDefault()
+    changeKeyboardVelocity(ev.code === 'KeyF' ? -VELOCITY_STEP : VELOCITY_STEP)
+    return
+  }
   if (ev.repeat) return
-  const msg = mapping.keyDownMessage(ev.key.toLowerCase())
+
+  const key = ev.key.toLowerCase()
+  const msg = mapping.keyDownMessage(key)
   if (msg) {
     ev.preventDefault()
+    activeComputerNotes.set(key, new Uint8Array([0x80 | (msg[0]! & 0x0f), msg[1]!, 0x40]))
+    setComputerKeyActive(key)
     handleMidiMessage(msg, performance.now())
   }
 })
@@ -1036,25 +1637,39 @@ window.addEventListener('keydown', (ev) => {
 window.addEventListener('keyup', (ev) => {
   const target = ev.target as HTMLElement
   if (TEXT_INPUT[target.tagName]) return
-  const msg = mapping.keyUpMessage(ev.key.toLowerCase())
-  if (msg) handleMidiMessage(msg, performance.now())
+  const key = ev.key.toLowerCase()
+  const msg = activeComputerNotes.get(key)
+  if (!msg) return
+  ev.preventDefault()
+  activeComputerNotes.delete(key)
+  setComputerKeyActive(key)
+  handleMidiMessage(msg, performance.now())
 })
 
-$('oct-up').addEventListener('click', () => {
-  mapping.shiftOctave(1)
-  updateOctaveLabel()
-})
-$('oct-down').addEventListener('click', () => {
-  mapping.shiftOctave(-1)
-  updateOctaveLabel()
-})
+window.addEventListener('blur', releaseComputerNotes)
+$<HTMLDivElement>('computer-key-map').addEventListener('scroll', scheduleKeyboardLinks)
+$<HTMLDivElement>('virtual-keyboard').addEventListener('scroll', scheduleKeyboardLinks)
+window.addEventListener('resize', scheduleKeyboardLinks)
 
-function updateOctaveLabel(): void {
-  $<HTMLSpanElement>('oct-label').textContent = String(mapping.currentOctaveShift / 12)
-}
+enableHorizontalPointerScroll($<HTMLDivElement>('computer-key-map'), {
+  targetSelector: '.computer-keycap',
+  onHoldStart: (target) => startComputerPointerNote(target.dataset.key ?? ''),
+  onTap: (target) => {
+    const key = target.dataset.key ?? ''
+    if (activateComputerMapControl(key)) return
+    const release = startComputerPointerNote(key)
+    if (release) window.setTimeout(release, 160)
+  },
+})
+$('toggle-computer-map').addEventListener('click', () => setComputerMapExpanded(!computerMapExpanded, true))
+
+$('oct-up').addEventListener('click', () => changeOctave(1))
+$('oct-down').addEventListener('click', () => changeOctave(-1))
+$('velocity-up').addEventListener('click', () => changeKeyboardVelocity(VELOCITY_STEP))
+$('velocity-down').addEventListener('click', () => changeKeyboardVelocity(-VELOCITY_STEP))
 
 $<HTMLInputElement>('key-velocity').addEventListener('change', (ev) => {
-  mapping.setVelocity(Number((ev.target as HTMLInputElement).value))
+  setKeyboardVelocity(Number((ev.target as HTMLInputElement).value))
 })
 
 // ─── MIDI Learn ──────────────────────────────────────────────────────────────
@@ -1115,6 +1730,9 @@ $<HTMLTextAreaElement>('owt-editor').value = DEFAULT_OWT_SCORE
 refreshOwtKind()
 updateOwtSourceButtons()
 renderMidiState(midiManager.getState())
+showWorkspacePage('studio')
+renderArrangement()
+void initializeComputerMapDisclosure()
 builtInSoundFontPromise = loadBuiltInSoundFont()
 void builtInSoundFontPromise.then(() => refreshAudioOutputs(true))
 

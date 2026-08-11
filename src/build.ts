@@ -31,6 +31,7 @@ if (args.includes('--windows')) {
     outfile: 'dist/opus-weave.exe',
     windows: {
       console: 'detached',
+      icon: 'src/web/assets/app-icon.ico',
       title: 'OpusWeave',
       version: '0.1.0',
     },
@@ -42,7 +43,7 @@ if (args.includes('--windows')) {
     ...base,
     target: 'bun-windows-x64',
     outfile: 'dist/opus-weave.exe',
-    windows: { console: 'detached', title: 'OpusWeave', version: '0.1.0' },
+    windows: { console: 'detached', icon: 'src/web/assets/app-icon.ico', title: 'OpusWeave', version: '0.1.0' },
   })
 } else if (process.platform === 'darwin') {
   configs.push({
@@ -52,6 +53,7 @@ if (args.includes('--windows')) {
     macos: {
       bundleIdentifier: 'io.github.liooil.opusweave',
       displayName: 'OpusWeave',
+      icon: 'src/web/assets/AppIcon.icns',
       minimumSystemVersion: '11.0',
     },
   })

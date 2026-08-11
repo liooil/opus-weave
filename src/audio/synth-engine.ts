@@ -16,8 +16,8 @@ export interface SynthEngine {
   loadSoundBank(data: ArrayBuffer, name?: string): Promise<SoundFontInfo>
   /** Send one raw MIDI message (Note On/Off, CC, Pitch Bend, Program…). */
   send(message: Uint8Array, timestamp?: number): void
-  /** Play a whole SMF through the internal sequencer. */
-  playMidi(data: ArrayBuffer, fileName?: string): Promise<void>
+  /** Play a whole SMF through the internal sequencer, optionally from an offset. */
+  playMidi(data: ArrayBuffer, fileName?: string, startSeconds?: number): Promise<void>
   pause(): void
   stop(): void
   /** Kill all sounding notes immediately (Panic). */

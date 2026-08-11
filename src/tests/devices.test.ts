@@ -78,6 +78,25 @@ describe('MappingEngine (computer keyboard)', () => {
     expect(m.keyToNote('z')).toBe(48)
   })
 
+  it('lists the visible computer-key map and updates it with octave shifts', () => {
+    const m = new MappingEngine({ baseNote: 48 })
+    const initial = m.listComputerKeyAssignments()
+    expect(initial).toHaveLength(24)
+    expect(initial[0]).toEqual({ key: 'z', semitoneOffset: 0, note: 48 })
+    expect(initial[23]).toEqual({ key: 'u', semitoneOffset: 23, note: 71 })
+
+    m.shiftOctave(1)
+    expect(m.listComputerKeyAssignments()[0]!.note).toBe(60)
+  })
+
+  it('keeps octave shortcuts inside the MIDI note range', () => {
+    const m = new MappingEngine({ baseNote: 48 })
+    m.shiftOctave(100)
+    expect(m.listComputerKeyAssignments().at(-1)!.note).toBeLessThanOrEqual(127)
+    m.shiftOctave(-100)
+    expect(m.listComputerKeyAssignments()[0]!.note).toBeGreaterThanOrEqual(0)
+  })
+
   it('uses fixed velocity', () => {
     const m = new MappingEngine({ baseNote: 48, velocity: 33 })
     expect(m.keyDownMessage('z')![2]).toBe(33)

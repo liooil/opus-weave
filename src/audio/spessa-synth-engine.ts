@@ -14,6 +14,8 @@ interface EngineCallbacks {
   onPlaybackTime?: (seconds: number, duration: number) => void
   onPlaybackEnded?: () => void
   onPlaybackState?: (playing: boolean) => void
+  onPlaybackNoteOn?: (channel: number, note: number, velocity: number) => void
+  onPlaybackNoteOff?: (channel: number, note: number) => void
   onSoundFontLoaded?: (info: SoundFontInfo) => void
   onError?: (message: string) => void
 }
@@ -32,6 +34,8 @@ export class SpessaSynthEngine implements SynthEngine {
   private disposed = false
   private pendingMessages: Uint8Array[] = []
   private resumePromise: Promise<void> | null = null
+  private soundBankEventSequence = 0
+  private playbackActive = false
 
   constructor(
     /** Inject a pre-created AudioContext (tests use a mock). */
@@ -60,7 +64,14 @@ export class SpessaSynthEngine implements SynthEngine {
         const duration = this.sequencer?.midiData?.duration ?? 0
         this.callbacks.onPlaybackTime?.(time, duration)
       })
+      synth.eventHandler.addEvent('noteOn', 'opusweave-playback', (event) => {
+        if (this.playbackActive) this.callbacks.onPlaybackNoteOn?.(event.channel, event.midiNote, event.velocity)
+      })
+      synth.eventHandler.addEvent('noteOff', 'opusweave-playback', (event) => {
+        if (this.playbackActive) this.callbacks.onPlaybackNoteOff?.(event.channel, event.midiNote)
+      })
       this.sequencer.eventHandler.addEvent('songEnded', 'opusweave', () => {
+        this.playbackActive = false
         this.callbacks.onPlaybackEnded?.()
         this.callbacks.onPlaybackState?.(false)
       })
@@ -69,11 +80,34 @@ export class SpessaSynthEngine implements SynthEngine {
     }
   }
 
+  /** Wait until the AudioWorklet publishes the preset list produced by an operation. */
+  private async waitForPresetListChange(operation: () => void | Promise<void>): Promise<void> {
+    const synth = this.synth!
+    const eventId = `opusweave-soundbank-${++this.soundBankEventSequence}`
+    let resolveChange: (() => void) | undefined
+    const changed = new Promise<void>((resolve) => { resolveChange = resolve })
+    synth.eventHandler.addEvent('presetListChange', eventId, () => resolveChange?.())
+    try {
+      await operation()
+      await changed
+    } finally {
+      synth.eventHandler.removeEvent('presetListChange', eventId)
+    }
+  }
+
   async loadSoundBank(data: ArrayBuffer, name?: string): Promise<SoundFontInfo> {
     await this.ensureReady()
     const synth = this.synth!
     try {
-      await synth.soundBankManager.addSoundBank(data, 'main')
+      await this.waitForPresetListChange(() => synth.soundBankManager.addSoundBank(data, 'main'))
+      if (synth.soundBankManager.priorityOrder[0] !== 'main') {
+        await this.waitForPresetListChange(() => {
+          synth.soundBankManager.priorityOrder = [
+            'main',
+            ...synth.soundBankManager.priorityOrder.filter((id) => id !== 'main'),
+          ]
+        })
+      }
       const presetCount = synth.presetList.length
       const info: SoundFontInfo = { name: name ?? 'SoundFont', presetCount }
       this.soundFont = info
@@ -81,6 +115,32 @@ export class SpessaSynthEngine implements SynthEngine {
       return info
     } catch (err) {
       throw new SynthEngineError(`failed to load SoundFont: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  /** Add a sound bank layer while retaining the main bank. */
+  async addSoundBankLayer(data: ArrayBuffer, id: string, name?: string, makePrimary = true): Promise<SoundFontInfo> {
+    await this.ensureReady()
+    const synth = this.synth!
+    try {
+      await this.waitForPresetListChange(() => synth.soundBankManager.addSoundBank(data, id))
+      if (makePrimary) {
+        await this.waitForPresetListChange(() => {
+          synth.soundBankManager.priorityOrder = [
+            id,
+            ...synth.soundBankManager.priorityOrder.filter((bankId) => bankId !== id),
+          ]
+        })
+      }
+      const info: SoundFontInfo = {
+        name: name ?? this.soundFont?.name ?? 'SoundFont',
+        presetCount: synth.presetList.length,
+      }
+      this.soundFont = info
+      this.callbacks.onSoundFontLoaded?.(info)
+      return info
+    } catch (err) {
+      throw new SynthEngineError(`failed to load SoundFont layer: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
 
@@ -133,21 +193,30 @@ export class SpessaSynthEngine implements SynthEngine {
     }
   }
 
-  async playMidi(data: ArrayBuffer, fileName?: string): Promise<void> {
+  async playMidi(data: ArrayBuffer, fileName?: string, startSeconds = 0): Promise<void> {
     await this.ensureReady()
     const seq = this.sequencer!
     if (this.ctx.state === 'suspended') await this.ctx.resume()
     seq.loadNewSongList([{ binary: data, fileName: fileName ?? 'song.mid' }])
-    seq.play()
+    if (startSeconds > 0) seq.currentTime = startSeconds
+    this.playbackActive = true
     this.callbacks.onPlaybackState?.(true)
+    seq.play()
+  }
+
+  getPlaybackPosition(): { seconds: number; duration: number } {
+    const seq = this.sequencer
+    return { seconds: seq?.currentTime ?? 0, duration: seq?.midiData?.duration ?? 0 }
   }
 
   pause(): void {
+    this.playbackActive = false
     this.sequencer?.pause()
     this.callbacks.onPlaybackState?.(false)
   }
 
   stop(): void {
+    this.playbackActive = false
     const seq = this.sequencer
     if (seq) {
       seq.pause()
@@ -206,6 +275,7 @@ export class SpessaSynthEngine implements SynthEngine {
     this.disposed = true
     this.sequencer = null
     this.synth = null
+    this.playbackActive = false
     this.soundFont = null
     this.pendingMessages = []
     this.resumePromise = null

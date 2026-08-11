@@ -51,16 +51,21 @@ export function importMidi(data: ArrayBuffer, fileName?: string): BasicMIDI {
   }
 }
 
+export function createMidiTempoMap(midi: BasicMIDI): TempoMap {
+  const ppq = midi.timeDivision || 480
+  return new TempoMap({
+    ppq,
+    tempos: midi.tempoChanges
+      .filter((tempo) => tempo.ticks > 0)
+      .map((tempo) => ({ beat: tempo.ticks / ppq, bpm: tempo.tempo })),
+    defaultTempo: midi.tempoChanges.length > 0 ? midi.tempoChanges[midi.tempoChanges.length - 1]!.tempo : 120,
+  })
+}
+
 export function inspectMidi(data: ArrayBuffer, fileName?: string): MidiInspection {
   const midi = importMidi(data, fileName)
   const ppq = midi.timeDivision || 480
-  const tempoMap = new TempoMap({
-    ppq,
-    tempos: midi.tempoChanges
-      .filter((t) => t.ticks > 0) // drop the parser's trailing default entry
-      .map((t) => ({ beat: t.ticks / ppq, bpm: t.tempo })),
-    defaultTempo: midi.tempoChanges.length > 0 ? midi.tempoChanges[midi.tempoChanges.length - 1]!.tempo : 120,
-  })
+  const tempoMap = createMidiTempoMap(midi)
 
   const tracks: TrackInspection[] = []
   let hangingNotes = 0

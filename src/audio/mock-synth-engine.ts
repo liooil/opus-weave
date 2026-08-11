@@ -28,8 +28,8 @@ export class MockSynthEngine implements SynthEngine {
     this.record('send', [[...message]])
   }
 
-  async playMidi(data: ArrayBuffer, fileName?: string): Promise<void> {
-    this.record('playMidi', [data.byteLength, fileName])
+  async playMidi(data: ArrayBuffer, fileName?: string, startSeconds = 0): Promise<void> {
+    this.record('playMidi', [data.byteLength, fileName, startSeconds])
   }
 
   pause(): void {

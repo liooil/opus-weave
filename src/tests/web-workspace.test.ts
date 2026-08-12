@@ -7,6 +7,7 @@ const modalEditor = await Bun.file('src/web/editor/modal-editor.ts').text()
 const aiClient = await Bun.file('src/domain/ai/owt-ai.ts').text()
 const owtReference = await Bun.file('src/domain/owt/reference.ts').text()
 const owtDocs = await Bun.file('docs/owt.md').text()
+const webBuild = await Bun.file('src/build-web.ts').text()
 
 describe('web workspace structure', () => {
   test('integrates score controls into the top bar without a local-session badge', () => {
@@ -154,6 +155,28 @@ describe('web workspace structure', () => {
     expect(html).not.toContain('data-page-target="tools"')
   })
 
+  test('fetches FluidR3Mono as a non-blocking, separately cached built-in bank', () => {
+    expect(app).toContain("import builtInGmSoundFontUrl from './assets/soundfonts/FluidR3Mono_GM.sf3' with { type: 'file' }")
+    expect(app).toContain('const gmResponsePromise = fetch(builtInGmSoundFontUrl)')
+    expect(app).toContain("setBuiltInSoundFontState('unavailable')")
+    expect(app).not.toContain('await builtInSoundFontPromise')
+    expect(html).toContain('id="built-in-soundfont" data-state="loading"')
+    expect(html).toContain('id="btn-retry-built-in-soundfont"')
+    expect(webBuild).toContain("!entry.name.toLowerCase().endsWith('.sf3')")
+    expect(app).not.toContain('opusweave-micro-gm.sf2')
+  })
+
+  test('offers official optional SoundFont downloads in settings', () => {
+    for (const id of ['btn-download-musescore-general', 'btn-download-generaluser', 'btn-download-timgm']) {
+      expect(html).toContain(`id="${id}"`)
+    }
+    expect(html).toContain('data-shortcut="Space k 4"')
+    expect(html).toContain('data-shortcut="Space k 5"')
+    expect(html).toContain('data-shortcut="Space k 6"')
+    expect(app).toContain("case 'soundfont-musescore':")
+    expect(modalEditor).toContain("'4': 'soundfont-musescore'")
+  })
+
   test('opens AI composition through one button and a modal prompt dialog', () => {
     expect(html.match(/id="btn-ai-compose"/g)).toHaveLength(1)
     expect(html).toContain('<dialog id="ai-compose-dialog"')
@@ -163,6 +186,10 @@ describe('web workspace structure', () => {
     expect(app).toContain("setAiComposeState('working')")
     expect(app).toContain("setAiComposeState('success')")
     expect(app).toContain("setAiComposeState('error')")
+    expect(app).toContain("const unavailable = !active && !configured")
+    expect(app).toContain("button.disabled = unavailable || (aiBusy && !active)")
+    expect(css).toContain(".ai-improv-button:disabled")
+    expect(css).toContain(":root[data-effective-theme='light'] .ai-compose-button")
   })
 
   test('submits composition on Enter and exposes persistent per-feature prompt templates', () => {
@@ -335,6 +362,9 @@ describe('web workspace structure', () => {
     expect(app).toContain("['numlock', 'num/', 'num*', 'num-']")
     expect(app).toContain("NumpadEnter: 'numenter'")
     expect(app).toContain("root.dataset.layout = layout")
+    expect(app).toContain('minNote: 0')
+    expect(app).toContain('maxNote: 127')
+    expect(app).not.toContain('keyboard.setRange(')
     expect(app).not.toContain('traceActiveOnly')
     expect(css).toContain('.keyboard-map-section + .keyboard-map-section')
   })

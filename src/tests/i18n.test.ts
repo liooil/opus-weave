@@ -15,6 +15,8 @@ describe('web interface localization', () => {
     setLocale('zh-CN')
     expect(t('playback.loading', { file: 'demo.mid' })).toBe('正在加载 demo.mid…')
     expect(t('ai.testing', { model: 'demo-model' })).toBe('正在测试 demo-model……')
+    expect(t('ai.compose')).toBe('AI 创作')
+    expect(t('ai.improviseNeedsModel')).toContain('配置 AI 服务地址和模型')
 
     setLocale('en')
     expect(t('playback.loading', { file: 'demo.mid' })).toBe('Loading demo.mid…')

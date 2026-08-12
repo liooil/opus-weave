@@ -318,8 +318,12 @@ export class SpessaSynthEngine implements SynthEngine {
   listPresets(): Array<{ program: number; name: string }> {
     const synth = this.synth
     if (!synth) return []
+    const programs = new Set<number>()
     return synth.presetList
-      .filter((preset) => !preset.isDrum)
+      // The UI sends GM Program Change only; GS variation banks with the same
+      // program number would be indistinguishable there. Keep the first
+      // priority GM-bank preset, which also preserves the FreePiano override.
+      .filter((preset) => !preset.isDrum && preset.bankMSB === 0 && !programs.has(preset.program) && programs.add(preset.program))
       .map((preset) => ({ program: preset.program, name: preset.name }))
   }
 

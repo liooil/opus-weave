@@ -203,7 +203,13 @@
           </section>
           <section class="panel module-panel" id="soundfont-panel">
             <div class="section-heading"><div><span class="eyebrow" data-i18n="section.tone">Tone</span><h2 data-i18n="section.soundLibrary">Sound library</h2></div></div>
-            <label class="drop-zone"><input id="sf-file" type="file" accept=".sf2,.sf3,.sfogg" /><span class="drop-icon">SF</span><span class="built-in-badge" data-i18n="sound.builtInIncluded">FreePiano-style mda Piano + Micro GM</span><strong data-i18n="sound.load">Load another SoundFont</strong><small data-i18n="sound.formats">Optional: SF2, SF3 or SFOGG</small></label>
+            <div class="built-in-soundfont" id="built-in-soundfont" data-state="loading">
+              <span class="soundfont-state-marker" aria-hidden="true"></span>
+              <div class="built-in-soundfont-copy"><strong data-i18n="sound.builtInName">FluidR3Mono GM + FreePiano piano</strong><small data-i18n="sound.builtInSeparate">The GM bank is fetched separately and never blocks the application.</small></div>
+              <span id="built-in-soundfont-state" class="soundfont-state-label" data-i18n="sound.stateLoading">Loading</span>
+              <button id="btn-retry-built-in-soundfont" class="quiet" data-shortcut="Space k f" data-i18n="sound.retry" hidden>Retry</button>
+            </div>
+            <label class="drop-zone"><input id="sf-file" type="file" accept=".sf2,.sf3,.sfogg" /><span class="drop-icon">SF</span><span class="built-in-badge" data-i18n="sound.customBadge">Custom</span><strong data-i18n="sound.load">Load another SoundFont</strong><small data-i18n="sound.formats">Optional: SF2, SF3 or SFOGG</small></label>
             <div class="field-stack compact-fields">
               <label><span data-i18n="sound.preset">Preset</span><select id="preset-select" disabled><option value="" data-i18n="sound.loadFirst">Load a SoundFont first</option></select></label>
               <label><span data-i18n="sound.masterVolume">Master volume</span><input id="master-volume" type="range" min="0" max="100" value="80" /></label>
@@ -214,6 +220,13 @@
             </div>
             <div id="sf-status" class="status"></div>
             <div id="audio-output-status" class="status"></div>
+            <div class="soundfont-downloads">
+              <div class="soundfont-downloads-heading"><strong data-i18n="sound.downloads">Optional sound banks</strong><small data-i18n="sound.downloadsHint">Download from the official source, then load the saved file above.</small></div>
+              <div class="soundfont-download-option"><div><strong>MuseScore General</strong><small data-i18n="sound.museScoreGeneralMeta">about 38 MB · SF3 · MIT · richer standard bank</small></div><button id="btn-download-musescore-general" class="quiet" data-shortcut="Space k 4" data-soundfont-download="https://ftp.osuosl.org/pub/musescore/soundfont/MuseScore_General/MuseScore_General.sf3" data-i18n="sound.download">Download</button></div>
+              <div class="soundfont-download-option"><div><strong>GeneralUser GS</strong><small data-i18n="sound.generalUserMeta">about 31 MB · SF2 · custom license · opens the official download page</small></div><button id="btn-download-generaluser" class="quiet" data-shortcut="Space k 5" data-soundfont-download="https://www.schristiancollins.com/generaluser.php" data-i18n="sound.download">Download</button></div>
+              <div class="soundfont-download-option"><div><strong>TimGM6mb</strong><small data-i18n="sound.timGmMeta">about 5.7 MB · SF2 · GPL-2.0 · smallest option</small></div><button id="btn-download-timgm" class="quiet" data-shortcut="Space k 6" data-soundfont-download="https://sourceforge.net/p/mscore/code/HEAD/tree/trunk/mscore/share/sound/TimGM6mb.sf2?format=raw" data-i18n="sound.download">Download</button></div>
+              <a id="fluidr3mono-license" class="soundfont-license-link" target="_blank" rel="noopener" data-i18n="sound.builtInLicense">FluidR3Mono license and acknowledgements</a>
+            </div>
           </section>
           <section class="panel module-panel" id="ai-settings-panel">
             <div class="section-heading"><div><span class="eyebrow" data-i18n="section.ai">AI</span><h2 data-i18n="ai.settings">Model settings</h2></div></div>

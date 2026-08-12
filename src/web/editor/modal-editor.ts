@@ -494,7 +494,7 @@ export class ModalOwtEditor {
       this.clearPending(); return true
     }
     if (prefix === 'space-control') {
-      const map: Record<string, string> = { e: 'midi-enable', r: 'midi-refresh', o: 'audio-output', '1': 'learn-volume', '2': 'learn-octave-up', '3': 'learn-octave-down' }
+      const map: Record<string, string> = { e: 'midi-enable', r: 'midi-refresh', o: 'audio-output', f: 'soundfont-retry', '1': 'learn-volume', '2': 'learn-octave-up', '3': 'learn-octave-down', '4': 'soundfont-musescore', '5': 'soundfont-generaluser', '6': 'soundfont-timgm' }
       if (map[key]) void this.callbacks.onCommand(map[key]!)
       this.clearPending(); return true
     }

@@ -34,7 +34,7 @@ MIDI playback/export  →  SoundFont synthesis
 | 1 | Navigate and edit `.owt` with Helix modal score units—CHAR is an event, WORD a measure and LINE a track—or use raw text and live performance replacement |
 | 2 | Import MIDI through intentional lossy melody extraction with track selection, voice reduction and rhythm quantization |
 | 3 | Export OWT to Standard MIDI for playback and interchange |
-| 4 | Play immediately with the FreePiano-style mda Piano default and lightweight Micro GM fallback, or load a custom `.sf2` / `.sf3` / `.sfogg` bank |
+| 4 | Play with the FreePiano-style mda Piano default and the full FluidR3Mono GM bank, or load a custom `.sf2` / `.sf3` / `.sfogg` bank |
 | 5 | Connect a physical MIDI keyboard via WebMIDI for live performance, guided practice and AI improvisation |
 | 6 | Inspect and edit imported MIDI on a multi-track beat timeline before extracting or exporting |
 | 7 | Monitor Note On/Off, CC and Pitch Bend in real time |
@@ -93,12 +93,14 @@ available. See [docs/mcp.md](docs/mcp.md) and [docs/owt.md](docs/owt.md).
 
 OpusWeave starts with **mda Piano**, the same default sampled piano instrument
 used by FreePiano 1.8. The original MIT-licensed PCM samples and key groups are
-packaged as a browser-compatible SoundFont; **OpusWeave Micro GM** remains as a
-fallback for the other 127 melodic programs and drums. The timbre closely
-matches FreePiano's default, though rendering is not bit-identical because
-OpusWeave uses the SoundFont synthesis model rather than the original VST DSP.
-You can replace the default at any time with your own `.sf2`, `.sf3`, or
-`.sfogg` bank; only use files you are legally allowed to use.
+packaged as a browser-compatible SoundFont. The other melodic programs and
+drums come from the complete **FluidR3Mono GM** SF3 bank. That 13.9 MB bank is
+emitted as a separate build file, fetched independently, and omitted from the
+PWA startup precache: a failed fetch leaves the editor and piano available and
+is reported as a non-blocking sound-library status. Settings also links to
+optional banks from their official sources. You can replace the default at any
+time with your own `.sf2`, `.sf3`, or `.sfogg` bank; only use files you are
+legally allowed to use.
 
 The Sound Library panel can explicitly route Web Audio to an operating-system
 output such as a USB-C monitor, HDMI display, speakers, or headset. Use

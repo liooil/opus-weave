@@ -24,3 +24,13 @@ declare module '*.sf2' {
   const fileUrl: string
   export default fileUrl
 }
+
+declare module '*.sf3' {
+  const fileUrl: string
+  export default fileUrl
+}
+
+declare module '*.md' {
+  const fileUrl: string
+  export default fileUrl
+}

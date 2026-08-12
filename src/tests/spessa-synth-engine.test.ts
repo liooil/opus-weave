@@ -9,6 +9,23 @@ interface SynthCall {
 }
 
 describe('SpessaSynthEngine live MIDI delivery', () => {
+  test('lists one selectable GM preset per program in sound-bank priority order', () => {
+    const engine = Object.create(SpessaSynthEngine.prototype) as SpessaSynthEngine
+    const seam = engine as unknown as { synth: { presetList: Array<{ bankMSB: number; program: number; name: string; isDrum: boolean }> } }
+    seam.synth = { presetList: [
+      { bankMSB: 0, program: 0, name: 'mda Piano FreePiano', isDrum: false },
+      { bankMSB: 0, program: 0, name: 'Fluid Grand', isDrum: false },
+      { bankMSB: 1, program: 0, name: 'Mellow Grand', isDrum: false },
+      { bankMSB: 0, program: 1, name: 'Bright Grand', isDrum: false },
+      { bankMSB: 0, program: 0, name: 'Standard Kit', isDrum: true },
+    ] }
+
+    expect(engine.listPresets()).toEqual([
+      { program: 0, name: 'mda Piano FreePiano' },
+      { program: 1, name: 'Bright Grand' },
+    ])
+  })
+
   test('resumes suspended audio and preserves queued note order', async () => {
     let state: AudioContextState = 'suspended'
     const { promise: resumeGate, resolve: resolveResume } = Promise.withResolvers<void>()

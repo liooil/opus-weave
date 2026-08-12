@@ -63,7 +63,14 @@ if (!result.success) {
   writeFileSync(htmlPath, html.replace('</head>', `${pwaHead}</head>`))
 
   const precacheFiles = readdirSync(outdir, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && entry.name !== '.nojekyll' && entry.name !== 'service-worker.js')
+    .filter((entry) =>
+      entry.isFile()
+      && entry.name !== '.nojekyll'
+      && entry.name !== 'service-worker.js'
+      // Large SF3 banks are fetched and cached independently. A missing bank
+      // must never fail service-worker installation or block the application.
+      && !entry.name.toLowerCase().endsWith('.sf3')
+    )
     .map((entry) => entry.name)
     .sort()
   const cacheHash = createHash('sha256')

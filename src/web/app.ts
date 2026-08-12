@@ -38,7 +38,8 @@ import { mediaFileToAiAttachments } from './ai-media.ts'
 import { scoreFileKind } from './open-file.ts'
 import { nextThemePreference, normalizeThemePreference, resolveTheme, type ThemePreference } from './theme.ts'
 import { decodeOwtHash, encodeOwtHash } from './owt-url-state.ts'
-import builtInGmSoundFontUrl from './assets/opusweave-micro-gm.sf2' with { type: 'file' }
+import builtInGmSoundFontUrl from './assets/soundfonts/FluidR3Mono_GM.sf3' with { type: 'file' }
+import builtInGmLicenseUrl from './assets/soundfonts/FluidR3Mono_License.md' with { type: 'file' }
 import freePianoSoundFontUrl from './assets/freepiano-mda-piano.sf2' with { type: 'file' }
 
 // ─── DOM helpers ─────────────────────────────────────────────────────────────
@@ -325,7 +326,10 @@ end
 let engine: SpessaSynthEngine | null = null
 let loopPlayback = false
 let builtInSoundFontPromise: Promise<void> | null = null
-const BUILT_IN_SOUND_FONT_NAME = 'FreePiano mda Piano + OpusWeave Micro GM'
+let bundledPianoReady = false
+let builtInGmReady = false
+let customSoundFontName: string | null = null
+const BUILT_IN_SOUND_FONT_NAME = 'FreePiano mda Piano + FluidR3Mono GM'
 let loadedMidi: BasicMIDI | null = null
 let loadedInspection: MidiInspection | null = null
 const mutedTracks = new Set<number>()
@@ -1508,41 +1512,93 @@ function detectProfile(state: MidiManagerState): void {
 
 // ─── SoundFont ───────────────────────────────────────────────────────────────
 
+type BuiltInSoundFontState = 'loading' | 'ready' | 'unavailable'
+
+function setBuiltInSoundFontState(state: BuiltInSoundFontState): void {
+  $('built-in-soundfont').dataset.state = state
+  setTranslatedText('built-in-soundfont-state', `sound.state${state[0]!.toUpperCase()}${state.slice(1)}`)
+  $<HTMLButtonElement>('btn-retry-built-in-soundfont').hidden = state !== 'unavailable'
+}
+
+async function loadBundledPiano(): Promise<void> {
+  if (bundledPianoReady) return
+  const response = await fetch(freePianoSoundFontUrl)
+  if (!response.ok) throw new Error(`mda Piano: HTTP ${response.status}`)
+  const e = await ensureEngine()
+  await e.loadSoundBank(await response.arrayBuffer(), 'FreePiano mda Piano')
+  bundledPianoReady = true
+  setTranslatedText('st-audio', 'status.readyAudio')
+  populatePresets()
+}
+
 async function loadBuiltInSoundFont(): Promise<void> {
+  if (builtInGmReady) return
+  setBuiltInSoundFontState('loading')
   setTranslatedStatus('sf-status', 'sound.builtInLoading', {}, 'warn')
+  // Start the large request immediately, but keep it independent from the
+  // small piano layer and from application startup.
+  const gmResponsePromise = fetch(builtInGmSoundFontUrl)
+
   try {
-    const [gmResponse, pianoResponse] = await Promise.all([
-      fetch(builtInGmSoundFontUrl),
-      fetch(freePianoSoundFontUrl),
-    ])
-    if (!gmResponse.ok) throw new Error(`Micro GM: HTTP ${gmResponse.status}`)
-    if (!pianoResponse.ok) throw new Error(`mda Piano: HTTP ${pianoResponse.status}`)
+    await loadBundledPiano()
+  } catch (err) {
+    console.warn('FreePiano piano layer unavailable', err)
+  }
+
+  try {
+    const gmResponse = await gmResponsePromise
+    if (!gmResponse.ok) throw new Error(`FluidR3Mono GM: HTTP ${gmResponse.status}`)
     const e = await ensureEngine()
-    await e.loadSoundBank(await pianoResponse.arrayBuffer(), 'FreePiano mda Piano')
-    const info = await e.addSoundBankLayer(
-      await gmResponse.arrayBuffer(),
-      'micro-gm-fallback',
-      BUILT_IN_SOUND_FONT_NAME,
-      false,
-    )
+    const data = await gmResponse.arrayBuffer()
+    const info = e.hasSoundFont()
+      ? await e.addSoundBankLayer(data, 'fluid-r3-mono-gm', BUILT_IN_SOUND_FONT_NAME, false)
+      : await e.loadSoundBank(data, 'FluidR3Mono GM')
+    builtInGmReady = true
+    setBuiltInSoundFontState('ready')
     setTranslatedText('st-audio', 'status.readyAudio')
     setTranslatedStatus('sf-status', 'sound.builtInReady', { count: info.presetCount }, 'ok')
+    if (customSoundFontName) {
+      setTranslatedText('st-soundfont', 'sound.summary', { name: customSoundFontName, count: info.presetCount })
+    }
     populatePresets()
   } catch (err) {
-    setTranslatedStatus('sf-status', 'sound.builtInError', {
+    setBuiltInSoundFontState('unavailable')
+    setTranslatedStatus('sf-status', bundledPianoReady ? 'sound.builtInUnavailable' : 'sound.builtInError', {
       error: err instanceof Error ? err.message : String(err),
-    }, 'err')
+    }, 'warn')
+    if (bundledPianoReady) setTranslatedText('st-soundfont', 'sound.pianoOnly')
   }
 }
+
+$<HTMLAnchorElement>('fluidr3mono-license').href = builtInGmLicenseUrl
+
+$<HTMLButtonElement>('btn-retry-built-in-soundfont').addEventListener('click', () => {
+  if (builtInSoundFontPromise && $('built-in-soundfont').dataset.state === 'loading') return
+  builtInSoundFontPromise = loadBuiltInSoundFont()
+})
+
+document.querySelectorAll<HTMLButtonElement>('[data-soundfont-download]').forEach((button) => {
+  button.addEventListener('click', () => {
+    const url = button.dataset.soundfontDownload
+    if (!url) return
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.target = '_blank'
+    anchor.rel = 'noopener noreferrer'
+    anchor.click()
+    const name = button.closest('.soundfont-download-option')?.querySelector('strong')?.textContent ?? 'SoundFont'
+    setTranslatedStatus('sf-status', 'sound.downloadOpened', { name }, 'warn')
+  })
+})
 
 $<HTMLInputElement>('sf-file').addEventListener('change', async (ev) => {
   const file = (ev.target as HTMLInputElement).files?.[0]
   if (!file) return
-  if (builtInSoundFontPromise) await builtInSoundFontPromise
   setTranslatedStatus('sf-status', 'sound.loading', { file: file.name }, 'warn')
   try {
     const e = await ensureEngine()
     const info = await e.loadSoundBank(await file.arrayBuffer(), file.name)
+    customSoundFontName = info.name
     setTranslatedStatus('sf-status', 'sound.loaded', { name: info.name, count: info.presetCount }, 'ok')
     populatePresets()
   } catch (err) {
@@ -1650,10 +1706,6 @@ async function loadMidiData(buffer: ArrayBuffer, fileName: string): Promise<void
   $<HTMLButtonElement>('btn-export-arrangement').disabled = false
   const tempo = loadedInspection.tempos[0]?.bpm ?? 120
   $<HTMLSpanElement>('playback-tempo').textContent = `♩ ${tempo} BPM`
-  const range = loadedInspection.tracks.flatMap((track) =>
-    track.minNote !== null && track.maxNote !== null ? [track.minNote, track.maxNote] : [],
-  )
-  if (range.length >= 2) keyboard.setRange(Math.min(...range), Math.max(...range))
   renderArrangement()
   setTranslatedStatus('midi-status', 'playback.loaded', {
     file: fileName,
@@ -2113,6 +2165,10 @@ function handleModalCommand(command: string, args = ''): void | Promise<void> {
     case 'midi-enable': showWorkspacePage('settings'); $('btn-request-midi').click(); return
     case 'midi-refresh': showWorkspacePage('settings'); $('btn-refresh-midi').click(); return
     case 'audio-output': showWorkspacePage('settings'); $('btn-choose-audio-output').click(); return
+    case 'soundfont-retry': showWorkspacePage('settings'); $('btn-retry-built-in-soundfont').click(); return
+    case 'soundfont-musescore': showWorkspacePage('settings'); $('btn-download-musescore-general').click(); return
+    case 'soundfont-generaluser': showWorkspacePage('settings'); $('btn-download-generaluser').click(); return
+    case 'soundfont-timgm': showWorkspacePage('settings'); $('btn-download-timgm').click(); return
     case 'learn-volume': case 'learn-octave-up': case 'learn-octave-down': {
       showWorkspacePage('settings')
       const target = command.replace('learn-', '')
@@ -2345,6 +2401,7 @@ async function refreshAiModels(): Promise<void> {
   } finally {
     refresh.disabled = false
     model.removeAttribute('aria-busy')
+    updateConversationalImprovUi()
   }
 }
 
@@ -2355,6 +2412,7 @@ function scheduleAiModelDiscovery(): void {
 
 type AiComposeState = 'idle' | 'working' | 'success' | 'error'
 let aiComposeState: AiComposeState = 'idle'
+let aiBusy = false
 
 function renderAiComposeButton(): void {
   const button = $<HTMLButtonElement>('btn-ai-compose')
@@ -2380,12 +2438,13 @@ function setAiComposeState(state: AiComposeState): void {
 }
 
 function setAiBusy(busy: boolean): void {
+  aiBusy = busy
   $<HTMLButtonElement>('btn-ai-test').disabled = busy
   $<HTMLButtonElement>('btn-ai-refresh-models').disabled = busy
   const composeButton = $<HTMLButtonElement>('btn-ai-compose')
   composeButton.disabled = busy
   composeButton.setAttribute('aria-busy', String(busy))
-  $<HTMLButtonElement>('btn-ai-improvise').disabled = busy && !improvSession.active
+  updateConversationalImprovUi()
 }
 
 async function applyAiRequest(request: OwtAiRequest, statusKey: string, statusValues: TranslationValues = {}): Promise<boolean> {
@@ -2423,14 +2482,19 @@ function updateConversationalImprovUi(): void {
     responding: 'ai.improvRespondingState',
   } as const
   const active = improvSession.active
+  const configured = hasConfiguredAiApi(currentAiConfig())
+  const unavailable = !active && !configured
   const actionKey = active ? 'ai.improviseStop' : 'ai.improviseStart'
+  const accessibleCopy = unavailable ? t('ai.improviseNeedsModel') : t(actionKey)
+  button.disabled = unavailable || (aiBusy && !active)
+  button.dataset.aiAvailable = String(configured)
   button.setAttribute('aria-pressed', String(active))
   button.classList.toggle('active', active)
   button.dataset.improvState = improvSession.state
   button.dataset.i18nAriaLabel = actionKey
   button.dataset.i18nTitle = actionKey
-  button.setAttribute('aria-label', t(actionKey))
-  button.title = `${t(actionKey)} · ${t(stateKeys[improvSession.state])}`
+  button.setAttribute('aria-label', accessibleCopy)
+  button.title = unavailable ? accessibleCopy : `${accessibleCopy} · ${t(stateKeys[improvSession.state])}`
   label.removeAttribute('data-i18n')
   label.textContent = active ? t(stateKeys[improvSession.state]) : t('simpleEdit.improvMode')
 }
@@ -2450,6 +2514,11 @@ function stopConversationalImprov(showStatus = true): void {
 }
 
 function startConversationalImprov(): void {
+  if (!hasConfiguredAiApi(currentAiConfig())) {
+    updateConversationalImprovUi()
+    setTranslatedStatus('ai-status', 'ai.improviseNeedsModel', {}, 'warn')
+    return
+  }
   persistAiConfig()
   cancelSemanticPerformanceReplacement()
   engine?.stop()
@@ -2536,9 +2605,12 @@ function handleConversationalImprovPlaybackEnded(): void {
 renderAiConfig(storedAiConfig())
 updateConversationalImprovUi()
 renderAiComposeButton()
-for (const id of ['ai-model', 'ai-protocol']) $(id).addEventListener('change', persistAiConfig)
+for (const id of ['ai-model', 'ai-protocol']) {
+  $(id).addEventListener('change', () => { persistAiConfig(); updateConversationalImprovUi() })
+}
+$('ai-model').addEventListener('input', () => { persistAiConfig(); updateConversationalImprovUi() })
 for (const id of ['ai-endpoint', 'ai-api-key']) {
-  $(id).addEventListener('input', () => { persistAiConfig(); scheduleAiModelDiscovery() })
+  $(id).addEventListener('input', () => { persistAiConfig(); updateConversationalImprovUi(); scheduleAiModelDiscovery() })
 }
 for (const id of ['ai-template-system', 'ai-template-prompt', 'ai-template-media', 'ai-template-improvise']) {
   $(id).addEventListener('input', persistAiConfig)

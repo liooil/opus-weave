@@ -33,7 +33,7 @@ MIDI 播放/导出  →  SoundFont 合成
 | 1 | 使用 Helix 模态快捷键按乐谱对象移动和编辑 `.owt`：CHAR 对应事件、WORD 对应小节、LINE 对应轨道；也可直接编辑原始文本或通过实时弹奏替换 |
 | 2 | 通过有意的有损转换从 MIDI 提取旋律，支持轨道选择、声部简化和节奏量化 |
 | 3 | 将 OWT 导出为 Standard MIDI，用于播放和交换 |
-| 4 | 默认使用 FreePiano 风格 mda Piano 与 Micro GM，也可加载自定义 SoundFont |
+| 4 | 默认使用 FreePiano 风格 mda Piano 与完整 FluidR3Mono GM，也可加载自定义 SoundFont |
 | 5 | 通过 WebMIDI 连接实体键盘，用于实时演奏、引导演奏和 AI 即兴接奏 |
 | 6 | 在多轨节拍时间轴查看和编辑 MIDI，然后提取旋律或导出 |
 | 7 | 实时监视 Note On/Off、CC 和 Pitch Bend |
@@ -90,11 +90,11 @@ OWT 主流程工具为 `validate_owt`、`play_owt`、`export_owt_to_midi` 和
 ## 音色库
 
 OpusWeave 默认加载 **mda Piano**，即 FreePiano 1.8 默认使用的采样钢琴音源。
-原版 MIT 许可的 PCM 采样与键区被封装为浏览器可用的 SoundFont；其他 127 个
-旋律音色和鼓组继续由 **OpusWeave Micro GM** 回退补全。由于 OpusWeave 使用
-SoundFont 合成模型而不是原 VST DSP，听感会贴近 FreePiano 默认音色，但不会逐采样
-完全一致。你仍可随时加载自己的 `.sf2`、`.sf3` 或 `.sfogg` 音色库；请确保拥有
-相应文件的合法使用权。
+原版 MIT 许可的 PCM 采样与键区被封装为浏览器可用的 SoundFont；其他旋律音色和
+鼓组由完整的 **FluidR3Mono GM** SF3 音源提供。这个约 13.9 MB 的音源会构建为
+独立文件、单独获取，并排除在 PWA 启动预缓存之外；获取失败时编辑器和钢琴仍可用，
+设置页只显示非阻塞状态。设置中还提供其他官方音源的下载入口。你仍可随时加载自己
+的 `.sf2`、`.sf3` 或 `.sfogg` 音色库；请确保拥有相应文件的合法使用权。
 
 “音色库”面板可以将 Web Audio 明确输出到 USB-C/HDMI 显示器、扬声器或耳机。
 如果设备名称不可见，请点击**显示设备**；Chromium 可能请求麦克风权限以获取设备

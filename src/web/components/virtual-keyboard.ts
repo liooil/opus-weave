@@ -106,10 +106,4 @@ export class VirtualKeyboard {
     this.root.scrollTo({ left, behavior })
   }
 
-  /** Re-render for a new range (e.g. after loading a MIDI with a wider range). */
-  setRange(minNote: number, maxNote: number): void {
-    this.opts.minNote = minNote
-    this.opts.maxNote = maxNote
-    this.render()
-  }
 }

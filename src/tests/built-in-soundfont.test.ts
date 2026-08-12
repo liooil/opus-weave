@@ -1,18 +1,22 @@
 import { describe, expect, test } from 'bun:test'
+import { createHash } from 'node:crypto'
 import { resolve } from 'node:path'
-import { GeneratorTypes, SoundBankLoader, SpessaSynthProcessor } from 'spessasynth_core'
+import { BasicSoundBank, SoundBankLoader, SpessaSynthProcessor } from 'spessasynth_core'
 
-const gmSoundFontPath = resolve(import.meta.dir, '../web/assets/opusweave-micro-gm.sf2')
+const gmSoundFontPath = resolve(import.meta.dir, '../web/assets/soundfonts/FluidR3Mono_GM.sf3')
 const pianoSoundFontPath = resolve(import.meta.dir, '../web/assets/freepiano-mda-piano.sf2')
 
-describe('built-in Micro GM SoundFont', () => {
-  test('is compact, parseable, and covers General MIDI programs and drums', async () => {
+describe('built-in FluidR3Mono GM SoundFont', () => {
+  test('is a separately packaged, parseable full General MIDI bank', async () => {
     const file = Bun.file(gmSoundFontPath)
     expect(await file.exists()).toBe(true)
-    expect(file.size).toBeLessThan(256 * 1024)
+    expect(file.size).toBeGreaterThan(10 * 1024 * 1024)
+    expect(file.size).toBeLessThan(16 * 1024 * 1024)
 
-    const bank = SoundBankLoader.fromArrayBuffer(await file.arrayBuffer())
-    expect(bank.soundBankInfo.name).toBe('OpusWeave Micro GM')
+    const buffer = await file.arrayBuffer()
+    expect(createHash('sha256').update(new Uint8Array(buffer)).digest('hex')).toBe('cfcd66d89e8386823400eca64934b14fbea7bf48ba1f00d21189af1262794ec2')
+    const bank = SoundBankLoader.fromArrayBuffer(buffer)
+    expect(bank.soundBankInfo.name).toContain('FluidR3Mono')
 
     const melodicPrograms = new Set(
       bank.presets
@@ -23,54 +27,17 @@ describe('built-in Micro GM SoundFont', () => {
     for (let program = 0; program < 128; program++) expect(melodicPrograms.has(program)).toBe(true)
 
     expect(bank.presets.some((preset) => preset.isDrum && preset.program === 0)).toBe(true)
-    expect(bank.samples.length).toBeGreaterThanOrEqual(8)
+    expect(bank.samples.length).toBeGreaterThan(1_000)
   })
 
-  test('loops every melodic family with explicit articulation envelopes', async () => {
+  test('provides genuinely distinct presets within piano and chromatic-percussion families', async () => {
     const bank = SoundBankLoader.fromArrayBuffer(await Bun.file(gmSoundFontPath).arrayBuffer())
-    const melodic = bank.instruments.filter((instrument) => !instrument.name.includes('Drum'))
-    expect(melodic).toHaveLength(16)
-    for (const instrument of melodic) {
-      const zone = instrument.zones[0]!
-      const generators = new Map([...zone.generators].map((generator) => [generator.type, generator.value]))
-      expect(generators.get(GeneratorTypes.sampleModes)).toBe(1)
-      expect(generators.has(GeneratorTypes.attackVolEnv)).toBe(true)
-      expect(generators.has(GeneratorTypes.decayVolEnv)).toBe(true)
-      expect(generators.has(GeneratorTypes.sustainVolEnv)).toBe(true)
-      expect(generators.has(GeneratorTypes.releaseVolEnv)).toBe(true)
-      expect(zone.sample!.loopEnd).toBeGreaterThan(zone.sample!.loopStart)
-    }
-    const drums = bank.instruments.find((instrument) => instrument.name.includes('Drum'))!
-    for (const zone of drums.zones) {
-      const generators = new Map([...zone.generators].map((generator) => [generator.type, generator.value]))
-      expect(generators.get(GeneratorTypes.sampleModes)).toBeUndefined()
-    }
-  })
-
-  test('sustains a melodic preset beyond its single-cycle sample and releases to silence', async () => {
-    const bank = SoundBankLoader.fromArrayBuffer(await Bun.file(gmSoundFontPath).arrayBuffer())
-    const synth = new SpessaSynthProcessor(44_100)
-    synth.soundBankManager.addSoundBank(bank, 'main')
-    synth.programChange(0, 40)
-    synth.noteOn(0, 60, 100)
-    let heldEnergy = 0
-    for (let block = 0; block < 220; block++) {
-      const left = new Float32Array(128)
-      const right = new Float32Array(128)
-      synth.process(left, right)
-      if (block >= 180) heldEnergy = Math.max(heldEnergy, ...left.map(Math.abs))
-    }
-    expect(heldEnergy).toBeGreaterThan(0.001)
-    synth.noteOff(0, 60)
-    let releaseEnergy = 0
-    for (let block = 0; block < 500; block++) {
-      const left = new Float32Array(128)
-      const right = new Float32Array(128)
-      synth.process(left, right)
-      if (block >= 470) releaseEnergy = Math.max(releaseEnergy, ...left.map(Math.abs))
-    }
-    expect(releaseEnergy).toBeLessThan(0.0001)
-    synth.destroySynthProcessor()
+    const names = (programs: number[]) => programs.map((program) => {
+      const preset = bank.presets.find((candidate) => candidate.bankMSB === 0 && !candidate.isDrum && candidate.program === program)
+      return `${preset?.name}:${preset?.zones[0]?.instrument?.name}`
+    })
+    expect(new Set(names([0, 1, 2, 3, 4, 5, 6, 7])).size).toBe(8)
+    expect(new Set(names([8, 9, 10, 11, 12, 13, 14, 15])).size).toBe(8)
   })
 })
 
@@ -89,14 +56,15 @@ describe('FreePiano-compatible default piano', () => {
     expect(bank.instruments[0]!.zones).toHaveLength(90)
   })
 
-  test('overrides program 0 while retaining Micro GM instruments', async () => {
+  test('overrides program 0 while retaining FluidR3Mono GM instruments', async () => {
     const [gmBuffer, pianoBuffer] = await Promise.all([
       Bun.file(gmSoundFontPath).arrayBuffer(),
       Bun.file(pianoSoundFontPath).arrayBuffer(),
     ])
+    await BasicSoundBank.isSF3DecoderReady
     const synth = new SpessaSynthProcessor(44_100)
     synth.soundBankManager.addSoundBank(SoundBankLoader.fromArrayBuffer(pianoBuffer), 'main')
-    synth.soundBankManager.addSoundBank(SoundBankLoader.fromArrayBuffer(gmBuffer), 'micro-gm-fallback')
+    synth.soundBankManager.addSoundBank(SoundBankLoader.fromArrayBuffer(gmBuffer), 'fluid-r3-mono-gm')
     const piano = synth.soundBankManager.presetList.find((preset) => preset.bankMSB === 0 && preset.program === 0 && !preset.isDrum)
     const violin = synth.soundBankManager.presetList.find((preset) => preset.bankMSB === 0 && preset.program === 40 && !preset.isDrum)
     expect(piano?.name).toStartWith('mda Piano')

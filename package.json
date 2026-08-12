@@ -6,7 +6,7 @@
   "private": true,
   "scripts": {
     "opusweave": "bun src/main.ts",
-    "dev": "bun src/main.ts",
+    "dev": "bun --watch src/main.ts",
     "dev:mcp": "bun src/main.ts mcp",
     "smoke": "bun src/main.ts --smoke",
     "build": "bun src/build.ts",
@@ -18,7 +18,7 @@
   "license": "Apache-2.0",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
-    "bundesk": "./vendor/bundesk",
+    "bundesk": "github:liooil/bundesk#main",
     "spessasynth_lib": "^4.3.12",
     "zod": "^4.4.3"
   },

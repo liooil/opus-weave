@@ -11,7 +11,7 @@ software it depends on and their licenses.
 | [spessasynth_core](https://github.com/spessasus/spessasynth_core) | Apache-2.0 | MIDI file I/O and builder — license file: `node_modules/spessasynth_core/LICENSE` |
 | [@modelcontextprotocol/sdk](https://github.com/modelcontextprotocol/typescript-sdk) | MIT | MCP server SDK — `node_modules/@modelcontextprotocol/sdk/package.json` |
 | [zod](https://github.com/colinhacks/zod) | MIT | Schema validation — `node_modules/zod/package.json` |
-| [bundesk](https://github.com/liooil/bundesk) | MIT | Desktop window/server framework, vendored at `vendor/bundesk` (not on npm; local path dependency) — `vendor/bundesk/LICENSE` |
+| [bundesk](https://github.com/liooil/bundesk) | MIT | Desktop window/server framework — `node_modules/bundesk/LICENSE` |
 | [@types/bun](https://github.com/oven-sh/bun) | MIT | TypeScript types (dev) |
 
 ## Optional external tools (not bundled, not distributed)

@@ -8,6 +8,11 @@ import, playback and export format rather than the source of truth.
 OWT has one document kind: Score. Every file starts with `owt 0.1 score` and
 ends with `end`.
 
+The application includes a complete bilingual OWT 0.1 reference under
+**File → OWT 0.1 reference** (`Space ?`). That built-in document is the shared
+source for human-readable format help and the format reference automatically
+included in AI requests. This page focuses on workflows around the format.
+
 ## Simple melody
 
 ```text
@@ -180,10 +185,12 @@ working, success or failure by its text and color.
 
 Service URL, optional API key, protocol, model and expandable prompt-template
 settings live on the **Settings** page and are stored locally in the browser.
-The shared system prompt and the composition, media-transcription and
+Shared behavior instructions and the composition, media-transcription and
 improvisation templates are independently editable. `{instruction}` marks where
-each feature's user-entered request is inserted; the current OWT is appended
-automatically. Defaults can be restored from the same panel.
+each feature's user-entered request is inserted. The current OWT and built-in
+OWT 0.1 reference are appended automatically, so customizing behavior cannot
+silently remove the format definition. Defaults can be restored from the same
+panel.
 
 Entering a service URL discovers selectable models when the provider exposes a
 model-list API. llama.cpp servers are recognized on LAN port 8080 and both

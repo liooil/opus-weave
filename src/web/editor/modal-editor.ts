@@ -465,7 +465,7 @@ export class ModalOwtEditor {
       this.clearPending(); return true
     }
     if (prefix === 'space-view') {
-      const map: Record<string, string> = { o: 'view-owt', t: 'view-timeline', s: 'view-staff', j: 'view-jianpu' }
+      const map: Record<string, string> = { o: 'view-owt', t: 'view-timeline', s: 'view-staff', j: 'view-jianpu', n: 'view-next' }
       if (map[key]) void this.callbacks.onCommand(map[key]!)
       this.clearPending(); return true
     }

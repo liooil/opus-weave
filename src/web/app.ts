@@ -21,6 +21,7 @@ import { compileScoreText, extractMelodyFromMidi, extractMelodyFromRecording, ty
 import { parseOwt } from '../domain/owt/parser.ts'
 import { parseRational, rational } from '../domain/owt/rational.ts'
 import { serializeOwt } from '../domain/owt/serializer.ts'
+import { buildOwt01Reference } from '../domain/owt/reference.ts'
 import type { OwtDocument } from '../domain/owt/ast.ts'
 import { activeOwtPlaybackIds, activeOwtSourceRanges, buildOwtPlaybackMap, cursorOwtPlaybackTokens, playbackStartForSourceRanges, type OwtPlaybackToken, type OwtSourceRange } from '../domain/owt/playback-map.ts'
 import { owtLexicalRanges, renderOwtHighlight, type OwtDecoration, type OwtLexicalRange } from './components/owt-highlighter.ts'
@@ -245,6 +246,8 @@ localeButton.addEventListener('click', () => {
   if (practiceSession) renderPracticeGuide()
   updateConversationalImprovUi()
   renderAiComposeButton()
+  renderScoreViewCycleButton()
+  renderOwtReference()
   if (activeScoreView === 'staff' || activeScoreView === 'jianpu') renderNotationViews()
   updateLanguageToggleCopy()
   renderThemePreference()
@@ -368,9 +371,12 @@ function scheduleOwtValidation(): void {
 let owtDiagnostics: Array<{ line: number; column: number }> = []
 let selectionPlaybackTimer: number | undefined
 type ScoreViewId = 'owt' | 'timeline' | 'staff' | 'jianpu'
+const SCORE_VIEW_ORDER: readonly ScoreViewId[] = ['owt', 'timeline', 'staff', 'jianpu']
+const SCORE_VIEW_ICONS: Record<ScoreViewId, string> = { owt: '<>', timeline: '▥', staff: '𝄞', jianpu: '1' }
 const SCORE_VIEW_PREFERENCE_KEY = 'opusweave.score-view'
 const scoreViewTabs = [...document.querySelectorAll<HTMLButtonElement>('[data-score-view-target]')]
 const scoreViewPanels = [...document.querySelectorAll<HTMLElement>('[data-score-view]')]
+const scoreViewCycleButton = $<HTMLButtonElement>('btn-score-view-cycle')
 let activeScoreView: ScoreViewId = 'owt'
 let owtRevision = 0
 let timelineOwtRevision = -1
@@ -515,10 +521,33 @@ function showScoreView(view: ScoreViewId, persist = true): void {
   }
   if (view === 'timeline' && timelineOwtRevision !== owtRevision) syncTimelineFromCurrentOwt()
   if (view === 'staff' || view === 'jianpu') renderNotationViews()
+  renderScoreViewCycleButton()
   if (persist) window.localStorage.setItem(SCORE_VIEW_PREFERENCE_KEY, view)
 }
 
+function nextScoreView(view: ScoreViewId = activeScoreView): ScoreViewId {
+  return SCORE_VIEW_ORDER[(SCORE_VIEW_ORDER.indexOf(view) + 1) % SCORE_VIEW_ORDER.length]!
+}
+
+function renderScoreViewCycleButton(): void {
+  const next = nextScoreView()
+  const currentLabel = t(`scoreViews.${activeScoreView}`)
+  const nextLabel = t(`scoreViews.${next}`)
+  const action = t('scoreViews.cycle', { current: currentLabel, next: nextLabel })
+  const icon = $<HTMLElement>('score-view-cycle-icon')
+  icon.textContent = SCORE_VIEW_ICONS[activeScoreView]
+  icon.classList.toggle('text-icon', activeScoreView === 'owt' || activeScoreView === 'jianpu')
+  $('score-view-cycle-label').textContent = currentLabel
+  scoreViewCycleButton.title = action
+  scoreViewCycleButton.setAttribute('aria-label', action)
+}
+
+function cycleScoreView(): void {
+  showScoreView(nextScoreView())
+}
+
 for (const tab of scoreViewTabs) tab.addEventListener('click', () => showScoreView(tab.dataset.scoreViewTarget as ScoreViewId))
+scoreViewCycleButton.addEventListener('click', cycleScoreView)
 $('btn-score-view-play').addEventListener('click', () => void Promise.resolve(handleModalCommand('play-pause')).catch((error) => {
   setTranslatedStatus('owt-status', 'owt.error', { error: error instanceof Error ? error.message : String(error) }, 'err')
 }))
@@ -2064,6 +2093,7 @@ function handleModalCommand(command: string, args = ''): void | Promise<void> {
     case 'improv': $('btn-ai-improvise').click(); return
     case 'view-owt': case 'view-timeline': case 'view-staff': case 'view-jianpu':
       document.querySelector<HTMLButtonElement>(`[data-score-view-target="${normalized.slice(5)}"]`)?.click(); return
+    case 'view-next': cycleScoreView(); return
     case 'delete-object': $('btn-owt-delete-object').click(); return
     case 'replace-by-playing': $('btn-owt-replace-play').click(); return
     case 'play-example': void loadBuiltinExample(BUILTIN_OWT_EXAMPLES[0]?.id, true); return
@@ -2102,12 +2132,7 @@ function handleModalCommand(command: string, args = ''): void | Promise<void> {
       else setTranslatedStatus('owt-status', 'modal.unknownCommand', { command: `${command} ${args}` }, 'warn')
       return
     }
-    case 'help': {
-      const hints = $('owt-key-hints')
-      hints.textContent = t('modal.help')
-      hints.hidden = false
-      return
-    }
+    case 'help': showOwtReferenceDialog(); return
     default:
       setTranslatedStatus('owt-status', 'modal.unknownCommand', { command: `${command}${args ? ` ${args}` : ''}` }, 'warn')
   }
@@ -2560,6 +2585,49 @@ const aiManualDialog = $<HTMLDialogElement>('ai-manual-dialog')
 const aiManualForm = $<HTMLFormElement>('ai-manual-form')
 const aiManualPrompt = $<HTMLTextAreaElement>('ai-manual-prompt')
 const aiManualStatus = $<HTMLElement>('ai-manual-status')
+const owtReferenceDialog = $<HTMLDialogElement>('owt-reference-dialog')
+
+function renderOwtReference(): void {
+  $('owt-reference-content').textContent = buildOwt01Reference(getLocale())
+  const status = $('owt-reference-status')
+  status.className = 'manual-ai-status'
+  status.textContent = t('owt.referenceReady')
+}
+
+function showOwtReferenceDialog(): void {
+  renderOwtReference()
+  document.querySelector<HTMLDetailsElement>('.file-menu')?.removeAttribute('open')
+  owtReferenceDialog.showModal()
+  requestAnimationFrame(() => $('owt-reference-content').focus())
+}
+
+async function copyOwtReference(): Promise<void> {
+  const status = $('owt-reference-status')
+  try {
+    if (!navigator.clipboard?.writeText) throw new Error('Clipboard API unavailable')
+    await navigator.clipboard.writeText(buildOwt01Reference(getLocale()))
+    status.className = 'manual-ai-status ok'
+    status.textContent = t('owt.referenceCopied')
+  } catch {
+    const selection = window.getSelection()
+    const range = document.createRange()
+    range.selectNodeContents($('owt-reference-content'))
+    selection?.removeAllRanges()
+    selection?.addRange(range)
+    status.className = 'manual-ai-status err'
+    status.textContent = t('owt.referenceCopyFailed')
+  }
+}
+
+renderOwtReference()
+$('btn-owt-reference').addEventListener('click', showOwtReferenceDialog)
+$('btn-owt-reference-close').addEventListener('click', () => owtReferenceDialog.close())
+$('btn-owt-reference-copy').addEventListener('click', () => void copyOwtReference())
+owtReferenceDialog.addEventListener('keydown', (event) => {
+  if (event.key !== 'Enter' || (!event.ctrlKey && !event.metaKey)) return
+  event.preventDefault()
+  void copyOwtReference()
+})
 
 function showManualAiDialog(): void {
   aiManualPrompt.value = buildManualOwtPrompt(owtEditor.value, getLocale())

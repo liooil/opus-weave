@@ -192,10 +192,19 @@ export class SpessaSynthEngine implements SynthEngine {
       case 0xe0:
         synth.pitchWheel(channel, ((message[2]! << 7) | message[1]!) - 8192)
         break
-      case 0xc0:
-        this.programOverrides.set(channel, message[1]!)
-        synth.programChange(channel, message[1]!)
+      case 0xc0: {
+        const program = message[1]!
+        this.programOverrides.set(channel, program)
+
+        // Sequencer loops reset every MIDI channel before replaying tick zero.
+        // Keep an explicitly selected preset through that reset so the first
+        // Note On cannot race ahead of the main-thread programChange callback.
+        const midiChannel = synth.midiChannels[channel]
+        midiChannel?.setSystemParameter('presetLock', false)
+        synth.programChange(channel, program)
+        midiChannel?.setSystemParameter('presetLock', true)
         break
+      }
     }
   }
 

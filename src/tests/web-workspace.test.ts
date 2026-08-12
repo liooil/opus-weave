@@ -5,6 +5,7 @@ const app = await Bun.file('src/web/app.ts').text()
 const css = await Bun.file('src/web/app.css').text()
 const modalEditor = await Bun.file('src/web/editor/modal-editor.ts').text()
 const aiClient = await Bun.file('src/domain/ai/owt-ai.ts').text()
+const owtReference = await Bun.file('src/domain/owt/reference.ts').text()
 const owtDocs = await Bun.file('docs/owt.md').text()
 
 describe('web workspace structure', () => {
@@ -18,8 +19,19 @@ describe('web workspace structure', () => {
     expect(html).not.toContain('data-i18n="session.local"')
     expect(app).toContain("control.hidden = pageId !== 'studio'")
     expect(css).toContain('.topbar .control-label { display: none; }')
-    expect(css).toContain('overflow-x: auto;')
+    expect(html).toContain('<div class="topbar-scroll">')
+    expect(css).toContain('.topbar-scroll { gap: 5px; overflow-x: auto; overflow-y: hidden;')
+    expect(css).not.toContain('.topbar::-webkit-scrollbar')
     expect(css).not.toContain('grid-template-rows: auto auto auto')
+  })
+
+  test('keeps the file menu outside the narrow topbar scroll clip', () => {
+    const header = html.slice(html.indexOf('<header'), html.indexOf('</header>'))
+    const scrollStart = header.indexOf('<div class="topbar-scroll">')
+    expect(header.indexOf('class="file-menu topbar-file-menu"')).toBeLessThan(scrollStart)
+    expect(header.indexOf('id="score-view-toolbar"')).toBeGreaterThan(scrollStart)
+    expect(header.indexOf('class="topbar-actions"')).toBeGreaterThan(scrollStart)
+    expect(css).toContain('.topbar-scroll::-webkit-scrollbar { display: none; }')
   })
 
   test('orders perform before AI controls and keeps settings after them', () => {
@@ -161,6 +173,34 @@ describe('web workspace structure', () => {
     }
     expect(html).toContain('id="btn-ai-reset-templates"')
     expect(app).toContain('promptTemplates: currentAiPromptTemplates()')
+    expect(aiClient).toContain("buildOwt01Reference('en')")
+  })
+
+  test('collapses four score views into one cycling button on narrow screens', () => {
+    expect(html.match(/<button class="score-view-tab/g)).toHaveLength(4)
+    expect(html).toContain('id="btn-score-view-cycle"')
+    expect(html).toContain('data-shortcut="Space g n"')
+    expect(css).toContain('.topbar .score-view-cycle { display: none;')
+    expect(css).toContain('.score-view-tabs { display: none; }')
+    expect(css).toContain('.topbar .score-view-cycle { display: inline-flex; }')
+    expect(app).toContain("const SCORE_VIEW_ORDER: readonly ScoreViewId[] = ['owt', 'timeline', 'staff', 'jianpu']")
+    expect(app).toContain('scoreViewCycleButton.addEventListener(\'click\', cycleScoreView)')
+    expect(app).toContain("case 'view-next': cycleScoreView(); return")
+    expect(modalEditor).toContain("n: 'view-next'")
+  })
+
+  test('opens the same built-in OWT reference for people and AI', () => {
+    expect(owtReference).toContain('OWT 0.1 — COMPLETE FORMAT REFERENCE')
+    expect(owtReference).toContain('OWT 0.1——完整格式参考')
+    expect(html).toContain('id="btn-owt-reference"')
+    expect(html).toContain('data-shortcut="Space ?"')
+    expect(html).toContain('<dialog id="owt-reference-dialog"')
+    expect(html).toContain('id="owt-reference-content"')
+    expect(html).toContain('id="btn-owt-reference-copy"')
+    expect(app).toContain("$('owt-reference-content').textContent = buildOwt01Reference(getLocale())")
+    expect(app).toContain("case 'help': showOwtReferenceDialog(); return")
+    expect(aiClient).toContain("const system = `${templates.system.trim()}\\n\\n${buildOwt01Reference('en')}`.trim()")
+    expect(aiClient).toContain("${buildOwt01Reference('zh-CN')}")
   })
 
   test('randomizes composition suggestions and submits the visible suggestion when empty', () => {

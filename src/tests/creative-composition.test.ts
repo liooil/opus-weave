@@ -6,6 +6,7 @@ import { keyboardLayoutTextToOwt } from '../domain/composition/keyboard-layout-c
 import { musicalTypingPitches, musicalTypingStep, musicalTypingToOwt } from '../domain/composition/musical-typing.ts'
 import { BUILTIN_OWT_EXAMPLES } from '../domain/owt/builtin-examples.ts'
 import { parseOwtOrThrow } from '../domain/owt/parser.ts'
+import { buildOwt01Reference } from '../domain/owt/reference.ts'
 
 const validAiOwt = `owt 0.1 score
 
@@ -72,8 +73,9 @@ describe('OWT AI client', () => {
     expect(hasConfiguredAiApi({ baseUrl: 'http://model.test', model: '' })).toBe(false)
 
     const prompt = buildManualOwtPrompt(validAiOwt, 'zh-CN')
-    expect(prompt).toContain('OWT 0.1')
-    expect(prompt).toContain('每一小节时值总和必须恰好为 4')
+    expect(prompt).toContain(buildOwt01Reference('zh-CN'))
+    expect(prompt).toContain('OWT 0.1 的时值单位是四分音符')
+    expect(prompt).toContain('不要求小节线成对出现')
     expect(prompt).toContain(validAiOwt.trim())
     expect(prompt).toContain('请在这里写下希望创作或修改的内容')
   })
@@ -106,9 +108,20 @@ describe('OWT AI client', () => {
     }
     for (const [task, marker] of [['prompt', 'COMPOSE'], ['score-media', 'MEDIA'], ['improvise', 'IMPROV']] as const) {
       const messages = buildOwtAiMessages({ task, instruction: 'user request', currentOwt: validAiOwt }, config)
-      expect(messages[0]!.content).toBe('CUSTOM SYSTEM')
+      expect(messages[0]!.content).toBe(`CUSTOM SYSTEM\n\n${buildOwt01Reference('en')}`)
       expect(messages[1]!.content).toContain(`${marker}::user request`)
       expect(messages[1]!.content).toContain(`CURRENT OWT:\n${validAiOwt}`)
+    }
+  })
+
+  test('uses one complete built-in OWT reference for people and every AI task', () => {
+    const reference = buildOwt01Reference('en')
+    for (const field of ['title "Title"', 'ppq 480', 'meter 1:1 4/4', 'tempo 1:1 120', 'key 1:1 C major', 'channel=1', 'program=0', 'velocity=88', 'C4:1', 'R:1', '[C4 E4 G4]:2', '<cc64=127>', '<bend=8192>', '| does not create a measure object']) {
+      expect(reference).toContain(field)
+    }
+    for (const task of ['prompt', 'score-media', 'improvise'] as const) {
+      const messages = buildOwtAiMessages({ task, instruction: 'test', currentOwt: validAiOwt })
+      expect(messages[0]!.content).toContain(reference)
     }
   })
 

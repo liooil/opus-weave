@@ -132,12 +132,29 @@ describe('SpessaSynthEngine live MIDI delivery', () => {
       play: () => {},
     }
     const engine = new SpessaSynthEngine(context)
-    const synth: { programChange: (...args: number[]) => void } = { programChange: () => {} }
+    const programState = { current: 0, locked: false }
+    const synth = {
+      midiChannels: [{
+        setSystemParameter: (parameter: string, value: boolean) => {
+          if (parameter === 'presetLock') programState.locked = value
+        },
+      }],
+      programChange: (_channel: number, program: number) => {
+        if (!programState.locked) programState.current = program
+      },
+    }
     const seam = engine as unknown as { synth: typeof synth; sequencer: typeof sequencer }
     seam.synth = synth
     seam.sequencer = sequencer
     engine.setLooping(true)
     engine.send(new Uint8Array([0xc0, 73]))
+
+    expect(programState).toEqual({ current: 73, locked: true })
+    // SpessaSynth resets the channel, then replays the sequence's program
+    // changes at every hard loop. A user-selected preset must survive both.
+    synth.programChange(0, 0)
+    synth.programChange(0, 40)
+    expect(programState).toEqual({ current: 73, locked: true })
 
     await engine.playMidi(buildMidi({
       ppq: 480,
@@ -165,7 +182,10 @@ describe('SpessaSynthEngine live MIDI delivery', () => {
     expect(programs.filter((event) => event.channel === 1).map((event) => event.program)).toEqual([48])
 
     const programChanges: number[] = []
-    seam.synth = { programChange: (_channel: number, program: number) => programChanges.push(program) }
+    seam.synth = {
+      midiChannels: [],
+      programChange: (_channel: number, program: number) => programChanges.push(program),
+    }
     const preserveProgramOverride = engine as unknown as { preserveProgramOverride(channel: number, program: number): void }
     preserveProgramOverride.preserveProgramOverride(0, 0)
     expect(programChanges).toEqual([73])

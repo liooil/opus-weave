@@ -6,7 +6,7 @@
   "private": true,
   "scripts": {
     "opusweave": "bun src/main.ts",
-    "dev": "bun --watch src/main.ts",
+    "dev": "bun --hot src/main.ts",
     "dev:mcp": "bun src/main.ts mcp",
     "smoke": "bun src/main.ts --smoke",
     "build": "bun src/build.ts",

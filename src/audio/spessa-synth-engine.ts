@@ -36,6 +36,7 @@ export class SpessaSynthEngine implements SynthEngine {
   private resumePromise: Promise<void> | null = null
   private soundBankEventSequence = 0
   private playbackActive = false
+  private looping = false
 
   constructor(
     /** Inject a pre-created AudioContext (tests use a mock). */
@@ -193,11 +194,17 @@ export class SpessaSynthEngine implements SynthEngine {
     }
   }
 
+  setLooping(enabled: boolean): void {
+    this.looping = enabled
+    if (this.sequencer) this.sequencer.loopCount = enabled ? Infinity : 0
+  }
+
   async playMidi(data: ArrayBuffer, fileName?: string, startSeconds = 0): Promise<void> {
     await this.ensureReady()
     const seq = this.sequencer!
     if (this.ctx.state === 'suspended') await this.ctx.resume()
     seq.loadNewSongList([{ binary: data, fileName: fileName ?? 'song.mid' }])
+    seq.loopCount = this.looping ? Infinity : 0
     if (startSeconds > 0) seq.currentTime = startSeconds
     this.playbackActive = true
     this.callbacks.onPlaybackState?.(true)

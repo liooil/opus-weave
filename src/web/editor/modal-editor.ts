@@ -1,7 +1,6 @@
 import { buildOwtSyntaxIndex, nextObject, objectContaining, objectsOfKind, selectionLevelForClickCount, semanticRangeFromNativeSelection, syntaxChild, syntaxParent, type OwtObjectKind, type OwtSyntaxIndex } from './owt-objects.ts'
 
 export type EditorMode = 'normal' | 'insert' | 'select' | 'command' | 'raw'
-export type EditorInteractionMode = 'helix' | 'raw'
 
 export interface EditorSelection { anchor: number; head: number }
 export interface TextEdit { from: number; to: number; insert: string }
@@ -58,15 +57,40 @@ export interface OwtSemanticMotion {
   direction: 1 | -1
 }
 
-/** Map Helix motions onto OWT events and score rows (measures). */
+/** Map horizontal Helix motions onto neighboring OWT events. */
 export function owtSemanticMotion(key: string): OwtSemanticMotion | undefined {
   switch (key) {
     case 'h': case 'b': case 'ArrowLeft': return { kind: 'event', direction: -1 }
     case 'l': case 'w': case 'e': case 'ArrowRight': return { kind: 'event', direction: 1 }
-    case 'k': case 'ArrowUp': return { kind: 'measure', direction: -1 }
-    case 'j': case 'ArrowDown': return { kind: 'measure', direction: 1 }
     default: return undefined
   }
+}
+
+export interface OwtMotionDestination {
+  keys: string
+  kind: 'event' | 'measure'
+  direction: 1 | -1
+  start: number
+  end: number
+}
+
+/** Resolve the exact semantic objects selected by horizontal motion keys. */
+export function owtMotionDestinations(index: OwtSyntaxIndex, selection: EditorSelection): OwtMotionDestination[] {
+  const range = normalizedSelection(selection)
+  const destinations: OwtMotionDestination[] = []
+  const motions: Array<{ keys: string; kind: 'event'; direction: 1 | -1 }> = [
+    { keys: 'h/b', kind: 'event', direction: -1 },
+    { keys: 'l/w/e', kind: 'event', direction: 1 },
+  ]
+  for (const motion of motions) {
+    const objects = objectsOfKind(index, motion.kind).slice().sort((left, right) => left.start - right.start)
+    const currentIndex = objects.findIndex((object) => object.start <= range.start && object.end > range.start)
+    const object = currentIndex >= 0
+      ? objects[(currentIndex + motion.direction + objects.length) % objects.length]
+      : nextObject(index, motion.kind, range.start, motion.direction)
+    if (object) destinations.push({ ...motion, start: object.start, end: object.end })
+  }
+  return destinations
 }
 export function nextGrapheme(text: string, position: number): number {
   for (const boundary of boundaries(text)) if (boundary > position) return boundary
@@ -89,12 +113,23 @@ function vertical(text: string, position: number, direction: 1 | -1): number {
   if (direction < 0) {
     if (!start) return position
     const end = start - 1
-    return Math.min(lineStart(text, end) + column, end)
+    const previousStart = lineStart(text, end)
+    return previousStart === end ? previousStart : Math.min(previousStart + column, previousGrapheme(text, end))
   }
   const end = lineEnd(text, position)
   if (end === text.length) return position
   const next = end + 1
-  return Math.min(next + column, lineEnd(text, next))
+  const nextEnd = lineEnd(text, next)
+  return next === nextEnd ? next : Math.min(next + column, previousGrapheme(text, nextEnd))
+}
+
+/** Move the active selection vertically, preserving its text column like Helix j/k. */
+export function helixVerticalSelection(text: string, selection: EditorSelection, direction: 1 | -1, extend = false): EditorSelection {
+  const forward = selection.head >= selection.anchor
+  const active = forward && selection.head > selection.anchor ? previousGrapheme(text, selection.head) : selection.head
+  const target = cursor(text, vertical(text, active, direction))
+  if (!extend) return target
+  return { anchor: selection.anchor, head: direction > 0 ? target.head : target.anchor }
 }
 export class ModalOwtEditor {
   mode: EditorMode = 'normal'
@@ -108,7 +143,6 @@ export class ModalOwtEditor {
   private insertStart?: Snapshot
   private pendingTimer?: number
   private composing = false
-  private interactionMode: EditorInteractionMode = 'helix'
 
   constructor(readonly textarea: HTMLTextAreaElement, private readonly prompt: HTMLInputElement, private readonly hints: HTMLElement, private readonly callbacks: ModalEditorCallbacks) {
     textarea.addEventListener('keydown', (event) => this.keydown(event))
@@ -126,9 +160,8 @@ export class ModalOwtEditor {
   focus(): void { this.textarea.focus() }
   refresh(): void { this.render() }
   primaryRange(): { start: number; end: number } { return normalizedSelection(this.selections[this.primary] ?? { anchor: 0, head: 0 }) }
-  setInteractionMode(mode: EditorInteractionMode): void {
-    this.interactionMode = mode
-    this.mode = mode === 'raw' ? 'raw' : 'normal'
+  setEditingMode(mode: 'normal' | 'raw'): void {
+    this.mode = mode
     this.textarea.readOnly = mode !== 'raw'
     this.selections = [mode === 'raw'
       ? { anchor: this.textarea.selectionStart, head: this.textarea.selectionEnd }
@@ -139,8 +172,8 @@ export class ModalOwtEditor {
   selectRange(start: number, end: number, normal = false): void {
     this.selections = [{ anchor: Math.max(0, start), head: Math.min(this.text.length, Math.max(start, end)) }]
     this.primary = 0
-    this.mode = this.interactionMode === 'raw' ? 'raw' : normal ? 'normal' : 'select'
-    this.textarea.readOnly = this.interactionMode !== 'raw'
+    this.mode = this.mode === 'raw' ? 'raw' : normal ? 'normal' : 'select'
+    this.textarea.readOnly = this.mode !== 'raw'
     this.sync(); this.render()
   }
   replaceTextRange(start: number, end: number, insert: string): void {
@@ -152,7 +185,7 @@ export class ModalOwtEditor {
   insertText(at: number, insert: string): void { this.replaceTextRange(at, at, insert) }
   setText(text: string, record = false): void {
     if (record) this.pushUndo()
-    this.textarea.value = text; this.selections = [this.interactionMode === 'helix' ? this.eventSelectionAt(0) : cursor(text, 0)]; this.primary = 0
+    this.textarea.value = text; this.selections = [this.mode === 'raw' ? cursor(text, 0) : this.eventSelectionAt(0)]; this.primary = 0
     this.sync(); this.callbacks.onChange(text); this.render()
   }
 
@@ -200,7 +233,7 @@ export class ModalOwtEditor {
   }
 
   private eventSelectionAt(position: number): EditorSelection {
-    if (this.interactionMode !== 'helix') return cursor(this.text, position)
+    if (this.mode === 'raw') return cursor(this.text, position)
     const index = this.syntax()
     const event = index.events.find((item) => item.start <= position && item.end > position)
       ?? index.events.find((item) => item.start >= position)
@@ -224,6 +257,10 @@ export class ModalOwtEditor {
       return { anchor: Math.max(0, selection.anchor + delta), head: Math.max(0, selection.head + delta) }
     })
     this.selections.push(...additions); this.primary = this.selections.length - 1; this.sync(); this.render()
+  }
+  private moveVertical(direction: 1 | -1): void {
+    this.selections = this.selections.map((selection) => helixVerticalSelection(this.text, selection, direction, this.mode === 'select'))
+    this.sync(); this.render()
   }
 
   private deleteSelections(change = false): void {
@@ -359,17 +396,17 @@ export class ModalOwtEditor {
     void this.callbacks.onCommand(command, args.join(' '))
   }
   private copy(event: ClipboardEvent): void {
-    if (this.interactionMode === 'raw') return
+    if (this.mode === 'raw') return
     const value = this.selections.map((selection) => { const range = normalizedSelection(selection); return this.text.slice(range.start, range.end) }).join('\n')
     if (!value) return; event.preventDefault(); event.clipboardData?.setData('text/plain', value); this.register = value
   }
   private pasteEvent(event: ClipboardEvent): void {
-    if (this.interactionMode === 'raw') return
+    if (this.mode === 'raw') return
     if (this.mode !== 'insert' || this.selections.length === 1) return
     event.preventDefault(); const value = event.clipboardData?.getData('text/plain') ?? ''; if (value) this.insertAll(value)
   }
   private nativeInput(): void {
-    if (this.interactionMode === 'raw') {
+    if (this.mode === 'raw') {
       this.selections = [{ anchor: this.textarea.selectionStart, head: this.textarea.selectionEnd }]
       this.callbacks.onChange(this.text); this.render(); return
     }
@@ -378,7 +415,7 @@ export class ModalOwtEditor {
   }
   private mouseSelection(event: MouseEvent): void {
     const start = this.textarea.selectionStart, end = this.textarea.selectionEnd
-    if (this.interactionMode === 'raw') {
+    if (this.mode === 'raw') {
       this.selections = [{ anchor: start, head: end }]; this.primary = 0; this.render(); return
     }
     const clickCount = Math.max(1, Math.min(3, event.detail || 1))
@@ -423,7 +460,7 @@ export class ModalOwtEditor {
       this.clearPending(); return true
     }
     if (prefix === 'space-mode') {
-      const map: Record<string, string> = { s: 'mode-score', r: 'mode-raw', i: 'improv' }
+      const map: Record<string, string> = { s: 'mode-score', r: 'mode-raw' }
       if (map[key]) void this.callbacks.onCommand(map[key]!)
       this.clearPending(); return true
     }
@@ -438,17 +475,16 @@ export class ModalOwtEditor {
       this.clearPending(); return true
     }
     if (prefix === 'space-example') {
-      const map: Record<string, string> = { l: 'load-example', p: 'play-example' }
-      if (map[key]) void this.callbacks.onCommand(map[key]!)
+      if (key === 'p') void this.callbacks.onCommand('play-example')
       this.clearPending(); return true
     }
     if (prefix === 'space-timeline') {
-      const map: Record<string, string> = { r: 'timeline-restart', e: 'timeline-export', c: 'timeline-clear', p: 'timeline-replace', f: 'timeline-finish' }
+      const map: Record<string, string> = { r: 'timeline-restart', l: 'loop', e: 'timeline-export', c: 'timeline-clear', p: 'timeline-replace', f: 'timeline-finish' }
       if (map[key]) void this.callbacks.onCommand(map[key]!)
       this.clearPending(); return true
     }
     if (prefix === 'space-ai') {
-      const map: Record<string, string> = { s: 'ai-settings', t: 'ai-test', c: 'ai-compose', l: 'toggle-locale', h: 'toggle-theme' }
+      const map: Record<string, string> = { s: 'ai-settings', t: 'ai-test', c: 'ai-compose', i: 'improv', d: 'ai-reset-templates', l: 'toggle-locale', h: 'toggle-theme' }
       if (map[key]) void this.callbacks.onCommand(map[key]!)
       this.clearPending(); return true
     }
@@ -468,7 +504,7 @@ export class ModalOwtEditor {
   private keydown(event: KeyboardEvent): void {
     if (this.composing || event.isComposing) return
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') { event.preventDefault(); void this.callbacks.onCommand('save'); return }
-    if (this.interactionMode === 'raw') return
+    if (this.mode === 'raw') return
     if (this.mode === 'insert') {
       if (event.key === 'Escape') { event.preventDefault(); this.enterMode('normal') }
       else if (this.selections.length > 1 && !event.ctrlKey && !event.metaKey && !event.altKey && event.key.length === 1) { event.preventDefault(); this.insertAll(event.key) }
@@ -493,6 +529,11 @@ export class ModalOwtEditor {
     if (this.pending && this.pendingKey(event.key)) return
     if (/^[1-9]$/.test(event.key) || (this.count && event.key === '0')) { this.count += event.key; this.render(); return }
     const repeat = Math.max(1, Number(this.count) || 1); this.count = ''
+    if (event.key === 'j' || event.key === 'ArrowDown' || event.key === 'k' || event.key === 'ArrowUp') {
+      const direction = event.key === 'j' || event.key === 'ArrowDown' ? 1 : -1
+      for (let index = 0; index < repeat; index++) this.moveVertical(direction)
+      return
+    }
     const semanticMotion = owtSemanticMotion(event.key)
     if (semanticMotion) {
       for (let index = 0; index < repeat; index++) this.semanticMove(semanticMotion.kind, semanticMotion.direction)

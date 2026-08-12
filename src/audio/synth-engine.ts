@@ -18,6 +18,8 @@ export interface SynthEngine {
   send(message: Uint8Array, timestamp?: number): void
   /** Play a whole SMF through the internal sequencer, optionally from an offset. */
   playMidi(data: ArrayBuffer, fileName?: string, startSeconds?: number): Promise<void>
+  /** Enable or disable continuous sequencer looping. */
+  setLooping(enabled: boolean): void
   pause(): void
   stop(): void
   /** Kill all sounding notes immediately (Panic). */

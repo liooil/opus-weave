@@ -87,3 +87,24 @@ export function activeOwtPlaybackIds(tokens: readonly OwtPlaybackToken[], second
     .filter((token) => seconds >= token.startSeconds && seconds < token.endSeconds)
     .map((token) => token.playbackId)
 }
+
+/** One cursor event per track at a playback position; active event wins, then next, then last. */
+export function cursorOwtPlaybackTokens(tokens: readonly OwtPlaybackToken[], seconds: number): OwtPlaybackToken[] {
+  const tracks = new Map<string, OwtPlaybackToken[]>()
+  for (const token of tokens) {
+    const track = token.playbackId.split(':', 1)[0]!
+    tracks.set(track, [...(tracks.get(track) ?? []), token])
+  }
+  return [...tracks.values()].flatMap((trackTokens) => {
+    const ordered = trackTokens.slice().sort((left, right) => left.startSeconds - right.startSeconds)
+    const token = ordered.find((item) => seconds >= item.startSeconds && seconds < item.endSeconds)
+      ?? ordered.find((item) => item.startSeconds >= seconds)
+      ?? ordered.at(-1)
+    return token ? [token] : []
+  })
+}
+
+export function playbackStartForSourceRanges(tokens: readonly OwtPlaybackToken[], ranges: readonly OwtSourceRange[]): number {
+  const selected = tokens.filter((token) => ranges.some((range) => token.start < range.end && token.end > range.start))
+  return selected.length > 0 ? Math.min(...selected.map((token) => token.startSeconds)) : 0
+}

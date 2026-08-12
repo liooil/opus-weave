@@ -41,7 +41,7 @@ MIDI 播放/导出  →  SoundFont 合成
 | 9 | 通过 MCP 校验、播放、导入和导出 OWT |
 | 10 | 在 OpusWeave 半音阶、英文单词、拼音声调和 FreePiano 经典实时演奏布局间切换 |
 | 11 | 内置《欢乐颂》《致爱丽丝》《D 大调卡农》《G 大调小步舞曲》《月光奏鸣曲》等公版钢琴示例 |
-| 12 | 通过统一“打开 / 导入”入口或拖放载入 OWT、转换 MIDI，或把谱面图片/MP4 交给兼容 OpenAI API 的多模态模型 |
+| 12 | 通过统一“打开 / 导入”入口或拖放载入 OWT、转换 MIDI，或把谱面图片/MP4 交给 OpenAI、Anthropic、OpenRouter、Ollama、llama.cpp 或兼容接口的多模态模型 |
 
 ## 快速开始
 

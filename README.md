@@ -42,7 +42,7 @@ MIDI playback/export  →  SoundFont synthesis
 | 9 | Drive OWT validation, playback, import and export through MCP |
 | 10 | Switch the live computer keyboard between OpusWeave chromatic, English-word, Pinyin-tone and FreePiano classic performance layouts |
 | 11 | Load public-domain piano examples including Ode to Joy, Für Elise, Canon in D, Minuet in G and Moonlight Sonata |
-| 12 | Open or drop OWT directly, convert MIDI deterministically, or send score images/MP4 to an OpenAI-compatible multimodal model through one unified import path |
+| 12 | Open or drop OWT directly, convert MIDI deterministically, or send score images/MP4 to OpenAI, Anthropic, OpenRouter, Ollama, llama.cpp or a compatible multimodal endpoint through one unified import path |
 
 ## Quick start
 

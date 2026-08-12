@@ -2,8 +2,10 @@ const MAX_AI_REQUEST_BYTES = 24 * 1024 * 1024
 
 interface AiProxyRequest {
   endpoint?: unknown
-  apiKey?: unknown
+  method?: unknown
+  headers?: unknown
   body?: unknown
+  apiKey?: unknown
 }
 
 export async function proxyAiChat(request: Request): Promise<Response> {
@@ -16,8 +18,8 @@ export async function proxyAiChat(request: Request): Promise<Response> {
   } catch {
     return Response.json({ error: 'Invalid JSON request' }, { status: 400 })
   }
-  if (typeof input.endpoint !== 'string' || !input.body || typeof input.body !== 'object') {
-    return Response.json({ error: 'endpoint and body are required' }, { status: 400 })
+  if (typeof input.endpoint !== 'string' || (input.method !== undefined && input.method !== 'GET' && input.method !== 'POST')) {
+    return Response.json({ error: 'endpoint and a valid method are required' }, { status: 400 })
   }
 
   let endpoint: URL
@@ -30,13 +32,21 @@ export async function proxyAiChat(request: Request): Promise<Response> {
     return Response.json({ error: 'AI endpoint must be an HTTP(S) URL without embedded credentials' }, { status: 400 })
   }
 
-  const headers: Record<string, string> = { 'content-type': 'application/json' }
-  if (typeof input.apiKey === 'string' && input.apiKey) headers.authorization = `Bearer ${input.apiKey}`
+  const suppliedHeaders = input.headers && typeof input.headers === 'object' ? input.headers as Record<string, unknown> : {}
+  const headers: Record<string, string> = {}
+  for (const [name, value] of Object.entries(suppliedHeaders)) {
+    if (typeof value === 'string' && ['authorization', 'content-type', 'x-api-key', 'anthropic-version'].includes(name.toLowerCase())) headers[name] = value
+  }
+  if (typeof input.apiKey === 'string' && input.apiKey) {
+    if (headers['anthropic-version']) headers['x-api-key'] = input.apiKey
+    else headers.authorization = `Bearer ${input.apiKey}`
+  }
+  const method = input.method === 'GET' ? 'GET' : 'POST'
   try {
     const upstream = await fetch(endpoint, {
-      method: 'POST',
+      method,
       headers,
-      body: JSON.stringify(input.body),
+      body: method === 'GET' || input.body === undefined ? undefined : JSON.stringify(input.body),
       signal: AbortSignal.timeout(180_000),
     })
     return new Response(upstream.body, {

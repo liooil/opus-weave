@@ -25,6 +25,7 @@ describe('built-in OWT examples', () => {
     for (const example of BUILTIN_OWT_EXAMPLES) {
       const score = parseOwtOrThrow(example.text)
       expect(score.title).toBeTruthy()
+      expect(example.title).toBe(score.title!)
       expect(score.tracks.length).toBeGreaterThan(0)
       expect(score.tracks.some((track) => track.events.some((event) => event.kind === 'note'))).toBe(true)
     }
@@ -90,6 +91,25 @@ describe('OWT AI client', () => {
     })
     expect(messages[1]!.content).toBeArray()
     expect(messages[1]!.content).toContainEqual({ type: 'image_url', image_url: { url: 'data:image/png;base64,AA==' } })
+  })
+
+  test('applies editable prompt templates to each AI feature', () => {
+    const config = {
+      baseUrl: 'http://model.test',
+      model: 'test',
+      promptTemplates: {
+        system: 'CUSTOM SYSTEM',
+        prompt: 'COMPOSE::{instruction}',
+        scoreMedia: 'MEDIA::{instruction}',
+        improvise: 'IMPROV::{instruction}',
+      },
+    }
+    for (const [task, marker] of [['prompt', 'COMPOSE'], ['score-media', 'MEDIA'], ['improvise', 'IMPROV']] as const) {
+      const messages = buildOwtAiMessages({ task, instruction: 'user request', currentOwt: validAiOwt }, config)
+      expect(messages[0]!.content).toBe('CUSTOM SYSTEM')
+      expect(messages[1]!.content).toContain(`${marker}::user request`)
+      expect(messages[1]!.content).toContain(`CURRENT OWT:\n${validAiOwt}`)
+    }
   })
 
   test('asks once for repair when the first model response is invalid', async () => {

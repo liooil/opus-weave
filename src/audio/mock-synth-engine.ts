@@ -32,6 +32,10 @@ export class MockSynthEngine implements SynthEngine {
     this.record('playMidi', [data.byteLength, fileName, startSeconds])
   }
 
+  setLooping(enabled: boolean): void {
+    this.record('setLooping', [enabled])
+  }
+
   pause(): void {
     this.record('pause', [])
   }

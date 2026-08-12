@@ -40,8 +40,8 @@ src/build.ts       Single-file binary via bundesk; the AudioWorklet processor
                    is embedded with a `with { type: 'file' }` import and
                    served at /spessasynth_processor.min.js.
 src/domain/
-  ai/              OpenAI-compatible OWT client, schema fallback, automatic
-                   phrase-turn detection and interruptible AI improvisation.
+  ai/              Multi-protocol provider adapters, URL-driven model discovery,
+                   OWT schema fallback, phrase detection and AI improvisation.
   composition/     CompositionSpec types, runtime validation, TempoMap and
                    deterministic English/Pinyin musical typing.
   owt/             Score-only OWT AST, rational parser, stable serializer,

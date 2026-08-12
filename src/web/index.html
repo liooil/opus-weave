@@ -23,10 +23,7 @@
           <label class="file-menu-item" data-shortcut="Space o"><span class="control-icon" aria-hidden="true">↥</span><span data-i18n="owt.open">Open / Import</span><input id="owt-file" type="file" accept=".owt,.txt,.mid,.midi,text/plain,audio/midi,image/*,video/mp4,.mp4" /></label>
           <details class="file-submenu">
             <summary><span><span class="control-icon" aria-hidden="true">♫</span><span data-i18n="examples.load">Open example</span></span><span aria-hidden="true">›</span></summary>
-            <div class="file-submenu-popover">
-              <label class="example-menu-picker"><span data-i18n="examples.label">Built-in example</span><select id="owt-example" data-i18n-aria-label="examples.label" aria-label="Built-in example"></select></label>
-              <button id="btn-load-example" data-shortcut="Space l l" data-i18n="examples.load">Open example</button>
-            </div>
+            <div id="owt-example-menu" class="file-submenu-popover example-menu-list" role="menu" data-i18n-aria-label="examples.label" aria-label="Built-in examples"></div>
           </details>
           <div class="file-menu-separator" role="separator"></div>
           <button id="btn-owt-new-score" data-shortcut="Space n" data-i18n="owt.newScore">New melody</button>
@@ -35,15 +32,18 @@
           <button id="btn-export-arrangement" data-shortcut="Space t e" data-i18n="arranger.export" disabled>Export edit</button>
         </div>
       </details>
-      <nav id="score-view-toolbar" class="score-view-toolbar" aria-label="Score views" data-i18n-aria-label="scoreViews.label">
-        <div class="score-view-tabs" role="tablist">
+      <nav id="score-view-toolbar" class="score-view-toolbar" aria-label="Score and playback controls" data-i18n-aria-label="scoreViews.label">
+        <div class="score-view-tabs" role="tablist" data-studio-only>
           <button class="score-view-tab active" role="tab" aria-selected="true" data-score-view-target="owt" data-shortcut="Space g o" data-i18n-aria-label="scoreViews.owt" data-i18n-title="scoreViews.owt" aria-label="OWT" title="OWT"><span class="control-icon text-icon" aria-hidden="true">&lt;&gt;</span><span class="control-label" data-i18n="scoreViews.owt">OWT</span></button>
           <button class="score-view-tab" role="tab" aria-selected="false" data-score-view-target="timeline" data-shortcut="Space g t" data-i18n-aria-label="scoreViews.timeline" data-i18n-title="scoreViews.timeline" aria-label="Timeline" title="Timeline"><span class="control-icon" aria-hidden="true">▥</span><span class="control-label" data-i18n="scoreViews.timeline">Timeline</span></button>
           <button class="score-view-tab" role="tab" aria-selected="false" data-score-view-target="staff" data-shortcut="Space g s" data-i18n-aria-label="scoreViews.staff" data-i18n-title="scoreViews.staff" aria-label="Staff" title="Staff"><span class="control-icon" aria-hidden="true">𝄞</span><span class="control-label" data-i18n="scoreViews.staff">Staff</span></button>
           <button class="score-view-tab" role="tab" aria-selected="false" data-score-view-target="jianpu" data-shortcut="Space g j" data-i18n-aria-label="scoreViews.jianpu" data-i18n-title="scoreViews.jianpu" aria-label="Jianpu" title="Jianpu"><span class="control-icon text-icon" aria-hidden="true">1</span><span class="control-label" data-i18n="scoreViews.jianpu">Jianpu</span></button>
         </div>
-        <button id="btn-score-view-play" class="primary topbar-control" data-shortcut="F5 · Ctrl+Space · Space p" aria-keyshortcuts="F5 Control+Space" data-i18n-aria-label="scoreViews.play" data-i18n-title="scoreViews.play" aria-label="Play / pause" title="Play / pause"><span class="control-icon" aria-hidden="true">▶</span><span class="control-label" data-i18n="scoreViews.play">Play / pause</span></button>
-        <button id="btn-ai-compose" class="ai-compose-button topbar-control" data-ai-state="idle" data-shortcut="Space z c" data-i18n-aria-label="ai.compose" data-i18n-title="ai.compose" aria-label="AI composition" title="AI composition"><span class="control-icon" aria-hidden="true">✦</span><span class="control-label" data-i18n="ai.compose">AI composition</span></button>
+        <button id="btn-score-view-play" class="primary topbar-control" data-shortcut="F5 · Ctrl+Space · Space p" aria-keyshortcuts="F5 Control+Space" data-i18n-aria-label="playback.play" data-i18n-title="playback.play" aria-label="Play" title="Play"><span class="control-icon" aria-hidden="true">▶</span><span class="control-label" data-i18n="playback.play">Play</span></button>
+        <button id="btn-loop-playback" class="loop-playback-button topbar-control" data-shortcut="Space t l" aria-pressed="false" data-i18n-aria-label="playback.loop" data-i18n-title="playback.loop" aria-label="Loop playback" title="Loop playback"><span class="control-icon" aria-hidden="true">↻</span><span class="control-label" data-i18n="playback.loop">Loop</span></button>
+        <button id="btn-owt-practice" class="topbar-control performance-button" data-studio-only data-shortcut="Space q" aria-keyshortcuts="Space Q" aria-pressed="false" data-i18n-aria-label="owt.practice" data-i18n-title="owt.practice" aria-label="Perform" title="Perform"><span class="control-icon" aria-hidden="true">♩</span><span class="control-label" data-i18n="owt.practice">Perform</span></button>
+        <button id="btn-ai-compose" class="ai-compose-button topbar-control" data-studio-only data-ai-state="idle" data-shortcut="Space z c" data-i18n-aria-label="ai.compose" data-i18n-title="ai.compose" aria-label="AI composition" title="AI composition"><span class="control-icon" aria-hidden="true">✦</span><span class="control-label" data-i18n="ai.compose">AI composition</span></button>
+        <button id="btn-ai-improvise" class="ai-improv-button topbar-control" data-studio-only data-improv-state="off" data-shortcut="Space z i" aria-pressed="false" data-i18n-aria-label="ai.improviseStart" data-i18n-title="ai.improviseStart" aria-label="Start improv mode" title="Start improv mode"><span class="control-icon" aria-hidden="true">∞</span><span class="control-label" data-i18n="simpleEdit.improvMode">Improv</span></button>
       </nav>
       <div class="topbar-actions">
         <button class="workspace-tab" data-page-target="settings" data-shortcut="Space b c" data-i18n-aria-label="nav.settings" data-i18n-title="nav.settings" aria-label="Settings" title="Settings"><span class="control-icon" aria-hidden="true">⚙</span><span class="control-label" data-i18n="nav.settings">Settings</span></button>
@@ -64,26 +64,12 @@
     <main class="workspace-pages">
       <section class="workspace-page active" data-workspace-page="studio">
         <section class="panel owt-panel active" id="owt-panel" data-score-view="owt" data-i18n-aria-label="section.owtWorkspace" aria-label="OWT Melody Editor">
-          <div class="owt-simple-toolbar">
-            <div class="owt-edit-mode-tabs" role="group" aria-label="OWT editing mode" data-i18n-aria-label="simpleEdit.modeLabel">
-              <button id="btn-owt-mode-score" class="active" aria-pressed="true" data-shortcut="Space m s" data-i18n="simpleEdit.scoreMode">Score edit</button>
-              <button id="btn-owt-mode-raw" aria-pressed="false" data-shortcut="Space m r" data-i18n="simpleEdit.rawMode">Raw text</button>
-              <button id="btn-owt-mode-improv" aria-pressed="false" data-shortcut="Space m i" data-i18n="simpleEdit.improvMode">Improv</button>
-            </div>
-            <div id="improv-mode-row" class="improv-mode-row" hidden><span id="ai-improv-state" class="improv-state off" data-i18n="ai.improvOff">Improv off</span></div>
-            <div id="owt-edit-status" class="status" hidden aria-live="polite"></div>
-          </div>
+          <div id="owt-edit-status" class="status" hidden aria-live="polite"></div>
           <div class="owt-editor-shell" data-edit-mode="score">
             <pre id="owt-highlight" class="owt-highlight" aria-hidden="true"></pre>
             <textarea id="owt-editor" class="owt-editor" spellcheck="false" aria-label="OWT editor" data-i18n-aria-label="owt.editorLabel"></textarea>
             <div class="owt-editor-overlay">
-              <div class="owt-motion-hints" aria-hidden="true">
-                <span><kbd>h/b</kbd><small data-i18n="simpleEdit.motionPrevEvent">previous event</small></span>
-                <span><kbd>l/w/e</kbd><small data-i18n="simpleEdit.motionNextEvent">next event</small></span>
-                <span><kbd>k</kbd><small data-i18n="simpleEdit.motionPrevMeasure">previous measure</small></span>
-                <span><kbd>j</kbd><small data-i18n="simpleEdit.motionNextMeasure">next measure</small></span>
-                <span><kbd>Alt+O</kbd><small data-i18n="simpleEdit.expandSelection">expand selection</small></span>
-              </div>
+              <div id="owt-motion-destinations" class="owt-motion-destinations" aria-hidden="true"></div>
               <div class="owt-context-actions">
                 <button id="btn-owt-delete-object" class="danger-quiet" data-shortcut="d" data-i18n="simpleEdit.delete">Delete</button>
                 <button id="btn-owt-replace-play" class="primary" data-shortcut="Space a p" data-i18n="simpleEdit.replacePlay">Play to replace event</button>
@@ -91,14 +77,13 @@
             </div>
           </div>
           <div class="owt-modal-statusline">
-            <span id="owt-mode" class="owt-mode normal">NORMAL</span>
+            <button id="owt-mode" class="owt-mode normal" type="button" data-shortcut-exempt="mode-switch" data-i18n-aria-label="simpleEdit.switchToRaw" data-i18n-title="simpleEdit.switchToRaw" aria-label="Switch to RAW text mode" title="Switch to RAW text mode">NORMAL</button>
             <span id="owt-position">Ln 1, Col 1</span>
             <span id="owt-selection-count">1 selection</span>
             <span id="owt-pending"></span>
           </div>
           <input id="owt-command" class="owt-command" type="text" autocomplete="off" spellcheck="false" hidden aria-label="OWT command" />
           <div id="owt-key-hints" class="owt-key-hints" hidden></div>
-          <button id="btn-owt-practice" class="sr-only" data-shortcut="Space q" data-i18n="owt.practice">Perform</button>
           <div id="owt-status" class="status" hidden aria-live="polite"></div>
           <div id="owt-diagnostics" class="owt-diagnostics" aria-live="polite"></div>
         </section>
@@ -139,6 +124,7 @@
               <div id="timeline-content" class="timeline-content">
                 <div id="timeline-ruler" class="timeline-ruler"></div>
                 <div id="timeline-tracks" class="timeline-tracks"></div>
+                <div id="timeline-cursors" class="timeline-cursors" aria-hidden="true"></div>
                 <div id="timeline-selection" class="timeline-selection" hidden></div>
                 <div id="timeline-playhead" class="timeline-playhead" hidden></div>
               </div>
@@ -157,9 +143,6 @@
           <div id="jianpu-score" class="notation-surface" aria-live="polite"></div>
         </section>
         <section class="panel live-panel" id="live-panel">
-          <div class="section-heading inline-heading">
-            <div><span class="eyebrow" data-i18n="section.instrument">Instrument</span><h2 data-i18n="section.livePerformance">Live performance</h2></div>
-          </div>
           <div id="practice-guide" class="practice-guide" hidden aria-live="polite">
             <span class="practice-label" data-i18n="practice.next">Next key</span>
             <strong id="practice-note">—</strong>
@@ -167,10 +150,10 @@
             <span id="practice-progress"></span>
             <button id="btn-practice-stop" class="quiet" data-shortcut="Space q" data-i18n="practice.stop">End performance</button>
           </div>
-          <div id="live-notes" class="live-notes"><span class="notes-placeholder" data-i18n="live.notesPlaceholder">Played notes appear here</span></div>
           <div class="computer-map" aria-labelledby="computer-map-title">
             <div class="computer-map-head">
               <strong id="computer-map-title" data-i18n="live.computerMap">Computer keyboard map</strong>
+              <div id="live-notes" class="live-notes"><span class="notes-placeholder" data-i18n="live.notesPlaceholder">Played notes</span></div>
               <div class="computer-map-actions">
                 <div class="map-performance-controls">
                   <div class="map-performance-control">
@@ -198,7 +181,6 @@
             </div>
           </div>
           <div class="keyboard-frame"><div id="virtual-keyboard"></div></div>
-          <p class="hint keyboard-hint" data-i18n="live.keyboardHint">Shortcuts are disabled while an input or selector is focused.</p>
         </section>
       </section>
 
@@ -234,11 +216,23 @@
           <section class="panel module-panel" id="ai-settings-panel">
             <div class="section-heading"><div><span class="eyebrow" data-i18n="section.ai">AI</span><h2 data-i18n="ai.settings">Model settings</h2></div></div>
             <div id="ai-settings" class="ai-settings settings-ai-fields">
-              <label><span data-i18n="ai.endpoint">Endpoint</span><input id="ai-endpoint" type="url" spellcheck="false" data-i18n-placeholder="ai.endpointPlaceholder" placeholder="Optional OpenAI-compatible endpoint" /></label>
-              <label><span data-i18n="ai.model">Model</span><input id="ai-model" spellcheck="false" data-i18n-placeholder="ai.modelPlaceholder" placeholder="Optional model name" /></label>
+              <label class="ai-endpoint-field"><span data-i18n="ai.endpoint">Service URL</span><input id="ai-endpoint" type="url" spellcheck="false" data-i18n-placeholder="ai.endpointPlaceholder" placeholder="OpenAI, Anthropic, OpenRouter, Ollama or llama.cpp URL" /></label>
               <label><span data-i18n="ai.apiKey">API key (optional)</span><input id="ai-api-key" type="password" autocomplete="off" /></label>
-              <button id="btn-ai-test" class="quiet" data-shortcut="Space z t" data-i18n="ai.test">Test connection</button>
+              <label><span data-i18n="ai.protocol">Protocol</span><select id="ai-protocol"><option value="auto" data-i18n="ai.protocolAuto">Auto detect</option><option value="openai-responses">OpenAI Responses</option><option value="openai-chat-completions">OpenAI Chat Completions</option><option value="openai-completions">OpenAI Completions</option><option value="anthropic-messages">Anthropic Messages</option><option value="ollama-native">Ollama Native</option></select></label>
+              <label class="ai-model-field"><span data-i18n="ai.model">Model</span><input id="ai-model" list="ai-model-options" spellcheck="false" autocomplete="off" data-i18n-placeholder="ai.modelPlaceholder" placeholder="Enter URL to load models" /><datalist id="ai-model-options"></datalist></label>
+              <div class="ai-settings-actions"><button id="btn-ai-refresh-models" class="quiet" data-shortcut-exempt data-i18n="ai.refreshModels">Refresh models</button><button id="btn-ai-test" class="quiet" data-shortcut="Space z t" data-i18n="ai.test">Test connection</button></div>
             </div>
+            <details class="ai-prompt-settings">
+              <summary data-i18n="ai.promptTemplates">Prompt templates</summary>
+              <p class="hint" data-i18n="ai.promptTemplatesHint">Use {instruction} where the request entered for that feature should appear.</p>
+              <div class="ai-prompt-template-fields">
+                <label><span data-i18n="ai.systemPromptTemplate">Shared system prompt</span><textarea id="ai-template-system" rows="8" spellcheck="false"></textarea></label>
+                <label><span data-i18n="ai.composePromptTemplate">Composition</span><textarea id="ai-template-prompt" rows="3" spellcheck="false"></textarea></label>
+                <label><span data-i18n="ai.mediaPromptTemplate">Media transcription</span><textarea id="ai-template-media" rows="3" spellcheck="false"></textarea></label>
+                <label><span data-i18n="ai.improvPromptTemplate">AI improvisation</span><textarea id="ai-template-improvise" rows="3" spellcheck="false"></textarea></label>
+              </div>
+              <button id="btn-ai-reset-templates" type="button" class="quiet" data-shortcut="Space z d" data-i18n="ai.resetPromptTemplates">Restore defaults</button>
+            </details>
             <div id="ai-status" class="status" data-status-key="ai.ready">API configuration is optional; without it, AI composition provides a prompt for manual use.</div>
           </section>
         </div>
@@ -314,7 +308,7 @@
           <h2 id="ai-compose-title" data-i18n="ai.dialogTitle">AI composition</h2>
           <p id="ai-compose-description" data-i18n="ai.dialogDescription">Describe how AI should create or edit the current OWT score.</p>
         </div>
-        <label class="dialog-prompt"><span data-i18n="ai.promptLabel">Composition request</span><textarea id="ai-prompt" rows="7" required autofocus data-i18n-placeholder="ai.placeholder" placeholder="Example: 哈尔的移动城堡 — create an original lyrical waltz with a soaring melody"></textarea></label>
+        <label class="dialog-prompt"><span data-i18n="ai.promptLabel">Composition request</span><textarea id="ai-prompt" rows="7" autofocus placeholder="It’s raining"></textarea></label>
         <div class="dialog-actions">
           <button id="btn-ai-cancel" type="button" class="quiet" data-shortcut="Esc" aria-keyshortcuts="Escape" data-i18n="common.cancel">Cancel</button>
           <button id="btn-ai-submit" type="submit" class="primary" data-shortcut="Enter" aria-keyshortcuts="Enter" data-i18n="ai.confirm">Compose</button>

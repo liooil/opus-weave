@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { activeOwtPlaybackIds, activeOwtSourceRanges, buildOwtPlaybackMap } from '../domain/owt/playback-map.ts'
+import { activeOwtPlaybackIds, activeOwtSourceRanges, buildOwtPlaybackMap, cursorOwtPlaybackTokens, playbackStartForSourceRanges } from '../domain/owt/playback-map.ts'
 import { parseOwtOrThrow } from '../domain/owt/parser.ts'
 import { owtLexicalRanges, renderOwtHighlight } from '../web/components/owt-highlighter.ts'
 
@@ -51,6 +51,16 @@ describe('OWT playback source mapping', () => {
     const second = activeOwtSourceRanges(map, 0.6)
     expect(second).toHaveLength(1)
     expect(melody.slice(second[0]!.start, second[0]!.end)).toBe('D4:1')
+  })
+
+  test('keeps one cursor per track at the same playback position', () => {
+    const text = melody.replace('\nend\n', '\ntrack "Bass" channel=2 program=32 velocity=72\n\n| C3:2 G2:2 |\n\nend\n')
+    const score = parseOwtOrThrow(text)
+    const map = buildOwtPlaybackMap(text, score)
+    const cursors = cursorOwtPlaybackTokens(map, 0)
+    expect(cursors).toHaveLength(2)
+    expect(new Set(cursors.map((token) => token.playbackId.split(':')[0]))).toEqual(new Set(['0', '1']))
+    expect(playbackStartForSourceRanges(map, cursors)).toBe(0)
   })
 
   test('adds the playback class without losing lexical color', () => {

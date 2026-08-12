@@ -78,4 +78,34 @@ describe('SpessaSynthEngine live MIDI delivery', () => {
     await engine.setAudioOutput('monitor-t32p-30')
     expect(selected).toEqual(['monitor-t32p-30'])
   })
+
+  test('applies loop state to the current and newly loaded sequence', async () => {
+    const context = {
+      state: 'running',
+      destination: {},
+      currentTime: 0,
+      audioWorklet: { addModule: async () => {} },
+      createGain: () => ({
+        gain: { value: 0, setTargetAtTime: () => {} },
+        connect: () => {},
+      }),
+      resume: async () => {},
+      close: async () => {},
+    } as unknown as AudioContext
+    const sequencer = {
+      loopCount: 0,
+      currentTime: 0,
+      loadNewSongList: () => {},
+      play: () => {},
+    }
+    const engine = new SpessaSynthEngine(context)
+    engine.setLooping(true)
+    const seam = engine as unknown as { synth: object; sequencer: typeof sequencer }
+    seam.synth = {}
+    seam.sequencer = sequencer
+    await engine.playMidi(new ArrayBuffer(1), 'loop.mid')
+    expect(sequencer.loopCount).toBe(Infinity)
+    engine.setLooping(false)
+    expect(sequencer.loopCount).toBe(0)
+  })
 })

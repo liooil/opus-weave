@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { applyTextEdits, cursorsAfterEdits, nextGrapheme, owtSemanticMotion, previousGrapheme } from '../web/editor/modal-editor.ts'
+import { applyTextEdits, cursorsAfterEdits, helixVerticalSelection, nextGrapheme, owtMotionDestinations, owtSemanticMotion, previousGrapheme } from '../web/editor/modal-editor.ts'
 import { buildOwtSyntaxIndex, nextObject, objectContaining, replaceOwtEventPitch, selectionLevelForClickCount, semanticDeletionEdits, semanticRangeFromNativeSelection, syntaxParent } from '../web/editor/owt-objects.ts'
 import { buildPracticePrompts, PracticeSession } from '../domain/owt/practice-session.ts'
 import { parseOwtOrThrow } from '../domain/owt/parser.ts'
@@ -33,15 +33,31 @@ describe('modal editor primitives', () => {
     expect(cursorsAfterEdits(edits, true)).toEqual([{ anchor: 2, head: 2 }, { anchor: 8, head: 8 }])
   })
 
-  test('maps horizontal Helix motions to events and vertical motions to measures', () => {
+  test('maps horizontal keys to score events and leaves j/k to Helix vertical motion', () => {
     expect(owtSemanticMotion('h')).toEqual({ kind: 'event', direction: -1 })
     expect(owtSemanticMotion('l')).toEqual({ kind: 'event', direction: 1 })
     expect(owtSemanticMotion('b')).toEqual({ kind: 'event', direction: -1 })
     expect(owtSemanticMotion('w')).toEqual({ kind: 'event', direction: 1 })
     expect(owtSemanticMotion('e')).toEqual({ kind: 'event', direction: 1 })
-    expect(owtSemanticMotion('k')).toEqual({ kind: 'measure', direction: -1 })
-    expect(owtSemanticMotion('j')).toEqual({ kind: 'measure', direction: 1 })
+    expect(owtSemanticMotion('k')).toBeUndefined()
+    expect(owtSemanticMotion('j')).toBeUndefined()
     expect(owtSemanticMotion('/')).toBeUndefined()
+  })
+
+  test('previews exact horizontal Helix motion destinations', () => {
+    const index = buildOwtSyntaxIndex(scoreText)
+    const current = index.events[1]!
+    const destinations = owtMotionDestinations(index, { anchor: current.start, head: current.end })
+    expect(destinations.find((destination) => destination.keys === 'h/b')).toMatchObject({ start: index.events[0]!.start, end: index.events[0]!.end, kind: 'event' })
+    expect(destinations.find((destination) => destination.keys === 'l/w/e')).toMatchObject({ start: index.events[2]!.start, end: index.events[2]!.end, kind: 'event' })
+    expect(destinations.some((destination) => destination.keys === 'j' || destination.keys === 'k')).toBe(false)
+  })
+  
+  test('moves j/k by text row and preserves the column without selecting the row', () => {
+    const text = 'abcd\nxy\n12345'
+    expect(helixVerticalSelection(text, { anchor: 2, head: 3 }, 1)).toEqual({ anchor: 6, head: 7 })
+    expect(helixVerticalSelection(text, { anchor: 6, head: 7 }, 1)).toEqual({ anchor: 9, head: 10 })
+    expect(helixVerticalSelection(text, { anchor: 9, head: 10 }, -1)).toEqual({ anchor: 6, head: 7 })
   })
 })
 

@@ -16,19 +16,51 @@ describe('web workspace structure', () => {
     expect(header).toContain('class="control-label"')
     expect(html).not.toContain('class="session-state"')
     expect(html).not.toContain('data-i18n="session.local"')
-    expect(app).toContain("$('score-view-toolbar').hidden = pageId !== 'studio'")
+    expect(app).toContain("control.hidden = pageId !== 'studio'")
     expect(css).toContain('.topbar .control-label { display: none; }')
     expect(css).toContain('overflow-x: auto;')
     expect(css).not.toContain('grid-template-rows: auto auto auto')
   })
 
-  test('places file operations on the left and settings immediately after AI on the right', () => {
+  test('orders perform before AI controls and keeps settings after them', () => {
     const header = html.slice(html.indexOf('<header'), html.indexOf('</header>'))
+    const toolbar = header.slice(header.indexOf('id="score-view-toolbar"'), header.indexOf('</nav>'))
     expect(header.indexOf('class="file-menu topbar-file-menu"')).toBeLessThan(header.indexOf('id="score-view-toolbar"'))
-    expect(header.indexOf('id="btn-ai-compose"')).toBeLessThan(header.indexOf('data-page-target="settings"'))
+    expect(toolbar.indexOf('id="btn-owt-practice"')).toBeLessThan(toolbar.indexOf('id="btn-ai-compose"'))
+    expect(toolbar.indexOf('id="btn-ai-compose"')).toBeLessThan(toolbar.indexOf('id="btn-ai-improvise"'))
+    expect(header.indexOf('id="btn-ai-improvise"')).toBeLessThan(header.indexOf('data-page-target="settings"'))
     const actionsStart = header.indexOf('<div class="topbar-actions">')
     expect(header.indexOf('data-page-target="settings"')).toBeGreaterThan(actionsStart)
     expect(header.indexOf('id="language-toggle"')).toBeGreaterThan(header.indexOf('data-page-target="settings"'))
+  })
+
+  test('places a loop toggle beside the global play control', () => {
+    const header = html.slice(html.indexOf('<header'), html.indexOf('</header>'))
+    expect(header.indexOf('id="btn-score-view-play"')).toBeLessThan(header.indexOf('id="btn-loop-playback"'))
+    expect(header.indexOf('id="btn-loop-playback"')).toBeLessThan(header.indexOf('id="btn-owt-practice"'))
+    expect(html).toContain('id="btn-loop-playback" class="loop-playback-button topbar-control"')
+    expect(html).toContain('data-shortcut="Space t l"')
+    expect(app).toContain('engine?.setLooping(loopPlayback)')
+    expect(app).toContain('player.setLooping(loopPlayback && allowLoop)')
+    expect(app).toContain('playOwtRange(undefined, false)')
+    expect(modalEditor).toContain("l: 'loop'")
+  })
+
+  test('keeps audition transport in settings and shows one current playback action', () => {
+    const header = html.slice(html.indexOf('<header'), html.indexOf('</header>'))
+    const play = header.match(/<button id="btn-score-view-play"[^>]*>/)?.[0] ?? ''
+    const loop = header.match(/<button id="btn-loop-playback"[^>]*>/)?.[0] ?? ''
+    expect(play).not.toContain('data-studio-only')
+    expect(loop).not.toContain('data-studio-only')
+    for (const id of ['btn-owt-practice', 'btn-ai-compose', 'btn-ai-improvise']) {
+      expect(header.match(new RegExp(`<button id="${id}"[^>]*>`))?.[0]).toContain('data-studio-only')
+    }
+    expect(header).toContain('<div class="score-view-tabs" role="tablist" data-studio-only>')
+    expect(play).toContain('data-i18n-aria-label="playback.play"')
+    expect(html).toContain('<span class="control-label" data-i18n="playback.play">Play</span>')
+    expect(html).not.toContain('>Play / pause</span>')
+    expect(app).toContain("const actionKey = playing ? 'playback.pause' : 'playback.play'")
+    expect(app).toContain('label.dataset.i18n = actionKey')
   })
 
   test('keeps score editing above the live keyboard in the studio flow', () => {
@@ -43,7 +75,9 @@ describe('web workspace structure', () => {
     const buttons = [...html.matchAll(/<button\b[^>]*>/g)].map((match) => match[0])
     expect(buttons.filter((button) => !button.includes('data-shortcut') && !button.includes('aria-keyshortcuts') && !button.includes('data-shortcut-exempt'))).toEqual([])
     expect(buttons.filter((button) => button.includes('data-shortcut-exempt'))).toEqual([
+      expect.stringContaining('id="owt-mode"'),
       expect.stringContaining('id="toggle-computer-map"'),
+      expect.stringContaining('id="btn-ai-refresh-models"'),
     ])
     expect(app).toContain("case 'workspace-studio': showWorkspacePage('studio')")
     expect(app).toContain("case 'toggle-locale': localeButton.click()")
@@ -101,11 +135,44 @@ describe('web workspace structure', () => {
     expect(app).toContain("setAiComposeState('error')")
   })
 
+  test('submits composition on Enter and exposes persistent per-feature prompt templates', () => {
+    expect(app).toContain("if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return")
+    expect(app).toContain('aiComposeForm.requestSubmit()')
+    for (const id of ['ai-template-system', 'ai-template-prompt', 'ai-template-media', 'ai-template-improvise']) {
+      expect(html).toContain(`id="${id}"`)
+    }
+    expect(html).toContain('id="btn-ai-reset-templates"')
+    expect(app).toContain('promptTemplates: currentAiPromptTemplates()')
+  })
+
+  test('randomizes composition suggestions and submits the visible suggestion when empty', () => {
+    const prompt = html.match(/<textarea id="ai-prompt"[^>]*>/)?.[0] ?? ''
+    expect(prompt).not.toContain('required')
+    expect(app).toContain("ai.promptExample.rain")
+    expect(app).toContain("ai.promptExample.typhoon")
+    expect(app).toContain('aiPrompt.placeholder = chooseAiPromptExample()')
+    expect(app).toContain('aiPrompt.value.trim() || aiPrompt.placeholder.trim()')
+  })
+
+  test('persists the current OWT in a shareable URL hash', () => {
+    expect(app).toContain("import { decodeOwtHash, encodeOwtHash } from './owt-url-state.ts'")
+    expect(app).toContain('syncOwtUrlHash(owtEditor.value)')
+    expect(app).toContain('window.history.replaceState')
+    expect(app).toContain('const initialOwtFromHash = decodeOwtHash(window.location.hash)')
+    expect(app).toContain('setOwtEditorText(initialOwtFromHash ?? DEFAULT_OWT_SCORE)')
+    expect(app).toContain("window.addEventListener('hashchange'")
+    expect(app).toContain('if (initialOwtFromHash === null)')
+  })
+
   test('uses manual AI collaboration when no optional API is configured', () => {
     const checkedSources = `${html}\n${app}\n${aiClient}\n${owtDocs}`
     expect(checkedSources).not.toMatch(/\b(?:10\.\d{1,3}|192\.168|172\.(?:1[6-9]|2\d|3[01]))(?:\.\d{1,3}){2}\b/)
     expect(html).not.toMatch(/id="ai-endpoint"[^>]*\svalue=/)
     expect(html).not.toMatch(/id="ai-model"[^>]*\svalue=/)
+    expect(html).toContain('id=\"ai-protocol\"')
+    expect(html).toContain('id=\"ai-model-options\"')
+    expect(html).toContain('id=\"btn-ai-refresh-models\"')
+    expect(app).toContain('discoverAiModels(config')
     expect(html).toContain('<dialog id="ai-manual-dialog"')
     expect(html).toContain('id="ai-manual-prompt"')
     expect(html).toContain('id="btn-ai-manual-copy"')
@@ -116,11 +183,12 @@ describe('web workspace structure', () => {
   })
 
   test('keeps contextual motion help inside the focused OWT editor', () => {
-    expect(html).toContain('class="owt-editor-overlay"')
-    expect(html).toContain('class="owt-motion-hints"')
+    expect(html).toContain('id="owt-motion-destinations"')
+    expect(html).not.toContain('class="owt-motion-hints"')
     expect(html).not.toContain('id="owt-event-input"')
     expect(html).not.toContain('data-i18n="ai.improvHint"')
-    expect(css).toContain(".owt-editor-shell[data-edit-mode='score']:focus-within .owt-editor-overlay")
+    expect(css).toContain('.owt-motion-destination')
+    expect(css).toContain('.owt-motion-target')
     expect(html).toContain('id="owt-status" class="status" hidden')
     expect(html).toContain('data-shortcut="d"')
     expect(html).not.toContain('data-shortcut="Space a d"')
@@ -128,13 +196,35 @@ describe('web workspace structure', () => {
     expect(app).not.toContain("owtEditor.addEventListener('click'")
   })
 
+  test('switches NORMAL and RAW from the lower-left mode indicator', () => {
+    expect(html.match(/id="btn-ai-improvise"/g)).toHaveLength(1)
+    expect(html.indexOf('id="btn-ai-improvise"')).toBeLessThan(html.indexOf('</header>'))
+    expect(html).not.toContain('id="btn-owt-mode-score"')
+    expect(html).not.toContain('id="btn-owt-mode-raw"')
+    expect(html).not.toContain('class="owt-edit-mode-tabs"')
+    expect(html).toContain('<button id="owt-mode" class="owt-mode normal"')
+    expect(app).toContain("$('owt-mode').addEventListener('click'")
+    expect(modalEditor).toContain("{ s: 'mode-score', r: 'mode-raw' }")
+    expect(css).not.toContain('.owt-editor-shell.raw .owt-highlight')
+    expect(css).not.toContain('.owt-editor-shell.raw .owt-editor')
+  })
+
   test('moves file and MIDI import options out of the editor chrome', () => {
     expect(html).toContain('class="file-menu topbar-file-menu"')
     expect(html.match(/id="owt-file"/g)).toHaveLength(1)
-    expect(html).toContain('class="file-submenu"')
-    expect(html.indexOf('id="owt-example"')).toBeGreaterThan(html.indexOf('class="file-submenu"'))
+    expect(html).toContain('id="owt-example-menu"')
+    expect(html).not.toContain('id="owt-example"')
+    expect(html).not.toContain('id="btn-load-example"')
     expect(html).not.toContain('class="score-open-actions"')
     expect(html).not.toContain('class="example-picker"')
+    expect(app).toContain("button.dataset.exampleId = example.id")
+    expect(html).toContain('class="file-submenu-popover example-menu-list"')
+    expect(css).toContain('.file-submenu-popover { width: 290px;')
+    expect(css).toContain('left: calc(100% + 8px); z-index: 31;')
+    expect(css).toContain('.file-submenu:not([open]) > .file-submenu-popover { display: none; }')
+    expect(css).toContain('.file-menu-popover button { width: 100%; border: 0;')
+    expect(css).toContain('.file-menu-item, .topbar .file-menu-popover > button')
+    expect(css).toContain('.file-menu-popover button:hover:not(:disabled)')
     expect(html).toContain('id="midi-import-dialog"')
     expect(html).toContain('id="owt-grid"')
     expect(html.indexOf('id="owt-grid"')).toBeGreaterThan(html.indexOf('id="midi-import-dialog"'))
@@ -147,6 +237,16 @@ describe('web workspace structure', () => {
     expect(html).toContain('aria-keyshortcuts="F5 Control+Space"')
     expect(app).toContain("ev.key === 'F5'")
     expect(app).toContain("handleModalCommand('play-pause')")
+  })
+
+  test('keeps guided performance visible in the top toolbar', () => {
+    const header = html.slice(html.indexOf('<header'), html.indexOf('</header>'))
+    expect(header).toContain('id="btn-owt-practice"')
+    expect(header).toContain('data-shortcut="Space q"')
+    expect(header).toContain('aria-pressed="false"')
+    expect(html.match(/id="btn-owt-practice"/g)).toHaveLength(1)
+    expect(html).not.toContain('id="btn-owt-practice" class="sr-only"')
+    expect(app).toContain('function updatePracticeButton()')
   })
 
   test('merges octave and velocity controls into the keyboard-map header', () => {
@@ -162,6 +262,11 @@ describe('web workspace structure', () => {
     expect(modalEditor).not.toContain("m: 'toggle-key-map'")
     expect(app).not.toContain("case 'toggle-key-map'")
     expect(css).toContain(".map-toggle[aria-expanded='false'] .map-toggle-icon")
+    expect(mapHeader).toContain('id="live-notes"')
+    expect(livePanel).not.toContain('data-i18n="section.instrument"')
+    expect(livePanel).not.toContain('data-i18n="section.livePerformance"')
+    expect(livePanel).not.toContain('class="hint keyboard-hint"')
+    expect(app).not.toContain('updateComputerLayoutGuidance')
   })
 
   test('renders layout-specific key maps including the complete FreePiano keyboard', () => {

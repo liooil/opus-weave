@@ -15,7 +15,7 @@ function staffEvent(event: ScoreViewEvent, measure: ScoreViewMeasure, first: boo
   const left = first ? 58 : 10
   const right = 210
   const x = left + (event.beat / Math.max(0.001, measure.quarterLength)) * (right - left)
-  if (event.kind === 'rest') return `<g class="staff-event staff-rest" data-owt-event="${event.playbackId}" transform="translate(${x} 60)"><path d="M-5 -4h10l-7 8h8"/><text x="0" y="18">${event.duration}</text></g>`
+  if (event.kind === 'rest') return `<g class="staff-event staff-rest" data-owt-event="${event.playbackId}" tabindex="0" role="button" transform="translate(${x} 60)"><path d="M-5 -4h10l-7 8h8"/><text x="0" y="18">${event.duration}</text></g>`
   const notes = event.pitches.map((pitch, index) => {
     const position = staffPosition(pitch)
     const noteX = x + index * 4
@@ -29,7 +29,7 @@ function staffEvent(event: ScoreViewEvent, measure: ScoreViewMeasure, first: boo
     }).join('')
     return `<g class="staff-note">${staffLedgerLines(position.y, noteX)}${position.accidental ? `<text class="staff-accidental" x="${noteX - 10}" y="${position.y + 4}">♯</text>` : ''}<ellipse cx="${noteX}" cy="${position.y}" rx="6" ry="4" transform="rotate(-18 ${noteX} ${position.y})"/><line class="staff-stem" x1="${stemX}" y1="${position.y}" x2="${stemX}" y2="${stemEnd}"/>${flagPath}</g>`
   }).join('')
-  return `<g class="staff-event" data-owt-event="${event.playbackId}">${notes}</g>`
+  return `<g class="staff-event" data-owt-event="${event.playbackId}" tabindex="0" role="button">${notes}</g>`
 }
 
 function staffMeasure(measure: ScoreViewMeasure, first: boolean): string {
@@ -64,7 +64,7 @@ function jianpuEvent(event: ScoreViewEvent, model: ScoreViewModel): string {
   const underlines = marks.underlines > 0 ? `<span class="jianpu-underlines">${'―'.repeat(marks.underlines)}</span>` : ''
   const dashes = marks.dashes > 0 ? `<span class="jianpu-dashes">${'—'.repeat(marks.dashes)}</span>` : ''
   const label = marks.label ? `<small>${marks.label}</small>` : ''
-  return `<span class="jianpu-event" data-owt-event="${event.playbackId}">${content}${underlines}${dashes}${label}</span>`
+  return `<span class="jianpu-event" data-owt-event="${event.playbackId}" tabindex="0" role="button">${content}${underlines}${dashes}${label}</span>`
 }
 
 export function renderJianpuScore(model: ScoreViewModel): string {

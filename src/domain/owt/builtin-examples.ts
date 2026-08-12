@@ -8,7 +8,7 @@ export interface BuiltinOwtExample {
 export const BUILTIN_OWT_EXAMPLES: readonly BuiltinOwtExample[] = [
   {
     id: 'twinkle',
-    title: 'Twinkle Twinkle Little Star',
+    title: 'Twinkle Twinkle Little Star / 小星星',
     composer: 'Traditional',
     text: `owt 0.1 score
 
@@ -28,7 +28,7 @@ end
   },
   {
     id: 'ode-to-joy',
-    title: 'Ode to Joy',
+    title: 'Ode to Joy / 欢乐颂',
     composer: 'Ludwig van Beethoven',
     text: `owt 0.1 score
 
@@ -52,7 +52,7 @@ end
   },
   {
     id: 'fur-elise',
-    title: 'Für Elise — opening',
+    title: 'Für Elise — Opening / 致爱丽丝',
     composer: 'Ludwig van Beethoven',
     text: `owt 0.1 score
 
@@ -76,7 +76,7 @@ end
   },
   {
     id: 'canon-in-d',
-    title: 'Canon in D — progression',
+    title: 'Canon in D — Arpeggio / D大调卡农',
     composer: 'Johann Pachelbel',
     text: `owt 0.1 score
 
@@ -100,7 +100,7 @@ end
   },
   {
     id: 'minuet-in-g',
-    title: 'Minuet in G — opening',
+    title: 'Minuet in G — Opening / G大调小步舞曲',
     composer: 'Christian Petzold',
     text: `owt 0.1 score
 
@@ -124,7 +124,7 @@ end
   },
   {
     id: 'moonlight-sonata',
-    title: 'Moonlight Sonata — opening texture',
+    title: 'Moonlight Sonata — Opening Texture / 月光奏鸣曲',
     composer: 'Ludwig van Beethoven',
     text: `owt 0.1 score
 

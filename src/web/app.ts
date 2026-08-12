@@ -22,19 +22,21 @@ import { parseOwt } from '../domain/owt/parser.ts'
 import { parseRational, rational } from '../domain/owt/rational.ts'
 import { serializeOwt } from '../domain/owt/serializer.ts'
 import type { OwtDocument } from '../domain/owt/ast.ts'
-import { activeOwtPlaybackIds, activeOwtSourceRanges, buildOwtPlaybackMap, type OwtPlaybackToken, type OwtSourceRange } from '../domain/owt/playback-map.ts'
+import { activeOwtPlaybackIds, activeOwtSourceRanges, buildOwtPlaybackMap, cursorOwtPlaybackTokens, playbackStartForSourceRanges, type OwtPlaybackToken, type OwtSourceRange } from '../domain/owt/playback-map.ts'
 import { owtLexicalRanges, renderOwtHighlight, type OwtDecoration, type OwtLexicalRange } from './components/owt-highlighter.ts'
-import { ModalOwtEditor, normalizedSelection, type ModalEditorViewState } from './editor/modal-editor.ts'
+import { ModalOwtEditor, normalizedSelection, owtMotionDestinations, type ModalEditorViewState, type OwtMotionDestination } from './editor/modal-editor.ts'
 import { buildOwtSyntaxIndex, objectContaining, replaceOwtEventPitch, semanticDeletionEdits, type OwtTextObject } from './editor/owt-objects.ts'
 import { buildPracticePrompts, PracticeSession } from '../domain/owt/practice-session.ts'
 import { BUILTIN_OWT_EXAMPLES, builtinOwtExample } from '../domain/owt/builtin-examples.ts'
 import { buildScoreViewModel } from '../domain/owt/score-views.ts'
 import { renderJianpuScore, renderStaffScore } from './components/score-views.ts'
-import { buildManualOwtPrompt, createOwtWithAi, DEFAULT_OWT_AI_CONFIG, hasConfiguredAiApi, testOwtAiConnection, type OwtAiConfig, type OwtAiRequest } from '../domain/ai/owt-ai.ts'
+import { buildManualOwtPrompt, createOwtWithAi, DEFAULT_OWT_AI_CONFIG, DEFAULT_OWT_AI_PROMPT_TEMPLATES, hasConfiguredAiApi, testOwtAiConnection, type OwtAiConfig, type OwtAiPromptTemplates, type OwtAiRequest } from '../domain/ai/owt-ai.ts'
+import { discoverAiModels, type AiProtocol } from '../domain/ai/providers.ts'
 import { ConversationalImprovSession } from '../domain/ai/conversational-improv.ts'
 import { mediaFileToAiAttachments } from './ai-media.ts'
 import { scoreFileKind } from './open-file.ts'
 import { nextThemePreference, normalizeThemePreference, resolveTheme, type ThemePreference } from './theme.ts'
+import { decodeOwtHash, encodeOwtHash } from './owt-url-state.ts'
 import builtInGmSoundFontUrl from './assets/opusweave-micro-gm.sf2' with { type: 'file' }
 import freePianoSoundFontUrl from './assets/freepiano-mda-piano.sf2' with { type: 'file' }
 
@@ -168,9 +170,10 @@ localeButton.addEventListener('click', () => {
 
 const workspaceTabs = [...document.querySelectorAll<HTMLButtonElement>('[data-page-target]')]
 const workspacePages = [...document.querySelectorAll<HTMLElement>('[data-workspace-page]')]
+const studioOnlyTopbarControls = [...document.querySelectorAll<HTMLElement>('[data-studio-only]')]
 
 function showWorkspacePage(pageId: string): void {
-  $('score-view-toolbar').hidden = pageId !== 'studio'
+  for (const control of studioOnlyTopbarControls) control.hidden = pageId !== 'studio'
   for (const page of workspacePages) {
     const active = page.dataset.workspacePage === pageId
     page.hidden = !active
@@ -235,6 +238,7 @@ end
 // ─── State ───────────────────────────────────────────────────────────────────
 
 let engine: SpessaSynthEngine | null = null
+let loopPlayback = false
 let builtInSoundFontPromise: Promise<void> | null = null
 const BUILT_IN_SOUND_FONT_NAME = 'FreePiano mda Piano + OpusWeave Micro GM'
 let loadedMidi: BasicMIDI | null = null
@@ -260,6 +264,9 @@ let owtLexicalTokens: OwtLexicalRange[] = []
 let owtPlaybackTokens: OwtPlaybackToken[] = []
 let owtPlaybackRanges: OwtSourceRange[] = []
 let owtActiveRangeKey = ''
+let scoreCursorSeconds = 0
+let scoreCursorTokens: OwtPlaybackToken[] = []
+let scoreCursorRanges: OwtSourceRange[] = []
 let owtSyntaxIndex = buildOwtSyntaxIndex('')
 let owtModalView: ModalEditorViewState | undefined
 let owtValidationTimer = 0
@@ -285,6 +292,30 @@ const scoreViewPanels = [...document.querySelectorAll<HTMLElement>('[data-score-
 let activeScoreView: ScoreViewId = 'owt'
 let owtRevision = 0
 let timelineOwtRevision = -1
+function rebuildScoreCursorMap(): boolean {
+  const result = parseOwt(owtEditor.value)
+  if (!result.document) return false
+  owtPlaybackTokens = buildOwtPlaybackMap(owtEditor.value, result.document)
+  return owtPlaybackTokens.length > 0
+}
+
+function setScoreCursor(seconds: number, reveal = false): void {
+  if (owtPlaybackTokens.length === 0 && !rebuildScoreCursorMap()) return
+  scoreCursorSeconds = Math.max(0, seconds)
+  scoreCursorTokens = cursorOwtPlaybackTokens(owtPlaybackTokens, scoreCursorSeconds)
+  scoreCursorRanges = scoreCursorTokens.map(({ start, end }) => ({ start, end }))
+  renderOwtEditorHighlight()
+  updateNotationCursorHighlight()
+  updateTimelineCursorHighlight()
+  if (reveal && scoreCursorRanges[0]) revealOwtSourceRange(scoreCursorRanges[0])
+}
+
+function setScoreCursorFromSelections(selections: readonly { anchor: number; head: number }[]): void {
+  if (!rebuildScoreCursorMap()) return
+  const ranges = selections.map(normalizedSelection)
+  setScoreCursor(playbackStartForSourceRanges(owtPlaybackTokens, ranges))
+}
+
 let notationRefreshTimer: number | undefined
 let notationActiveEventKey = ''
 
@@ -301,6 +332,15 @@ function renderNotationViews(): void {
   $('jianpu-score').innerHTML = renderJianpuScore(model)
   notationActiveEventKey = ''
   updateNotationPlaybackHighlight(engine?.getPlaybackPosition()?.seconds ?? -1)
+  updateNotationCursorHighlight()
+  for (const element of document.querySelectorAll<HTMLElement>('#staff-score [data-owt-event], #jianpu-score [data-owt-event]')) {
+    element.addEventListener('click', () => {
+      const token = owtPlaybackTokens.find((item) => item.playbackId === element.dataset.owtEvent)
+      if (!token) return
+      modalEditor.selectRange(token.start, token.end, true)
+      setScoreCursor(token.startSeconds, true)
+    })
+  }
 }
 
 function scheduleNotationRefresh(): void {
@@ -310,6 +350,38 @@ function scheduleNotationRefresh(): void {
   }, 80)
 }
 
+function updateNotationCursorHighlight(): void {
+  const cursorIds = new Set(scoreCursorTokens.map((token) => token.playbackId))
+  document.querySelectorAll<HTMLElement>('#staff-score [data-owt-event], #jianpu-score [data-owt-event]').forEach((element) => {
+    const cursor = cursorIds.has(element.dataset.owtEvent ?? '')
+    element.classList.toggle('is-cursor', cursor)
+    element.classList.toggle('is-selected', cursor)
+    element.classList.toggle('is-playing', cursor)
+  })
+}
+
+function updateTimelineCursorHighlight(): void {
+  const root = $('timeline-cursors')
+  root.replaceChildren()
+  if (!loadedMidi || !loadedInspection) return
+  const ppq = loadedMidi.timeDivision || 480
+  const tempoMap = createMidiTempoMap(loadedMidi)
+  for (const track of loadedInspection.tracks.filter((item) => item.noteCount > 0)) {
+    const notes = getArrangementNotes(loadedMidi, track.index)
+    const note = notes.find((item) => tempoMap.tickToSeconds(item.startTick) <= scoreCursorSeconds && tempoMap.tickToSeconds(item.endTick) > scoreCursorSeconds)
+      ?? notes.find((item) => tempoMap.tickToSeconds(item.startTick) >= scoreCursorSeconds)
+      ?? notes.at(-1)
+    if (!note) continue
+    const cursor = document.createElement('span')
+    cursor.className = 'timeline-track-cursor is-playing'
+    cursor.dataset.trackIndex = String(track.index)
+    cursor.style.left = `${(note.startTick / ppq) * timelineBeatWidth}px`
+    cursor.style.top = `${34 + track.index * 62}px`
+    cursor.style.height = '62px'
+    cursor.addEventListener('click', () => setScoreCursor(tempoMap.tickToSeconds(note.startTick)))
+    root.appendChild(cursor)
+  }
+}
 function syncTimelineFromCurrentOwt(): boolean {
   try {
     const compiled = compileScoreText(owtEditor.value)
@@ -318,6 +390,17 @@ function syncTimelineFromCurrentOwt(): boolean {
     loadedInspection = inspectMidi(compiled.midi, fileName)
     mutedTracks.clear()
     timelineSelection = null
+    if (scoreCursorTokens[0]) {
+      const owtTrackIndex = Number(scoreCursorTokens[0].playbackId.split(':')[0])
+      const trackIndex = loadedInspection.tracks.filter((track) => track.noteCount > 0)[owtTrackIndex]?.index
+      if (trackIndex !== undefined) {
+        const notes = getArrangementNotes(loadedMidi, trackIndex)
+        const tempoMap = createMidiTempoMap(loadedMidi)
+        const note = notes.find((item) => tempoMap.tickToSeconds(item.startTick) <= scoreCursorSeconds && tempoMap.tickToSeconds(item.endTick) > scoreCursorSeconds) ?? notes[0]
+        if (note) timelineSelection = { trackIndex, startTick: note.startTick, endTick: note.endTick }
+      }
+    }
+    updateTimelineCursorHighlight()
     timelineOwtRevision = owtRevision
     $<HTMLElement>('st-file').textContent = fileName
     $<HTMLButtonElement>('btn-export-arrangement').disabled = false
@@ -353,9 +436,16 @@ $('btn-score-view-play').addEventListener('click', () => void Promise.resolve(ha
   setTranslatedStatus('owt-status', 'owt.error', { error: error instanceof Error ? error.message : String(error) }, 'err')
 }))
 
+$('btn-loop-playback').addEventListener('click', () => {
+  loopPlayback = !loopPlayback
+  if (!replacementRecording && improvSession.state !== 'responding') engine?.setLooping(loopPlayback)
+  renderLoopPlaybackUi()
+  setTranslatedStatus('midi-status', loopPlayback ? 'playback.loopOn' : 'playback.loopOff', {}, 'ok')
+})
 function syncOwtHighlightScroll(): void {
   owtHighlight.scrollTop = owtEditor.scrollTop
   owtHighlight.scrollLeft = owtEditor.scrollLeft
+  if (owtModalView?.selections[owtModalView.primary]) renderMotionDestinations(owtMotionDestinations(owtSyntaxIndex, owtModalView.selections[owtModalView.primary]!))
 }
 
 function modalDecorations(): OwtDecoration[] {
@@ -371,11 +461,66 @@ function modalDecorations(): OwtDecoration[] {
     if (range.start === range.end && index !== owtModalView.primary) decorations.push({ start: range.start, end: range.end, className: 'owt-modal-cursor' })
   }
   for (const range of owtSyntaxIndex.diagnostics) decorations.push({ start: range.start, end: range.end, className: 'owt-diagnostic-range' })
+  for (const range of scoreCursorRanges) decorations.push({ start: range.start, end: range.end, className: 'owt-score-cursor is-playing' })
   return decorations
 }
 
+function motionDestinationDecorations(): OwtDecoration[] {
+  if (!owtModalView || owtModalView.mode === 'raw' || owtModalView.mode === 'insert' || owtModalView.selections.length === 0) return []
+  const unique = new Map<string, OwtDecoration>()
+  for (const destination of owtMotionDestinations(owtSyntaxIndex, owtModalView.selections[owtModalView.primary]!)) {
+    const decoration = {
+      start: destination.start,
+      end: destination.end,
+      className: destination.kind === 'measure' ? 'owt-motion-target owt-motion-target-measure' : 'owt-motion-target',
+    }
+    unique.set(`${decoration.start}:${decoration.end}:${decoration.className}`, decoration)
+  }
+  return [...unique.values()]
+}
+
+function positionForSourceOffset(offset: number): { left: number; top: number } {
+  const before = owtEditor.value.slice(0, offset).split('\n')
+  const line = before.length - 1
+  const column = before.at(-1)?.length ?? 0
+  const style = getComputedStyle(owtEditor)
+  const lineHeight = Number.parseFloat(style.lineHeight) || 19
+  const paddingTop = Number.parseFloat(style.paddingTop) || 0
+  const paddingLeft = Number.parseFloat(style.paddingLeft) || 0
+  const ruler = document.createElement('canvas').getContext('2d')!
+  ruler.font = style.font
+  return {
+    left: paddingLeft + ruler.measureText(owtEditor.value.slice(offset - column, offset)).width - owtEditor.scrollLeft,
+    top: paddingTop + line * lineHeight - owtEditor.scrollTop,
+  }
+}
+
+function renderMotionDestinations(destinations: readonly OwtMotionDestination[]): void {
+  const root = $('owt-motion-destinations')
+  root.replaceChildren()
+  const groups = new Map<string, OwtMotionDestination[]>()
+  for (const destination of destinations) {
+    const key = `${destination.kind}:${destination.start}:${destination.end}`
+    groups.set(key, [...(groups.get(key) ?? []), destination])
+  }
+  for (const group of groups.values()) {
+    const destination = group[0]!
+    const position = positionForSourceOffset(destination.start)
+    const badge = document.createElement('span')
+    badge.className = `owt-motion-destination ${destination.kind}`
+    badge.textContent = group.map((item) => item.keys).join(' / ')
+    badge.style.left = `${Math.max(5, position.left)}px`
+    badge.style.top = `${Math.max(18, position.top)}px`
+    root.appendChild(badge)
+  }
+}
+
 function renderOwtEditorHighlight(): void {
-  owtHighlight.innerHTML = renderOwtHighlight(owtEditor.value, owtPlaybackRanges, owtLexicalTokens, modalDecorations())
+  const destinations = owtModalView && owtModalView.selections[owtModalView.primary]
+    ? owtMotionDestinations(owtSyntaxIndex, owtModalView.selections[owtModalView.primary]!)
+    : []
+  owtHighlight.innerHTML = renderOwtHighlight(owtEditor.value, owtPlaybackRanges, owtLexicalTokens, [...modalDecorations(), ...motionDestinationDecorations()])
+  renderMotionDestinations(destinations)
   syncOwtHighlightScroll()
 }
 
@@ -393,12 +538,18 @@ function clearOwtPlaybackContext(): void {
   renderOwtEditorHighlight()
 }
 
+function syncOwtUrlHash(text: string): void {
+  const hash = encodeOwtHash(text)
+  if (window.location.hash === hash) return
+  window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}${hash}`)
+}
+
 function setOwtEditorText(text: string, record = false): void {
   owtEditor.scrollTop = 0
   owtEditor.scrollLeft = 0
   clearOwtPlaybackContext()
   modalEditor.setText(text, record)
-  if (simpleEditMode === 'score') selectSemanticAt(0)
+  if (owtModalView?.mode !== 'raw') selectSemanticAt(0)
 }
 
 function revealOwtSourceRange(range: OwtSourceRange): void {
@@ -415,6 +566,7 @@ function revealOwtSourceRange(range: OwtSourceRange): void {
 }
 
 function updateOwtPlaybackHighlight(seconds: number, duration: number): void {
+  if (duration > 0) setScoreCursor(seconds)
   updateNotationPlaybackHighlight(duration > 0 ? seconds : -1)
   if (duration <= 0 || owtPlaybackTokens.length === 0) {
     if (owtActiveRangeKey !== '') {
@@ -435,12 +587,14 @@ function updateOwtPlaybackHighlight(seconds: number, duration: number): void {
 
 function updateNotationPlaybackHighlight(seconds: number): void {
   const activeIds = seconds < 0 ? [] : activeOwtPlaybackIds(owtPlaybackTokens, seconds)
-  const key = activeIds.join(',')
+  const key = `${activeIds.join(',')}|${scoreCursorTokens.map((token) => token.playbackId).join(',')}|${playbackActive}`
   if (key === notationActiveEventKey) return
   notationActiveEventKey = key
   const active = new Set(activeIds)
+  const cursors = new Set(scoreCursorTokens.map((token) => token.playbackId))
   document.querySelectorAll<HTMLElement>('#staff-score [data-owt-event], #jianpu-score [data-owt-event]').forEach((element) => {
-    const playing = active.has(element.dataset.owtEvent ?? '')
+    const id = element.dataset.owtEvent ?? ''
+    const playing = active.has(id) || (!playbackActive && cursors.has(id))
     element.classList.toggle('is-playing', playing)
     if (playing) element.setAttribute('aria-current', 'true')
     else element.removeAttribute('aria-current')
@@ -463,10 +617,17 @@ function modalHint(prefix: string): string {
 
 function renderModalStatus(state: ModalEditorViewState): void {
   owtModalView = state
-  const mode = $('owt-mode')
+  if (!playbackActive && state.mode !== 'insert' && state.mode !== 'raw') setScoreCursorFromSelections(state.selections)
+  const mode = $<HTMLButtonElement>('owt-mode')
   mode.textContent = state.mode.toUpperCase()
   mode.className = `owt-mode ${state.mode}`
+  const switchKey = state.mode === 'raw' ? 'simpleEdit.switchToNormal' : 'simpleEdit.switchToRaw'
+  mode.dataset.i18nAriaLabel = switchKey
+  mode.dataset.i18nTitle = switchKey
+  mode.setAttribute('aria-label', t(switchKey))
+  mode.title = t(switchKey)
   owtEditorShell.className = `owt-editor-shell ${state.mode}`
+  owtEditorShell.dataset.editMode = state.mode === 'raw' ? 'raw' : 'score'
   $('owt-position').textContent = t('modal.position', { line: state.line, column: state.column })
   $('owt-selection-count').textContent = t('modal.selections', { count: state.selections.length })
   $('owt-pending').textContent = state.pending ? t('modal.pending', { keys: state.pending }) : ''
@@ -490,10 +651,13 @@ const modalEditor = new ModalOwtEditor(
       scheduleNotationRefresh()
       owtPlaybackTokens = []
       owtPlaybackRanges = []
+      scoreCursorTokens = []
+      scoreCursorRanges = []
       owtSyntaxIndex = buildOwtSyntaxIndex(owtEditor.value, owtDiagnostics)
       owtActiveRangeKey = ''
       refreshOwtLexicalHighlight()
       scheduleOwtValidation()
+      syncOwtUrlHash(owtEditor.value)
     },
     onRender: renderModalStatus,
     onCommand: (command, args) => handleModalCommand(command, args),
@@ -503,7 +667,6 @@ const modalEditor = new ModalOwtEditor(
 
 owtEditor.addEventListener('scroll', syncOwtHighlightScroll)
 
-let simpleEditMode: 'score' | 'raw' = 'score'
 let semanticReplaceArmed = false
 
 type EditableOwtObjectKind = 'event' | 'measure' | 'track'
@@ -529,15 +692,6 @@ function selectSemanticAt(position: number): void {
   selectSemanticObject(containing ?? owtSyntaxIndex.events.find((object) => object.start >= position) ?? owtSyntaxIndex.events[0], false)
 }
 
-function updateSimpleEditUi(): void {
-  const scoreButton = $<HTMLButtonElement>('btn-owt-mode-score')
-  const rawButton = $<HTMLButtonElement>('btn-owt-mode-raw')
-  scoreButton.classList.toggle('active', simpleEditMode === 'score')
-  rawButton.classList.toggle('active', simpleEditMode === 'raw')
-  scoreButton.setAttribute('aria-pressed', String(simpleEditMode === 'score'))
-  rawButton.setAttribute('aria-pressed', String(simpleEditMode === 'raw'))
-  owtEditorShell.dataset.editMode = simpleEditMode
-}
 
 function cancelSemanticPerformanceReplacement(showStatus = false): void {
   semanticReplaceArmed = false
@@ -547,20 +701,17 @@ function cancelSemanticPerformanceReplacement(showStatus = false): void {
   if (showStatus) setTranslatedStatus('owt-edit-status', 'simpleEdit.replaceCancelled')
 }
 
-function setSimpleEditMode(mode: 'score' | 'raw'): void {
-  if (mode === 'score' && simpleEditMode === 'raw') formatEditorOwt(false)
+function setHelixEditingMode(mode: 'normal' | 'raw'): void {
+  if (mode === 'normal' && owtModalView?.mode === 'raw') formatEditorOwt(false)
   cancelSemanticPerformanceReplacement()
-  simpleEditMode = mode
-  modalEditor.setInteractionMode(mode === 'raw' ? 'raw' : 'helix')
+  modalEditor.setEditingMode(mode)
   $('owt-key-hints').hidden = true
-  updateSimpleEditUi()
-  if (mode === 'score') {
-    selectSemanticAt(modalEditor.primaryRange().start)
-  } else {
-    modalEditor.focus()
-  }
+  if (mode === 'normal') selectSemanticAt(modalEditor.primaryRange().start)
+  else modalEditor.focus()
   clearStatus('owt-edit-status')
 }
+
+$('owt-mode').addEventListener('click', () => setHelixEditingMode(owtModalView?.mode === 'raw' ? 'normal' : 'raw'))
 
 function deleteSelectedSemanticObject(): void {
   const ranges = modalEditor.selections.map(normalizedSelection)
@@ -603,9 +754,7 @@ function handleSemanticReplacementNote(data: Uint8Array): boolean {
   return true
 }
 
-$('btn-owt-mode-score').addEventListener('click', () => setSimpleEditMode('score'))
-$('btn-owt-mode-raw').addEventListener('click', () => setSimpleEditMode('raw'))
-$('btn-owt-mode-improv').addEventListener('click', () => {
+$('btn-ai-improvise').addEventListener('click', () => {
   if (improvSession.active) stopConversationalImprov()
   else startConversationalImprov()
 })
@@ -674,8 +823,7 @@ async function ensureEngine(): Promise<SpessaSynthEngine> {
     onPlaybackEnded: () => {
       setPlaybackUi(false)
       setTranslatedStatus('midi-status', 'playback.finished', {}, 'ok')
-      updateTimelinePlayhead(0, 0)
-      clearOwtPlaybackContext()
+      updateTimelinePlayhead(scoreCursorSeconds, engine?.getPlaybackPosition()?.duration ?? 0)
       if (replacementRecording) window.setTimeout(finishReplacementRecording, 0)
       handleConversationalImprovPlaybackEnded()
     },
@@ -683,7 +831,11 @@ async function ensureEngine(): Promise<SpessaSynthEngine> {
       clearPlaybackNotes()
       setPlaybackUi(playing)
       if (playing) startPlaybackPositionUpdates()
-      else stopPlaybackPositionUpdates()
+      else {
+        const position = engine?.getPlaybackPosition()
+        if (position && position.duration > 0) setScoreCursor(position.seconds)
+        stopPlaybackPositionUpdates()
+      }
     },
     onPlaybackNoteOn: (_channel, note) => updatePlaybackNote(note, true),
     onPlaybackNoteOff: (_channel, note) => updatePlaybackNote(note, false),
@@ -694,6 +846,7 @@ async function ensureEngine(): Promise<SpessaSynthEngine> {
   })
   await engine.ensureReady()
   if (engine) setTranslatedText('st-audio', 'status.ready')
+  engine.setLooping(loopPlayback)
   // Register learnable parameters against the engine.
   midiLearn.register({
     id: 'master-volume',
@@ -856,9 +1009,26 @@ function setPlaybackUi(playing: boolean): void {
   playbackActive = playing
   $<HTMLButtonElement>('btn-stop').disabled = !playing
   const button = $<HTMLButtonElement>('btn-score-view-play')
+  const actionKey = playing ? 'playback.pause' : 'playback.play'
+  const action = t(actionKey)
   button.setAttribute('aria-pressed', String(playing))
+  button.dataset.i18nAriaLabel = actionKey
+  button.dataset.i18nTitle = actionKey
+  button.setAttribute('aria-label', action)
+  button.title = action
   const icon = button.querySelector<HTMLElement>('.control-icon')
   if (icon) icon.textContent = playing ? 'Ⅱ' : '▶'
+  const label = button.querySelector<HTMLElement>('.control-label')
+  if (label) {
+    label.dataset.i18n = actionKey
+    label.textContent = action
+  }
+}
+
+function renderLoopPlaybackUi(): void {
+  const button = $<HTMLButtonElement>('btn-loop-playback')
+  button.classList.toggle('active', loopPlayback)
+  button.setAttribute('aria-pressed', String(loopPlayback))
 }
 
 function refreshPracticeExpectedVisuals(): void {
@@ -868,6 +1038,21 @@ function refreshPracticeExpectedVisuals(): void {
     if (practiceExpectedNotes.includes(assignment.note)) computerKeycaps.get(assignment.key)?.classList.add('expected')
   }
   if (practiceExpectedNotes.length > 0) keyboard.scrollToRange(Math.min(...practiceExpectedNotes), Math.max(...practiceExpectedNotes), 'smooth')
+}
+
+function updatePracticeButton(): void {
+  const button = $<HTMLButtonElement>('btn-owt-practice')
+  const active = Boolean(practiceSession)
+  const key = active ? 'practice.stop' : 'owt.practice'
+  const label = button.querySelector<HTMLElement>('.control-label')
+  if (label) {
+    label.dataset.i18n = key
+    label.textContent = t(key)
+  }
+  button.setAttribute('aria-pressed', String(active))
+  button.setAttribute('aria-label', t(key))
+  button.title = t(key)
+  button.classList.toggle('active', active)
 }
 
 function renderPracticeGuide(): void {
@@ -881,7 +1066,7 @@ function renderPracticeGuide(): void {
   practiceExpectedNotes = prompt.pitches.slice()
   guide.hidden = false
   guide.classList.remove('wrong', 'complete')
-  $<HTMLButtonElement>('btn-owt-practice').textContent = t('practice.stop')
+  updatePracticeButton()
   $('practice-note').textContent = prompt.pitches.map(noteName).join(' + ')
   const assignment = mapping.listComputerKeyAssignments().find((candidate) => candidate.note === prompt.pitches[0])
   const computerKey = $<HTMLElement>('practice-computer-key')
@@ -895,7 +1080,7 @@ function stopPractice(hide = true): void {
   practiceSession = null
   practiceExpectedNotes = []
   refreshPracticeExpectedVisuals()
-  $<HTMLButtonElement>('btn-owt-practice').textContent = t('owt.practice')
+  updatePracticeButton()
   if (hide) $('practice-guide').hidden = true
 }
 
@@ -910,7 +1095,7 @@ function startPractice(): void {
   engine?.stop()
   clearOwtPlaybackContext()
   practiceSession = new PracticeSession(prompts)
-  $<HTMLButtonElement>('btn-owt-practice').textContent = t('practice.stop')
+  updatePracticeButton()
   renderPracticeGuide()
   setTranslatedStatus('owt-status', 'practice.started', { count: prompts.length }, 'ok')
   $('live-panel').scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -933,7 +1118,7 @@ function handlePracticeNote(data: Uint8Array): void {
     practiceSession = null
     practiceExpectedNotes = []
     refreshPracticeExpectedVisuals()
-    $<HTMLButtonElement>('btn-owt-practice').textContent = t('owt.practice')
+    updatePracticeButton()
     setTranslatedStatus('owt-status', 'practice.completed', {}, 'ok')
     return
   }
@@ -1339,6 +1524,7 @@ function renderArrangement(): void {
   renderTrackList()
   renderTimeline()
   updateTimelineSelection()
+  updateTimelineCursorHighlight()
   $('arranger-grid').classList.toggle('has-midi', Boolean(loadedMidi))
 }
 
@@ -1414,10 +1600,22 @@ function renderTimeline(): void {
     for (const note of notes) {
       const block = document.createElement('span')
       block.className = 'timeline-note'
+      block.dataset.trackIndex = String(track.index)
+      block.dataset.startTick = String(note.startTick)
+      block.dataset.endTick = String(note.endTick)
+      block.addEventListener('click', (event) => {
+        event.stopPropagation()
+        selectedTrackIndex = track.index
+        timelineSelection = { trackIndex: track.index, startTick: note.startTick, endTick: note.endTick }
+        setScoreCursor(createMidiTempoMap(loadedMidi!).tickToSeconds(note.startTick))
+        renderArrangement()
+      })
       block.style.left = `${(note.startTick / ppq) * timelineBeatWidth}px`
       block.style.width = `${Math.max(3, ((note.endTick - note.startTick) / ppq) * timelineBeatWidth)}px`
       block.style.top = `${7 + (1 - (note.note - minNote) / pitchSpan) * 40}px`
       block.title = `${noteName(note.note)} · ${note.startTick / ppq}–${note.endTick / ppq}`
+      const selected = timelineSelection?.trackIndex === track.index && timelineSelection.startTick < note.endTick && timelineSelection.endTick > note.startTick
+      block.classList.toggle('is-selected', selected)
       lane.appendChild(block)
     }
     tracks.appendChild(lane)
@@ -1449,6 +1647,7 @@ $<HTMLDivElement>('timeline-tracks').addEventListener('pointerdown', (event) => 
   selectionDrag = { trackIndex, anchorTick }
   lane.setPointerCapture(event.pointerId)
   timelineSelection = { trackIndex, startTick: anchorTick, endTick: anchorTick + Math.max(1, Math.round((loadedMidi.timeDivision || 480) / 4)) }
+  setScoreCursor(createMidiTempoMap(loadedMidi).tickToSeconds(anchorTick))
   renderTrackList()
   for (const track of document.querySelectorAll<HTMLElement>('.timeline-track')) {
     track.classList.toggle('selected', Number(track.dataset.trackIndex) === trackIndex)
@@ -1524,11 +1723,13 @@ async function playArrangement(startSeconds = 0, source = loadedMidi): Promise<v
   const e = await ensureEngine()
   let playbackSource = source
   if (mutedTracks.size > 0) playbackSource = applyTrackMutes(source, mutedTracks)
+  e.setLooping(loopPlayback && !replacementRecording)
   await e.playMidi(playbackSource.writeMIDI(), source.fileName ?? 'song.mid', startSeconds)
   setPlaybackUi(true)
 }
 
 $('btn-stop').addEventListener('click', () => {
+  clearOwtPlaybackContext()
   if (replacementRecording) finishReplacementRecording()
   else engine?.stop()
   $<HTMLProgressElement>('progress').value = 0
@@ -1609,9 +1810,15 @@ function renderOwtDiagnostics(diagnostics: Array<{ line: number; column: number;
     const row = document.createElement('div')
     row.className = `owt-diagnostic${diagnostic.severity === 'warning' ? ' warning' : ''}`
     row.textContent = `${diagnostic.line}:${diagnostic.column} [${diagnostic.code}] ${diagnostic.message}`
+
     box.appendChild(row)
   }
   renderOwtEditorHighlight()
+}
+function owtFileName(document: OwtDocument, extension: 'owt' | 'mid'): string {
+  const title = document.title?.trim() || 'opusweave-melody'
+  const safe = title.replace(/[^\p{L}\p{N}._-]+/gu, '-').replace(/^-+|-+$/g, '') || 'opusweave-melody'
+  return `${safe}.${extension}`
 }
 
 function parseEditorOwt(): OwtDocument | null {
@@ -1622,12 +1829,6 @@ function parseEditorOwt(): OwtDocument | null {
     return null
   }
   return result.document
-}
-
-function owtFileName(document: OwtDocument, extension: 'owt' | 'mid'): string {
-  const title = document.title?.trim() || 'opusweave-melody'
-  const safe = title.replace(/[^\p{L}\p{N}._-]+/gu, '-').replace(/^-+|-+$/g, '') || 'opusweave-melody'
-  return `${safe}.${extension}`
 }
 
 function validateEditorOwt(): OwtDocument | null {
@@ -1661,7 +1862,7 @@ function showExtractedMelody(result: MelodyExtractionResult, sourceKey: 'owt.mid
   }, 'ok')
 }
 
-async function playOwtRange(sourceRange?: { start: number; end?: number }): Promise<void> {
+async function playOwtRange(sourceRange?: { start: number; end?: number }, allowLoop = true): Promise<void> {
   const document = parseEditorOwt()
   if (!document) return
   const compiled = compileScoreText(owtEditor.value)
@@ -1682,10 +1883,15 @@ async function playOwtRange(sourceRange?: { start: number; end?: number }): Prom
       endSeconds = selected.reduce((maximum, token) => Math.max(maximum, token.endSeconds), startSeconds)
     }
   }
+  setScoreCursor(startSeconds)
   const player = await ensureEngine()
+  player.setLooping(loopPlayback && allowLoop)
   await player.playMidi(compiled.midi, fileName, startSeconds)
   if (endSeconds !== undefined && endSeconds > startSeconds) {
-    selectionPlaybackTimer = window.setTimeout(() => player.stop(), (endSeconds - startSeconds) * 1000)
+    selectionPlaybackTimer = window.setTimeout(() => {
+      if (loopPlayback && playbackActive && allowLoop) void playOwtRange(sourceRange, allowLoop)
+      else player.stop()
+    }, (endSeconds - startSeconds) * 1000)
   }
   setTranslatedStatus('owt-status', 'owt.playing', {}, 'ok')
   setTranslatedStatus('midi-status', 'playback.playing')
@@ -1696,9 +1902,10 @@ function handleModalCommand(command: string, args = ''): void | Promise<void> {
   switch (normalized) {
     case 'play': case 'play-pause':
       if (playbackActive) engine?.pause()
-      else if (activeScoreView === 'timeline' && loadedMidi) return playArrangement()
-      else return playOwtRange()
+      else if (activeScoreView === 'timeline' && loadedMidi) return playArrangement(scoreCursorSeconds)
+      else return playOwtRange({ start: scoreCursorRanges[0]?.start ?? modalEditor.primaryRange().start })
       return
+    case 'loop': $('btn-loop-playback').click(); return
     case 'play-from-cursor': {
       const range = modalEditor.primaryRange()
       return playOwtRange({ start: range.start })
@@ -1717,15 +1924,14 @@ function handleModalCommand(command: string, args = ''): void | Promise<void> {
     case 'export-midi': $('btn-owt-export-midi').click(); return
     case 'import-midi': case 'extract-midi': $<HTMLInputElement>('owt-file').click(); return
     case 'perform': $('btn-owt-practice').click(); return
-    case 'mode-score': $('btn-owt-mode-score').click(); return
-    case 'mode-raw': $('btn-owt-mode-raw').click(); return
-    case 'improv': $('btn-owt-mode-improv').click(); return
+    case 'mode-score': setHelixEditingMode('normal'); return
+    case 'mode-raw': setHelixEditingMode('raw'); return
+    case 'improv': $('btn-ai-improvise').click(); return
     case 'view-owt': case 'view-timeline': case 'view-staff': case 'view-jianpu':
       document.querySelector<HTMLButtonElement>(`[data-score-view-target="${normalized.slice(5)}"]`)?.click(); return
     case 'delete-object': $('btn-owt-delete-object').click(); return
     case 'replace-by-playing': $('btn-owt-replace-play').click(); return
-    case 'load-example': $('btn-load-example').click(); return
-    case 'play-example': void loadBuiltinExample(true); return
+    case 'play-example': void loadBuiltinExample(BUILTIN_OWT_EXAMPLES[0]?.id, true); return
     case 'timeline-restart': $('btn-restart').click(); return
     case 'timeline-export': $('btn-export-arrangement').click(); return
     case 'timeline-clear': $('btn-clear-range').click(); return
@@ -1733,6 +1939,7 @@ function handleModalCommand(command: string, args = ''): void | Promise<void> {
     case 'timeline-finish': $('btn-stop-replace').click(); return
     case 'ai-settings': showWorkspacePage('settings'); return
     case 'ai-test': showWorkspacePage('settings'); $('btn-ai-test').click(); return
+    case 'ai-reset-templates': showWorkspacePage('settings'); $('btn-ai-reset-templates').click(); return
     case 'ai-compose': $('btn-ai-compose').click(); return
     case 'toggle-locale': localeButton.click(); return
     case 'toggle-theme': themeButton.click(); return
@@ -1831,24 +2038,33 @@ fileMenu.addEventListener('toggle', () => {
 
 // ─── Built-in examples, keyboard layouts and AI composition ─────────────────
 
-const exampleSelect = $<HTMLSelectElement>('owt-example')
+const exampleMenu = $('owt-example-menu')
 for (const example of BUILTIN_OWT_EXAMPLES) {
-  const option = document.createElement('option')
-  option.value = example.id
-  option.textContent = `${example.title} — ${example.composer}`
-  exampleSelect.appendChild(option)
+  const button = document.createElement('button')
+  button.type = 'button'
+  button.role = 'menuitem'
+  button.dataset.exampleId = example.id
+  const title = document.createElement('span')
+  title.className = 'example-menu-title'
+  title.textContent = example.title
+  const composer = document.createElement('span')
+  composer.className = 'example-menu-composer'
+  composer.textContent = example.composer
+  button.append(title, composer)
+  button.addEventListener('click', () => void loadBuiltinExample(example.id, false))
+  exampleMenu.appendChild(button)
 }
 
-async function loadBuiltinExample(play: boolean): Promise<void> {
-  const example = builtinOwtExample(exampleSelect.value)
+async function loadBuiltinExample(id: string | undefined, play: boolean): Promise<void> {
+  if (!id) return
+  const example = builtinOwtExample(id)
   if (!example) return
   setOwtEditorText(example.text, true)
   renderOwtDiagnostics([])
   setTranslatedStatus('owt-status', 'examples.loaded', { title: example.title }, 'ok')
+  fileMenu.open = false
   if (play) await playOwtRange()
 }
-
-$('btn-load-example').addEventListener('click', () => void loadBuiltinExample(false))
 
 const COMPUTER_LAYOUT_PREFERENCE_KEY = 'opusweave.computer-layout'
 let keyboardSequenceGeneration = 0
@@ -1857,19 +2073,12 @@ function currentComputerLayout(): BuiltinComputerLayoutId {
   return mapping.currentComputerLayoutId as BuiltinComputerLayoutId
 }
 
-function updateComputerLayoutGuidance(layout: BuiltinComputerLayoutId): void {
-  const hint = document.querySelector<HTMLElement>('.keyboard-hint')!
-  const hintKey = `layout.hint.${layout}`
-  hint.dataset.i18n = hintKey
-  hint.textContent = t(hintKey)
-}
 
 function setComputerKeyboardLayout(layout: BuiltinComputerLayoutId, persist = true): void {
   releaseComputerNotes()
   mapping.setComputerLayout(layout)
   $<HTMLSelectElement>('computer-layout').value = layout
   if (persist) window.localStorage.setItem(COMPUTER_LAYOUT_PREFERENCE_KEY, layout)
-  updateComputerLayoutGuidance(layout)
   updateOctaveLabel()
 }
 
@@ -1893,9 +2102,13 @@ const AI_CONFIG_KEY = 'opusweave.ai.config'
 function storedAiConfig(): OwtAiConfig {
   try {
     const stored = JSON.parse(window.localStorage.getItem(AI_CONFIG_KEY) ?? '{}') as Partial<OwtAiConfig>
-    return { ...DEFAULT_OWT_AI_CONFIG, ...stored }
+    return {
+      ...DEFAULT_OWT_AI_CONFIG,
+      ...stored,
+      promptTemplates: { ...DEFAULT_OWT_AI_PROMPT_TEMPLATES, ...stored.promptTemplates },
+    }
   } catch {
-    return { ...DEFAULT_OWT_AI_CONFIG }
+    return { ...DEFAULT_OWT_AI_CONFIG, promptTemplates: { ...DEFAULT_OWT_AI_PROMPT_TEMPLATES } }
   }
 }
 
@@ -1903,6 +2116,21 @@ function renderAiConfig(config: OwtAiConfig): void {
   $<HTMLInputElement>('ai-endpoint').value = config.baseUrl
   $<HTMLInputElement>('ai-model').value = config.model
   $<HTMLInputElement>('ai-api-key').value = config.apiKey ?? ''
+  $<HTMLSelectElement>('ai-protocol').value = config.protocol ?? 'auto'
+  const templates = { ...DEFAULT_OWT_AI_PROMPT_TEMPLATES, ...config.promptTemplates }
+  $<HTMLTextAreaElement>('ai-template-system').value = templates.system
+  $<HTMLTextAreaElement>('ai-template-prompt').value = templates.prompt
+  $<HTMLTextAreaElement>('ai-template-media').value = templates.scoreMedia
+  $<HTMLTextAreaElement>('ai-template-improvise').value = templates.improvise
+}
+
+function currentAiPromptTemplates(): OwtAiPromptTemplates {
+  return {
+    system: $<HTMLTextAreaElement>('ai-template-system').value,
+    prompt: $<HTMLTextAreaElement>('ai-template-prompt').value,
+    scoreMedia: $<HTMLTextAreaElement>('ai-template-media').value,
+    improvise: $<HTMLTextAreaElement>('ai-template-improvise').value,
+  }
 }
 
 function currentAiConfig(): OwtAiConfig {
@@ -1910,8 +2138,10 @@ function currentAiConfig(): OwtAiConfig {
     baseUrl: $<HTMLInputElement>('ai-endpoint').value.trim(),
     model: $<HTMLInputElement>('ai-model').value.trim(),
     apiKey: $<HTMLInputElement>('ai-api-key').value || undefined,
+    protocol: $<HTMLSelectElement>('ai-protocol').value as AiProtocol,
     temperature: DEFAULT_OWT_AI_CONFIG.temperature,
     maxTokens: DEFAULT_OWT_AI_CONFIG.maxTokens,
+    promptTemplates: currentAiPromptTemplates(),
   }
 }
 
@@ -1923,6 +2153,45 @@ function aiTransport(signal?: AbortSignal): { proxyUrl?: string; signal: AbortSi
   const localDesktop = location.hostname === '127.0.0.1' || location.hostname === 'localhost'
   const timeout = AbortSignal.timeout(180_000)
   return { proxyUrl: localDesktop ? '/api/ai/chat' : undefined, signal: signal ? AbortSignal.any([signal, timeout]) : timeout }
+}
+
+let aiDiscoveryTimer: number | undefined
+let aiDiscoveryController: AbortController | undefined
+
+async function refreshAiModels(): Promise<void> {
+  const config = currentAiConfig()
+  if (!config.baseUrl) return
+  aiDiscoveryController?.abort()
+  aiDiscoveryController = new AbortController()
+  const refresh = $<HTMLButtonElement>('btn-ai-refresh-models')
+  const model = $<HTMLInputElement>('ai-model')
+  refresh.disabled = true
+  model.setAttribute('aria-busy', 'true')
+  setTranslatedStatus('ai-status', 'ai.modelsLoading', {}, 'warn')
+  try {
+    const discovery = await discoverAiModels(config, aiTransport(aiDiscoveryController.signal))
+    const options = $('ai-model-options')
+    options.replaceChildren(...discovery.models.map((item) => {
+      const option = document.createElement('option')
+      option.value = item.id
+      option.label = item.name === item.id ? item.id : `${item.name} — ${item.id}`
+      return option
+    }))
+    if (!config.model || !discovery.models.some((item) => item.id === config.model)) model.value = discovery.models[0]?.id ?? ''
+    if ((config.protocol ?? 'auto') === 'auto') $<HTMLSelectElement>('ai-protocol').value = discovery.protocol
+    persistAiConfig()
+    setTranslatedStatus('ai-status', 'ai.modelsLoaded', { count: discovery.models.length, provider: discovery.provider }, 'ok')
+  } catch (error) {
+    setTranslatedStatus('ai-status', 'ai.modelsError', { error: error instanceof Error ? error.message : String(error) }, 'err')
+  } finally {
+    refresh.disabled = false
+    model.removeAttribute('aria-busy')
+  }
+}
+
+function scheduleAiModelDiscovery(): void {
+  window.clearTimeout(aiDiscoveryTimer)
+  aiDiscoveryTimer = window.setTimeout(() => void refreshAiModels(), 500)
 }
 
 type AiComposeState = 'idle' | 'working' | 'success' | 'error'
@@ -1953,10 +2222,11 @@ function setAiComposeState(state: AiComposeState): void {
 
 function setAiBusy(busy: boolean): void {
   $<HTMLButtonElement>('btn-ai-test').disabled = busy
+  $<HTMLButtonElement>('btn-ai-refresh-models').disabled = busy
   const composeButton = $<HTMLButtonElement>('btn-ai-compose')
   composeButton.disabled = busy
   composeButton.setAttribute('aria-busy', String(busy))
-  $<HTMLButtonElement>('btn-owt-mode-improv').disabled = busy && !improvSession.active
+  $<HTMLButtonElement>('btn-ai-improvise').disabled = busy && !improvSession.active
 }
 
 async function applyAiRequest(request: OwtAiRequest, statusKey: string, statusValues: TranslationValues = {}): Promise<boolean> {
@@ -1984,9 +2254,8 @@ async function applyAiRequest(request: OwtAiRequest, statusKey: string, statusVa
 }
 
 function updateConversationalImprovUi(): void {
-  const button = $<HTMLButtonElement>('btn-owt-mode-improv')
-  const state = $('ai-improv-state')
-  $('improv-mode-row').hidden = !improvSession.active
+  const button = $<HTMLButtonElement>('btn-ai-improvise')
+  const label = button.querySelector<HTMLElement>('.control-label')!
   const stateKeys = {
     off: 'ai.improvOff',
     listening: 'ai.improvListeningState',
@@ -1994,11 +2263,17 @@ function updateConversationalImprovUi(): void {
     thinking: 'ai.improvThinkingState',
     responding: 'ai.improvRespondingState',
   } as const
-  button.setAttribute('aria-pressed', String(improvSession.active))
-  button.classList.toggle('active', improvSession.active)
-  state.dataset.i18n = stateKeys[improvSession.state]
-  state.textContent = t(stateKeys[improvSession.state])
-  state.className = `improv-state ${improvSession.state}`
+  const active = improvSession.active
+  const actionKey = active ? 'ai.improviseStop' : 'ai.improviseStart'
+  button.setAttribute('aria-pressed', String(active))
+  button.classList.toggle('active', active)
+  button.dataset.improvState = improvSession.state
+  button.dataset.i18nAriaLabel = actionKey
+  button.dataset.i18nTitle = actionKey
+  button.setAttribute('aria-label', t(actionKey))
+  button.title = `${t(actionKey)} · ${t(stateKeys[improvSession.state])}`
+  label.removeAttribute('data-i18n')
+  label.textContent = active ? t(stateKeys[improvSession.state]) : t('simpleEdit.improvMode')
 }
 
 function stopConversationalImprov(showStatus = true): void {
@@ -2018,7 +2293,6 @@ function stopConversationalImprov(showStatus = true): void {
 function startConversationalImprov(): void {
   persistAiConfig()
   cancelSemanticPerformanceReplacement()
-  if (simpleEditMode !== 'score') setSimpleEditMode('score')
   engine?.stop()
   clearOwtPlaybackContext()
   improvSession.start()
@@ -2072,7 +2346,7 @@ async function requestConversationalImprovResponse(phrase: RecordedTake): Promis
     }).text
     const text = await createOwtWithAi(currentAiConfig(), {
       task: 'improvise',
-      instruction: $<HTMLTextAreaElement>('ai-prompt').value.trim() || 'Answer the phrase naturally, leave conversational space, and finish with a clear cadence.',
+      instruction: '',
       currentOwt: phraseOwt,
     }, aiTransport(controller.signal))
     if (requestSequence !== improvRequestSequence || improvSession.state !== 'thinking') return
@@ -2082,7 +2356,7 @@ async function requestConversationalImprovResponse(phrase: RecordedTake): Promis
     improvSession.markResponding()
     updateConversationalImprovUi()
     setTranslatedStatus('ai-status', 'ai.improvResponding', {}, 'ok')
-    await playOwtRange()
+    await playOwtRange(undefined, false)
   } catch (error) {
     if (requestSequence !== improvRequestSequence || !improvSession.active || improvSession.state === 'recording') return
     improvSession.markListening()
@@ -2103,8 +2377,19 @@ function handleConversationalImprovPlaybackEnded(): void {
 renderAiConfig(storedAiConfig())
 updateConversationalImprovUi()
 renderAiComposeButton()
-for (const id of ['ai-endpoint', 'ai-model', 'ai-api-key']) $(id).addEventListener('change', persistAiConfig)
-
+for (const id of ['ai-model', 'ai-protocol']) $(id).addEventListener('change', persistAiConfig)
+for (const id of ['ai-endpoint', 'ai-api-key']) {
+  $(id).addEventListener('input', () => { persistAiConfig(); scheduleAiModelDiscovery() })
+}
+for (const id of ['ai-template-system', 'ai-template-prompt', 'ai-template-media', 'ai-template-improvise']) {
+  $(id).addEventListener('input', persistAiConfig)
+}
+$('btn-ai-reset-templates').addEventListener('click', () => {
+  renderAiConfig({ ...currentAiConfig(), promptTemplates: { ...DEFAULT_OWT_AI_PROMPT_TEMPLATES } })
+  persistAiConfig()
+  setTranslatedStatus('ai-status', 'ai.promptTemplatesReset', {}, 'ok')
+})
+$('btn-ai-refresh-models').addEventListener('click', () => void refreshAiModels())
 $('btn-ai-test').addEventListener('click', () => {
   const config = currentAiConfig()
   setAiBusy(true)
@@ -2116,6 +2401,23 @@ $('btn-ai-test').addEventListener('click', () => {
     setTranslatedStatus('ai-status', 'ai.error', { error: error instanceof Error ? error.message : String(error) }, 'err')
   }).finally(() => setAiBusy(false))
 })
+
+const aiPromptExampleKeys = [
+  'ai.promptExample.rain',
+  'ai.promptExample.typhoon',
+  'ai.promptExample.firstSnow',
+  'ai.promptExample.lastTrain',
+  'ai.promptExample.spring',
+  'ai.promptExample.seaWind',
+] as const
+let lastAiPromptExample = -1
+
+function chooseAiPromptExample(): string {
+  const offset = Math.floor(Math.random() * (aiPromptExampleKeys.length - (lastAiPromptExample < 0 ? 0 : 1)))
+  const index = lastAiPromptExample < 0 || offset < lastAiPromptExample ? offset : offset + 1
+  lastAiPromptExample = index
+  return t(aiPromptExampleKeys[index]!)
+}
 
 const aiComposeDialog = $<HTMLDialogElement>('ai-compose-dialog')
 const aiComposeForm = $<HTMLFormElement>('ai-compose-form')
@@ -2148,6 +2450,7 @@ async function copyManualAiPrompt(): Promise<void> {
 }
 
 $('btn-ai-compose').addEventListener('click', () => {
+  aiPrompt.placeholder = chooseAiPromptExample()
   if (aiComposeState !== 'idle') setAiComposeState('idle')
   if (!hasConfiguredAiApi(currentAiConfig())) {
     showManualAiDialog()
@@ -2173,18 +2476,18 @@ aiManualPrompt.addEventListener('keydown', (event) => {
 
 aiComposeForm.addEventListener('submit', (event) => {
   event.preventDefault()
-  const instruction = aiPrompt.value.trim()
-  if (!instruction) {
-    aiPrompt.setCustomValidity(t('ai.promptRequired'))
-    aiPrompt.reportValidity()
-    return
-  }
+  const instruction = aiPrompt.value.trim() || aiPrompt.placeholder.trim()
   aiPrompt.setCustomValidity('')
   aiComposeDialog.close()
   void applyAiRequest({ task: 'prompt', instruction, currentOwt: owtEditor.value }, 'ai.working')
 })
 
 aiPrompt.addEventListener('input', () => aiPrompt.setCustomValidity(''))
+aiPrompt.addEventListener('keydown', (event) => {
+  if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return
+  event.preventDefault()
+  aiComposeForm.requestSubmit()
+})
 
 async function importOwtFile(file: File): Promise<void> {
   setOwtEditorText(await file.text(), true)
@@ -2841,8 +3144,11 @@ const initialComputerLayout: BuiltinComputerLayoutId = ['default', 'english', 'p
   : 'default'
 setComputerKeyboardLayout(initialComputerLayout, false)
 setPlaybackUi(false)
-setOwtEditorText(DEFAULT_OWT_SCORE)
-setSimpleEditMode('score')
+renderLoopPlaybackUi()
+const initialOwtHashPresent = window.location.hash.startsWith('#owt=')
+const initialOwtFromHash = decodeOwtHash(window.location.hash)
+setOwtEditorText(initialOwtFromHash ?? DEFAULT_OWT_SCORE)
+setHelixEditingMode('normal')
 const savedScoreView = window.localStorage.getItem(SCORE_VIEW_PREFERENCE_KEY)
 const initialScoreView: ScoreViewId = ['owt', 'timeline', 'staff', 'jianpu'].includes(savedScoreView ?? '')
   ? savedScoreView as ScoreViewId
@@ -2851,19 +3157,39 @@ showScoreView(initialScoreView, false)
 renderMidiState(midiManager.getState())
 showWorkspacePage('studio')
 renderArrangement()
+if (initialOwtHashPresent && initialOwtFromHash === null) {
+  setTranslatedStatus('owt-status', 'owt.shareInvalid', {}, 'err')
+} else if (initialOwtFromHash !== null) {
+  setTranslatedStatus('owt-status', 'owt.shareLoaded', {}, 'ok')
+}
+window.addEventListener('hashchange', () => {
+  const hashContainsScore = window.location.hash.startsWith('#owt=')
+  const sharedOwt = decodeOwtHash(window.location.hash)
+  if (sharedOwt === null) {
+    if (hashContainsScore) setTranslatedStatus('owt-status', 'owt.shareInvalid', {}, 'err')
+    return
+  }
+  if (sharedOwt === owtEditor.value) return
+  setOwtEditorText(sharedOwt, true)
+  showWorkspacePage('studio')
+  showScoreView('owt')
+  setTranslatedStatus('owt-status', 'owt.shareLoaded', {}, 'ok')
+})
 void initializeComputerMapDisclosure()
 builtInSoundFontPromise = loadBuiltInSoundFont()
 void builtInSoundFontPromise.then(() => refreshAudioOutputs(true))
 
-void fetch('/api/startup-midi').then(async (response) => {
-  if (response.status === 204 || !response.ok) return
-  const encodedTitle = response.headers.get('x-opusweave-title') ?? 'OWT Score'
-  const title = decodeURIComponent(encodedTitle)
-  await loadMidiData(await response.arrayBuffer(), `${title}.mid`)
-  setTranslatedStatus('midi-status', 'playback.clickToStart', {}, 'warn')
-  window.addEventListener('pointerdown', () => $<HTMLButtonElement>('btn-score-view-play').click(), { once: true, capture: true })
-}).catch((err: unknown) => {
-  setTranslatedStatus('midi-status', 'playback.error', { error: err instanceof Error ? err.message : String(err) }, 'err')
-})
+if (initialOwtFromHash === null) {
+  void fetch('/api/startup-midi').then(async (response) => {
+    if (response.status === 204 || !response.ok) return
+    const encodedTitle = response.headers.get('x-opusweave-title') ?? 'OWT Score'
+    const title = decodeURIComponent(encodedTitle)
+    await loadMidiData(await response.arrayBuffer(), `${title}.mid`)
+    setTranslatedStatus('midi-status', 'playback.clickToStart', {}, 'warn')
+    window.addEventListener('pointerdown', () => $<HTMLButtonElement>('btn-score-view-play').click(), { once: true, capture: true })
+  }).catch((err: unknown) => {
+    setTranslatedStatus('midi-status', 'playback.error', { error: err instanceof Error ? err.message : String(err) }, 'err')
+  })
+}
 
 // Guard: exported MIDI from a take must re-import — validated by round-trip test in the suite.

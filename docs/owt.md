@@ -83,8 +83,8 @@ text stops the stale playback mapping before rebuilding the lexical layer.
 
 ## Direct score editing
 
-The default **Score edit** mode applies Helix motions directly to complete
-musical objects instead of exposing a separate selection-level control:
+The default Helix **NORMAL · Score edit** mode applies modal motions directly
+to complete musical objects instead of exposing a separate selection-level control:
 
 - **Event (CHAR)** — one note, rest, chord or control event, such as `C4:1`.
 - **Measure (WORD)** — the events between a pair of bar lines.
@@ -95,17 +95,34 @@ between tracks. Arrow keys mirror `h`/`l` and `k`/`j`. Search commands are not
 part of the OWT modal language. `Space` opens the button-command hierarchy,
 including play/pause, views, editing actions, import, examples and AI actions.
 `Ctrl+Space` toggles play/pause globally, including from the timeline, staff and
-Jianpu views.
+Jianpu views. The adjacent **Loop playback** toggle repeats the active MIDI or
+OWT playback continuously; `Space t l` toggles it from the Helix command tree.
+The transport remains visible on **Settings**, so SoundFont, preset, output and
+volume changes can be auditioned without returning to the score. Its single
+action label reads **Play** while stopped or paused and **Pause** while playing.
+Selected OWT ranges repeat their exact range, while AI-improv responses and
+timeline replacement previews remain one-shot.
 For events, enter a complete token and use **Insert before**, **Insert after**
 or **Replace**. **Delete** applies to the selected event, measure or track.
 **Play to replace event** waits for one Note On from MIDI, the computer
 keyboard or the virtual piano, then replaces the selected pitch while keeping
 its duration and event attributes.
 
-**Raw text** exposes the complete OWT source for unrestricted typing, paste and
-document replacement. Undo/redo and Save remain available in both modes.
-**Improv** starts the continuous call-and-response workflow from the same score
-toolbar.
+**RAW · Raw text** is a first-class Helix mode beside NORMAL, INSERT and
+SELECT. Click the mode indicator at the editor's lower-left corner to toggle
+NORMAL and RAW; there are no separate mode buttons. RAW keeps the same syntax
+highlighting and editor layout while enabling unrestricted native typing,
+paste and document replacement. Most Helix motions are intentionally inactive;
+Save remains available.
+**Improv** is independent of the editor mode and lives in the global score
+toolbar beside **AI composition**, so it remains available in OWT, Timeline,
+Staff and Jianpu views.
+
+The editor continuously stores the complete UTF-8 OWT source in the URL hash as
+URL-safe Base64 (`#owt=...`). Copying the browser URL therefore shares the
+current score without a server, and refreshing restores even an unfinished edit.
+A shared-score hash takes precedence over desktop startup MIDI. Invalid hash
+data is rejected and replaced with the default score.
 
 ## Guided performance
 
@@ -147,16 +164,32 @@ another source to open. The source files are also available under `examples/`.
 
 ## AI score editor
 
-The **AI composition** button opens a blocking prompt dialog. After submission,
-the dialog closes and the button itself reports working, success or failure by
-its text and color. OpenAI-compatible endpoint, model and optional API key
-settings live on the **Settings** page and are stored locally in the browser;
-the source code contains no default endpoint or model. When no endpoint/model
-is configured, the button instead opens a prepared, editable prompt containing
-the current score and OWT validity rules. It can be copied into any AI chat,
-and the returned OWT can always be pasted directly into the editor.
+The **AI composition** button opens a blocking prompt dialog. `Enter` confirms
+the request; `Shift+Enter` inserts a newline. The dialog rotates short prompt
+suggestions on each opening, and an empty submission uses the displayed
+suggestion. After submission, the dialog closes and the button itself reports
+working, success or failure by its text and color.
 
-- A prompt edits the current OWT, validates the returned document and plays it.
+Service URL, optional API key, protocol, model and expandable prompt-template
+settings live on the **Settings** page and are stored locally in the browser.
+The shared system prompt and the composition, media-transcription and
+improvisation templates are independently editable. `{instruction}` marks where
+each feature's user-entered request is inserted; the current OWT is appended
+automatically. Defaults can be restored from the same panel.
+
+Entering a service URL discovers selectable models when the provider exposes a
+model-list API. llama.cpp servers are recognized on LAN port 8080 and both
+`/models` and `/v1/models` are supported. Manual model IDs remain available.
+Auto detection supports OpenAI Responses, OpenAI Chat/legacy Completions,
+Anthropic Messages, Ollama native, OpenRouter and llama.cpp/OpenAI-compatible
+servers. The source contains no default endpoint or model. When no
+endpoint/model is configured, the button instead opens a prepared, editable
+prompt containing the current score and OWT validity rules. It can be copied
+into any AI chat, and the returned OWT can always be pasted directly into the
+editor.
+
+- A typed or suggested prompt edits the current OWT, validates the returned
+  document and plays it.
 - **Open / Import** and drag-and-drop share one dispatcher: OWT opens directly,
   MIDI is converted deterministically, and score images or MP4 files go to AI.
   Images are sent as multimodal content; MP4 files are decoded in the browser

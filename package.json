@@ -12,6 +12,7 @@
     "build": "bun src/build.ts",
     "build:web": "bun src/build-web.ts",
     "generate:mda-piano": "bun scripts/generate-mda-piano-sf2.ts",
+    "generate:micro-gm": "bun scripts/generate-micro-gm-sf2.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test 'src/tests/'"
   },

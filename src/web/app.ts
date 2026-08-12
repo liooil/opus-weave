@@ -48,6 +48,88 @@ function $<T extends HTMLElement = HTMLElement>(id: string): T {
   return el as unknown as T
 }
 
+interface SourceHoverField {
+  label: string
+  description: string
+}
+
+function positionSourceHoverCard(clientX: number, clientY: number): void {
+  const card = $<HTMLElement>('source-hover-card')
+  const gap = 14
+  const left = Math.min(clientX + gap, window.innerWidth - card.offsetWidth - 12)
+  const top = Math.min(clientY + gap, window.innerHeight - card.offsetHeight - 12)
+  card.style.left = `${Math.max(12, left)}px`
+  card.style.top = `${Math.max(12, top)}px`
+}
+
+function showSourceHoverCard(raw: string, fields: readonly SourceHoverField[], event: PointerEvent | FocusEvent): void {
+  const card = $<HTMLElement>('source-hover-card')
+  $('source-hover-raw').textContent = raw
+  const list = $<HTMLDListElement>('source-hover-fields')
+  list.replaceChildren()
+  for (const field of fields) {
+    const term = document.createElement('dt')
+    const description = document.createElement('dd')
+    term.textContent = field.label
+    description.textContent = field.description
+    list.append(term, description)
+  }
+  card.hidden = false
+  const target = event.currentTarget as HTMLElement
+  const rect = target.getBoundingClientRect()
+  positionSourceHoverCard(event instanceof PointerEvent ? event.clientX : rect.right, event instanceof PointerEvent ? event.clientY : rect.top)
+}
+
+function hideSourceHoverCard(): void {
+  $('source-hover-card').hidden = true
+}
+
+function attachSourceHover(target: HTMLElement, raw: string, fields: () => readonly SourceHoverField[]): void {
+  target.removeAttribute('title')
+  target.addEventListener('pointerenter', (event) => showSourceHoverCard(raw, fields(), event))
+  target.addEventListener('pointermove', (event) => positionSourceHoverCard(event.clientX, event.clientY))
+  target.addEventListener('pointerleave', hideSourceHoverCard)
+  target.addEventListener('focus', (event) => showSourceHoverCard(raw, fields(), event))
+  target.addEventListener('blur', hideSourceHoverCard)
+}
+
+function midiPitchNumber(pitch: string): number | null {
+  const match = /^([A-G])([#b]?)(-?\d+)$/.exec(pitch)
+  if (!match) return null
+  const semitones: Record<string, number> = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 }
+  const accidental = match[2] === '#' ? 1 : match[2] === 'b' ? -1 : 0
+  return (Number(match[3]) + 1) * 12 + semitones[match[1]!]! + accidental
+}
+
+function describeOwtSourceToken(raw: string): SourceHoverField[] {
+  const control = /^<(cc(\d+)|bend|program)=(-?\d+)>$/.exec(raw)
+  if (control) return [
+    { label: t('sourceHover.type'), description: t('sourceHover.type.control') },
+    { label: t('sourceHover.control'), description: control[2] ? t('sourceHover.control.cc', { controller: control[2] }) : t(`sourceHover.control.${control[1]}`) },
+    { label: t('sourceHover.value'), description: t('sourceHover.value.control', { value: control[3]! }) },
+  ]
+  const velocity = /\{v=(\d+)\}$/.exec(raw)?.[1]
+  const core = raw.replace(/\{v=\d+\}$/, '')
+  const separator = core.lastIndexOf(':')
+  if (separator < 0) return [{ label: t('sourceHover.type'), description: t('sourceHover.type.event') }]
+  const pitchText = core.slice(0, separator)
+  const duration = core.slice(separator + 1)
+  const pitches = pitchText.startsWith('[') ? pitchText.slice(1, -1).trim().split(/\s+/) : pitchText === 'R' ? [] : [pitchText]
+  const fields: SourceHoverField[] = [
+    { label: t('sourceHover.type'), description: t(pitches.length === 0 ? 'sourceHover.type.rest' : pitches.length > 1 ? 'sourceHover.type.chord' : 'sourceHover.type.note') },
+  ]
+  if (pitches.length > 0) {
+    const values = pitches.map((pitch) => {
+      const midi = midiPitchNumber(pitch)
+      return midi === null ? pitch : `${pitch} (MIDI ${midi})`
+    }).join(', ')
+    fields.push({ label: t(pitches.length > 1 ? 'sourceHover.pitches' : 'sourceHover.pitch'), description: t('sourceHover.pitch.description', { value: values }) })
+  }
+  fields.push({ label: t('sourceHover.duration'), description: t('sourceHover.duration.description', { value: duration }) })
+  if (velocity) fields.push({ label: t('sourceHover.velocity'), description: t('sourceHover.velocity.description', { value: velocity }) })
+  return fields
+}
+
 function setStatus(id: string, msg: string, kind: 'ok' | 'warn' | 'err' | '' = ''): void {
   const el = $<HTMLElement>(id)
   el.hidden = false
@@ -340,6 +422,11 @@ function renderNotationViews(): void {
       modalEditor.selectRange(token.start, token.end, true)
       setScoreCursor(token.startSeconds, true)
     })
+    const token = owtPlaybackTokens.find((item) => item.playbackId === element.dataset.owtEvent)
+    if (token) {
+      const raw = owtEditor.value.slice(token.start, token.end)
+      attachSourceHover(element, raw, () => describeOwtSourceToken(raw))
+    }
   }
 }
 
@@ -774,7 +861,6 @@ const profiles: DeviceProfile[] = [midiplusTinyPlusProfile()]
 let activeProfile: DeviceProfile | null = null
 const PARAM_LABEL_KEYS: Record<string, string> = {
   'master-volume': 'params.masterVolume',
-  'synth-panic': 'params.synthPanic',
   'octave-up': 'params.octaveUp',
   'octave-down': 'params.octaveDown',
 }
@@ -852,11 +938,6 @@ async function ensureEngine(): Promise<SpessaSynthEngine> {
     id: 'master-volume',
     label: t('params.masterVolume'),
     apply: (v) => engine?.setMasterVolume(v / 127),
-  })
-  midiLearn.register({
-    id: 'synth-panic',
-    label: t('params.synthPanic'),
-    apply: () => engine?.panic(),
   })
   midiLearn.register({
     id: 'octave-up',
@@ -1007,7 +1088,7 @@ let playbackActive = false
 
 function setPlaybackUi(playing: boolean): void {
   playbackActive = playing
-  $<HTMLButtonElement>('btn-stop').disabled = !playing
+  $<HTMLButtonElement>('btn-return-to-start').disabled = scoreCursorSeconds <= 0 && !playing
   const button = $<HTMLButtonElement>('btn-score-view-play')
   const actionKey = playing ? 'playback.pause' : 'playback.play'
   const action = t(actionKey)
@@ -1440,18 +1521,58 @@ $<HTMLInputElement>('sf-file').addEventListener('change', async (ev) => {
   }
 })
 
+const GM_PRESET_FAMILIES = [
+  { emoji: '🎹', key: 'sound.family.piano' },
+  { emoji: '🔔', key: 'sound.family.chromaticPercussion' },
+  { emoji: '⛪', key: 'sound.family.organ' },
+  { emoji: '🎸', key: 'sound.family.guitar' },
+  { emoji: '🎸', key: 'sound.family.bass' },
+  { emoji: '🎻', key: 'sound.family.strings' },
+  { emoji: '🎼', key: 'sound.family.ensemble' },
+  { emoji: '🎺', key: 'sound.family.brass' },
+  { emoji: '🎷', key: 'sound.family.reed' },
+  { emoji: '🪈', key: 'sound.family.pipe' },
+  { emoji: '⚡', key: 'sound.family.synthLead' },
+  { emoji: '🌌', key: 'sound.family.synthPad' },
+  { emoji: '✨', key: 'sound.family.synthEffects' },
+  { emoji: '🪕', key: 'sound.family.ethnic' },
+  { emoji: '🥁', key: 'sound.family.percussive' },
+  { emoji: '🌊', key: 'sound.family.soundEffects' },
+] as const
+
+function presetFamily(program: number): typeof GM_PRESET_FAMILIES[number] {
+  return GM_PRESET_FAMILIES[Math.max(0, Math.min(15, Math.floor(program / 8)))]!
+}
+
+function appendGroupedPresets(
+  select: HTMLSelectElement,
+  patches: readonly { program: number; name: string }[],
+): void {
+  const groups = new Map<number, HTMLOptGroupElement>()
+  for (const patch of patches) {
+    const familyIndex = Math.max(0, Math.min(15, Math.floor(patch.program / 8)))
+    let group = groups.get(familyIndex)
+    if (!group) {
+      const family = presetFamily(patch.program)
+      group = document.createElement('optgroup')
+      group.label = `${family.emoji} ${t(family.key)}`
+      groups.set(familyIndex, group)
+      select.appendChild(group)
+    }
+    const option = document.createElement('option')
+    option.value = String(patch.program)
+    option.textContent = `${patch.program}: ${patch.name}`
+    group.appendChild(option)
+  }
+}
+
 function populatePresets(): void {
   const sel = $<HTMLSelectElement>('preset-select')
   sel.disabled = true
   sel.innerHTML = `<option value="">${t(engine?.hasSoundFont() ? 'sound.presets' : 'sound.initializing')}</option>`
   if (!engine?.hasSoundFont()) return
   const patches = engine.listPresets?.() ?? []
-  for (const p of patches) {
-    const opt = document.createElement('option')
-    opt.value = String(p.program)
-    opt.textContent = `${p.program}: ${p.name}`
-    sel.appendChild(opt)
-  }
+  appendGroupedPresets(sel, patches)
   sel.disabled = patches.length === 0
 }
 
@@ -1463,14 +1584,6 @@ $<HTMLSelectElement>('preset-select').addEventListener('change', (ev) => {
 $<HTMLInputElement>('master-volume').addEventListener('input', (ev) => {
   const v = Number((ev.target as HTMLInputElement).value) / 100
   void ensureEngine().then((e) => e.setMasterVolume(v))
-})
-
-$('btn-panic').addEventListener('click', () => {
-  void ensureEngine().then((e) => {
-    e.panic()
-    keyboard.clearAll()
-    for (const n of [...liveNotes.keys()]) updateLiveNotes(new Uint8Array([0x80, n, 0]))
-  })
 })
 
 // ─── Arrangement timeline ───────────────────────────────────────────────────
@@ -1603,6 +1716,27 @@ function renderTimeline(): void {
       block.dataset.trackIndex = String(track.index)
       block.dataset.startTick = String(note.startTick)
       block.dataset.endTick = String(note.endTick)
+      block.tabIndex = 0
+      block.setAttribute('role', 'button')
+      const pitch = noteName(note.note)
+      const startBeat = note.startTick / ppq
+      const endBeat = note.endTick / ppq
+      const durationBeats = (note.endTick - note.startTick) / ppq
+      const raw = [
+        `note=${pitch}`,
+        `channel=${note.channel + 1}`,
+        `velocity=${note.velocity}`,
+        `start=${startBeat}`,
+        `end=${endBeat}`,
+      ].join('\n')
+      attachSourceHover(block, raw, () => [
+        { label: t('sourceHover.pitch'), description: t('sourceHover.pitch.description', { value: `${pitch} (MIDI ${note.note})` }) },
+        { label: t('sourceHover.channel'), description: t('sourceHover.channel.description', { value: note.channel + 1 }) },
+        { label: t('sourceHover.velocity'), description: t('sourceHover.velocity.description', { value: note.velocity }) },
+        { label: t('sourceHover.start'), description: t('sourceHover.start.description', { value: startBeat }) },
+        { label: t('sourceHover.end'), description: t('sourceHover.end.description', { value: endBeat }) },
+        { label: t('sourceHover.duration'), description: t('sourceHover.duration.description', { value: durationBeats }) },
+      ])
       block.addEventListener('click', (event) => {
         event.stopPropagation()
         selectedTrackIndex = track.index
@@ -1613,7 +1747,6 @@ function renderTimeline(): void {
       block.style.left = `${(note.startTick / ppq) * timelineBeatWidth}px`
       block.style.width = `${Math.max(3, ((note.endTick - note.startTick) / ppq) * timelineBeatWidth)}px`
       block.style.top = `${7 + (1 - (note.note - minNote) / pitchSpan) * 40}px`
-      block.title = `${noteName(note.note)} · ${note.startTick / ppq}–${note.endTick / ppq}`
       const selected = timelineSelection?.trackIndex === track.index && timelineSelection.startTick < note.endTick && timelineSelection.endTick > note.startTick
       block.classList.toggle('is-selected', selected)
       lane.appendChild(block)
@@ -1728,16 +1861,18 @@ async function playArrangement(startSeconds = 0, source = loadedMidi): Promise<v
   setPlaybackUi(true)
 }
 
-$('btn-stop').addEventListener('click', () => {
+function returnToBeginning(): void {
+  engine?.stop()
   clearOwtPlaybackContext()
   if (replacementRecording) finishReplacementRecording()
-  else engine?.stop()
+  setScoreCursor(0)
   $<HTMLProgressElement>('progress').value = 0
-})
-$('btn-restart').addEventListener('click', () => {
-  engine?.stop()
-  void playArrangement()
-})
+  $<HTMLSpanElement>('playback-time').textContent = `0:00 / ${fmtTime(engine?.getPlaybackPosition().duration ?? loadedInspection?.durationSeconds ?? 0)}`
+  updateTimelinePlayhead(0, engine?.getPlaybackPosition().duration ?? loadedInspection?.durationSeconds ?? 0)
+  $<HTMLButtonElement>('btn-return-to-start').disabled = true
+}
+
+$('btn-return-to-start').addEventListener('click', returnToBeginning)
 $('btn-export-arrangement').addEventListener('click', () => {
   if (!loadedMidi) return
   const baseName = (loadedMidi.fileName ?? 'opusweave').replace(/\.(mid|midi)$/i, '')
@@ -1915,7 +2050,7 @@ function handleModalCommand(command: string, args = ''): void | Promise<void> {
       return playOwtRange(range)
     }
     case 'pause': engine?.pause(); return
-    case 'stop': engine?.stop(); clearOwtPlaybackContext(); return
+    case 'return-to-start': case 'stop': returnToBeginning(); return
     case 'save': $('btn-owt-save').click(); return
     case 'open': $<HTMLInputElement>('owt-file').click(); return
     case 'new': $('btn-owt-new-score').click(); return
@@ -1932,7 +2067,7 @@ function handleModalCommand(command: string, args = ''): void | Promise<void> {
     case 'delete-object': $('btn-owt-delete-object').click(); return
     case 'replace-by-playing': $('btn-owt-replace-play').click(); return
     case 'play-example': void loadBuiltinExample(BUILTIN_OWT_EXAMPLES[0]?.id, true); return
-    case 'timeline-restart': $('btn-restart').click(); return
+    case 'timeline-restart': returnToBeginning(); return
     case 'timeline-export': $('btn-export-arrangement').click(); return
     case 'timeline-clear': $('btn-clear-range').click(); return
     case 'timeline-replace': $('btn-replace-range').click(); return
@@ -1947,12 +2082,11 @@ function handleModalCommand(command: string, args = ''): void | Promise<void> {
     case 'workspace-settings': showWorkspacePage('settings'); return
     case 'midi-enable': showWorkspacePage('settings'); $('btn-request-midi').click(); return
     case 'midi-refresh': showWorkspacePage('settings'); $('btn-refresh-midi').click(); return
-    case 'panic': showWorkspacePage('settings'); $('btn-panic').click(); return
     case 'audio-output': showWorkspacePage('settings'); $('btn-choose-audio-output').click(); return
-    case 'learn-volume': case 'learn-panic': case 'learn-octave-up': case 'learn-octave-down': {
+    case 'learn-volume': case 'learn-octave-up': case 'learn-octave-down': {
       showWorkspacePage('settings')
       const target = command.replace('learn-', '')
-      const control = document.querySelector<HTMLButtonElement>(`[data-learn="${target === 'volume' ? 'master-volume' : target === 'panic' ? 'synth-panic' : target}"]`)
+      const control = document.querySelector<HTMLButtonElement>(`[data-learn="${target === 'volume' ? 'master-volume' : target}"]`)
       control?.click()
       return
     }
@@ -3093,7 +3227,6 @@ document.querySelectorAll<HTMLButtonElement>('[data-learn]').forEach((btn) => {
     void ensureEngine().then(() => {
       const paramId = btn.dataset.learn!
       if (paramId === 'master-volume') midiLearn.learn('master-volume')
-      else if (paramId === 'synth-panic') midiLearn.learn('synth-panic')
       else if (paramId === 'octave-up') midiLearn.learn('octave-up')
       else if (paramId === 'octave-down') midiLearn.learn('octave-down')
       setTranslatedStatus('learn-status', 'learn.learning', { parameter: parameterLabel(paramId) }, 'warn')

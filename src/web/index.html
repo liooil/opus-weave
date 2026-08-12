@@ -41,6 +41,7 @@
         </div>
         <button id="btn-score-view-play" class="primary topbar-control" data-shortcut="F5 · Ctrl+Space · Space p" aria-keyshortcuts="F5 Control+Space" data-i18n-aria-label="playback.play" data-i18n-title="playback.play" aria-label="Play" title="Play"><span class="control-icon" aria-hidden="true">▶</span><span class="control-label" data-i18n="playback.play">Play</span></button>
         <button id="btn-loop-playback" class="loop-playback-button topbar-control" data-shortcut="Space t l" aria-pressed="false" data-i18n-aria-label="playback.loop" data-i18n-title="playback.loop" aria-label="Loop playback" title="Loop playback"><span class="control-icon" aria-hidden="true">↻</span><span class="control-label" data-i18n="playback.loop">Loop</span></button>
+        <button id="btn-return-to-start" class="topbar-control return-to-start-button" data-shortcut="Space s" data-i18n-aria-label="playback.returnToStart" data-i18n-title="playback.returnToStart" aria-label="Return to beginning" title="Return to beginning" disabled><span class="control-icon" aria-hidden="true">|←</span><span class="control-label" data-i18n="playback.returnToStart">Return to beginning</span></button>
         <button id="btn-owt-practice" class="topbar-control performance-button" data-studio-only data-shortcut="Space q" aria-keyshortcuts="Space Q" aria-pressed="false" data-i18n-aria-label="owt.practice" data-i18n-title="owt.practice" aria-label="Perform" title="Perform"><span class="control-icon" aria-hidden="true">♩</span><span class="control-label" data-i18n="owt.practice">Perform</span></button>
         <button id="btn-ai-compose" class="ai-compose-button topbar-control" data-studio-only data-ai-state="idle" data-shortcut="Space z c" data-i18n-aria-label="ai.compose" data-i18n-title="ai.compose" aria-label="AI composition" title="AI composition"><span class="control-icon" aria-hidden="true">✦</span><span class="control-label" data-i18n="ai.compose">AI composition</span></button>
         <button id="btn-ai-improvise" class="ai-improv-button topbar-control" data-studio-only data-improv-state="off" data-shortcut="Space z i" aria-pressed="false" data-i18n-aria-label="ai.improviseStart" data-i18n-title="ai.improviseStart" aria-label="Start improv mode" title="Start improv mode"><span class="control-icon" aria-hidden="true">∞</span><span class="control-label" data-i18n="simpleEdit.improvMode">Improv</span></button>
@@ -89,10 +90,6 @@
         </section>
         <section class="panel arranger-panel" id="playback-panel" data-score-view="timeline" hidden>
           <div class="arranger-transport">
-            <div class="transport-controls">
-              <button id="btn-restart" class="icon-button" data-shortcut="Space t r" data-i18n-title="playback.backToStart" data-i18n-aria-label="playback.backToStart" title="Back to start" aria-label="Back to start">|&lt;</button>
-              <button id="btn-stop" class="icon-button" data-shortcut="Space s" data-i18n-aria-label="playback.stop" aria-label="Stop">■</button>
-            </div>
             <div class="transport-position">
               <div class="timeline-meta"><span id="playback-time">0:00 / 0:00</span><span id="playback-tempo">BPM —</span></div>
               <progress id="progress" value="0" max="1000"></progress>
@@ -200,7 +197,7 @@
             <div id="port-details" class="port-details"></div><div id="device-profile" class="device-profile" hidden><strong id="profile-name"></strong><div id="profile-controls" class="profile-controls"></div></div>
           </section>
           <section class="panel module-panel" id="soundfont-panel">
-            <div class="section-heading"><div><span class="eyebrow" data-i18n="section.tone">Tone</span><h2 data-i18n="section.soundLibrary">Sound library</h2></div><button id="btn-panic" class="danger-quiet" data-shortcut="Space k p" data-i18n="sound.panic">Panic</button></div>
+            <div class="section-heading"><div><span class="eyebrow" data-i18n="section.tone">Tone</span><h2 data-i18n="section.soundLibrary">Sound library</h2></div></div>
             <label class="drop-zone"><input id="sf-file" type="file" accept=".sf2,.sf3,.sfogg" /><span class="drop-icon">SF</span><span class="built-in-badge" data-i18n="sound.builtInIncluded">FreePiano-style mda Piano + Micro GM</span><strong data-i18n="sound.load">Load another SoundFont</strong><small data-i18n="sound.formats">Optional: SF2, SF3 or SFOGG</small></label>
             <div class="field-stack compact-fields">
               <label><span data-i18n="sound.preset">Preset</span><select id="preset-select" disabled><option value="" data-i18n="sound.loadFirst">Load a SoundFont first</option></select></label>
@@ -241,7 +238,7 @@
           <div class="advanced-settings-grid">
             <section class="panel module-panel" id="learn-panel">
               <div class="section-heading"><div><span class="eyebrow" data-i18n="section.control">Control</span><h2 data-i18n="section.midiLearn">MIDI Learn</h2></div></div><p class="hint" data-i18n="learn.description">Select a parameter, then move a hardware control to create a binding.</p>
-              <div class="learn-grid"><button data-learn="master-volume" data-shortcut="Space k 1" data-i18n="learn.volume">Volume</button><button data-learn="synth-panic" data-shortcut="Space k 2" data-i18n="learn.panic">Panic</button><button data-learn="octave-up" data-shortcut="Space k 3" data-i18n="learn.octaveUp">Octave +</button><button data-learn="octave-down" data-shortcut="Space k 4" data-i18n="learn.octaveDown">Octave −</button></div><div id="learn-status" class="status"></div><ul id="learn-bindings"></ul>
+              <div class="learn-grid"><button data-learn="master-volume" data-shortcut="Space k 1" data-i18n="learn.volume">Volume</button><button data-learn="octave-up" data-shortcut="Space k 2" data-i18n="learn.octaveUp">Octave +</button><button data-learn="octave-down" data-shortcut="Space k 3" data-i18n="learn.octaveDown">Octave −</button></div><div id="learn-status" class="status"></div><ul id="learn-bindings"></ul>
             </section>
             <section class="panel monitor-panel"><div class="section-heading inline-heading"><div><span class="eyebrow" data-i18n="section.diagnostics">Diagnostics</span><h2 data-i18n="section.messageMonitor">Message monitor</h2></div><span class="mono-label" data-i18n="monitor.liveStream">LIVE STREAM</span></div><div id="midi-monitor" class="monitor" aria-live="polite"><div class="monitor-empty" data-i18n="monitor.waiting">Waiting for MIDI activity…</div></div></section>
           </div>
@@ -315,6 +312,11 @@
         </div>
       </form>
     </dialog>
+    <aside id="source-hover-card" class="source-hover-card" role="tooltip" hidden>
+      <div class="source-hover-heading" data-i18n="sourceHover.heading">Original text</div>
+      <code id="source-hover-raw"></code>
+      <dl id="source-hover-fields"></dl>
+    </aside>
   </div>
   <script type="module" src="./app.ts"></script>
 </body>

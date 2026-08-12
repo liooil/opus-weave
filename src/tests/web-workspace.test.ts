@@ -63,6 +63,24 @@ describe('web workspace structure', () => {
     expect(app).toContain('label.dataset.i18n = actionKey')
   })
 
+  test('uses one global return-to-beginning action instead of stop or settings panic controls', () => {
+    const header = html.slice(html.indexOf('<header'), html.indexOf('</header>'))
+    const settings = html.slice(html.indexOf('data-workspace-page="settings"'), html.indexOf('</main>'))
+    expect(header).toContain('id="btn-return-to-start"')
+    expect(header.indexOf('id="btn-loop-playback"')).toBeLessThan(header.indexOf('id="btn-return-to-start"'))
+    expect(header).toContain('data-i18n="playback.returnToStart"')
+    expect(header).toContain('data-shortcut="Space s"')
+    expect(html).not.toContain('id="btn-stop"')
+    expect(html).not.toContain('id="btn-restart"')
+    expect(settings).not.toContain('id="btn-panic"')
+    expect(settings).not.toContain('data-learn="synth-panic"')
+    expect(app).toContain('function returnToBeginning()')
+    expect(app).toContain("$('btn-return-to-start').addEventListener('click', returnToBeginning)")
+    expect(app).toContain("case 'return-to-start': case 'stop': returnToBeginning()")
+    expect(modalEditor).toContain("s: 'return-to-start'")
+    expect(modalEditor).not.toContain("p: 'panic'")
+  })
+
   test('keeps score editing above the live keyboard in the studio flow', () => {
     const studio = html.slice(html.indexOf('data-workspace-page="studio"'), html.indexOf('data-workspace-page="settings"'))
     expect(studio.indexOf('id="owt-panel"')).toBeGreaterThan(-1)
@@ -279,6 +297,30 @@ describe('web workspace structure', () => {
     expect(app).toContain("root.dataset.layout = layout")
     expect(app).not.toContain('traceActiveOnly')
     expect(css).toContain('.keyboard-map-section + .keyboard-map-section')
+  })
+
+  test('explains hovered score source as a readable multiline field list', () => {
+    expect(html).toContain('id="source-hover-card"')
+    expect(html).toContain('id="source-hover-raw"')
+    expect(html).toContain('id="source-hover-fields"')
+    expect(app).toContain('function describeOwtSourceToken(raw: string)')
+    expect(app).toContain("].join('\\n')")
+    expect(app).toContain('attachSourceHover(block, raw')
+    expect(app).toContain('attachSourceHover(element, raw')
+    expect(app).not.toContain('block.title = `${noteName(note.note)}')
+    expect(css).toContain('.source-hover-card dl')
+    expect(css).toContain('white-space: pre-wrap')
+  })
+
+  test('groups the preset picker into localized GM families with emoji labels', () => {
+    expect(app).toContain("emoji: '🎹', key: 'sound.family.piano'")
+    expect(app).toContain("emoji: '🎻', key: 'sound.family.strings'")
+    expect(app).toContain("emoji: '🎺', key: 'sound.family.brass'")
+    expect(app).toContain("emoji: '🌌', key: 'sound.family.synthPad'")
+    expect(app).toContain("emoji: '🥁', key: 'sound.family.percussive'")
+    expect(app).toContain("group = document.createElement('optgroup')")
+    expect(app).toContain('group.label = `${family.emoji} ${t(family.key)}`')
+    expect(app).toContain('appendGroupedPresets(sel, patches)')
   })
 
   test('confirms AI-bound file imports before reading or sending the file', () => {

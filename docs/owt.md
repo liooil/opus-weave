@@ -80,6 +80,11 @@ source token for every currently sounding note or rest is highlighted. The
 same event is highlighted in the staff and Jianpu views. The highlight follows
 tempo changes and supports simultaneous events on multiple tracks. Editing the
 text stops the stale playback mapping before rebuilding the lexical layer.
+Hovering or keyboard-focusing a note in the timeline, staff or Jianpu view
+opens a readable source card. OWT tokens preserve their source text, while
+timeline values are expanded to one field per line. Localized rows explain
+every available field: event type, pitch and MIDI number, duration, channel,
+velocity, and timeline position.
 
 ## Direct score editing
 
@@ -99,7 +104,10 @@ Jianpu views. The adjacent **Loop playback** toggle repeats the active MIDI or
 OWT playback continuously; `Space t l` toggles it from the Helix command tree.
 The transport remains visible on **Settings**, so SoundFont, preset, output and
 volume changes can be auditioned without returning to the score. Its single
-action label reads **Play** while stopped or paused and **Pause** while playing.
+action label reads **Play** while paused and **Pause** while playing. The global
+**Return to beginning** action silences current playback, moves the persistent
+score cursor to beat zero and remains available in every score view; it is not
+a separate stopped state.
 Selected OWT ranges repeat their exact range, while AI-improv responses and
 timeline replacement previews remain one-shot.
 For events, enter a complete token and use **Insert before**, **Insert after**

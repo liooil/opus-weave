@@ -451,7 +451,7 @@ export class ModalOwtEditor {
       if (key === 'z') { this.setPending('space-ai'); return true }
       if (key === 'b') { this.setPending('space-workspace'); return true }
       if (key === 'k') { this.setPending('space-control'); return true }
-      const map: Record<string, string> = { p: 'play-pause', P: 'play-from-cursor', r: 'play-selection', s: 'stop', w: 'save', o: 'open', n: 'new', v: 'validate', f: 'format', e: 'export-midi', i: 'import-midi', d: 'diagnostics', q: 'perform', '?': 'help' }
+      const map: Record<string, string> = { p: 'play-pause', P: 'play-from-cursor', r: 'play-selection', s: 'return-to-start', w: 'save', o: 'open', n: 'new', v: 'validate', f: 'format', e: 'export-midi', i: 'import-midi', d: 'diagnostics', q: 'perform', '?': 'help' }
       if (map[key]) void this.callbacks.onCommand(map[key]!); this.clearPending(); return true
     }
     if (prefix === 'space-x') {
@@ -494,7 +494,7 @@ export class ModalOwtEditor {
       this.clearPending(); return true
     }
     if (prefix === 'space-control') {
-      const map: Record<string, string> = { e: 'midi-enable', r: 'midi-refresh', p: 'panic', o: 'audio-output', '1': 'learn-volume', '2': 'learn-panic', '3': 'learn-octave-up', '4': 'learn-octave-down' }
+      const map: Record<string, string> = { e: 'midi-enable', r: 'midi-refresh', o: 'audio-output', '1': 'learn-volume', '2': 'learn-octave-up', '3': 'learn-octave-down' }
       if (map[key]) void this.callbacks.onCommand(map[key]!)
       this.clearPending(); return true
     }

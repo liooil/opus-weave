@@ -7,7 +7,7 @@
  * a GainNode; panic sends all-notes-off + controller reset.
  */
 import { WorkletSynthesizer, Sequencer } from 'spessasynth_lib'
-import { BasicMIDI, type MIDIController } from 'spessasynth_core'
+import { BasicMIDI, MIDIMessage, type MIDIController } from 'spessasynth_core'
 import { SynthEngineError, type SoundFontInfo, type SynthEngine } from './synth-engine.ts'
 
 interface EngineCallbacks {
@@ -37,6 +37,7 @@ export class SpessaSynthEngine implements SynthEngine {
   private soundBankEventSequence = 0
   private playbackActive = false
   private looping = false
+  private readonly programOverrides = new Map<number, number>()
 
   constructor(
     /** Inject a pre-created AudioContext (tests use a mock). */
@@ -70,6 +71,9 @@ export class SpessaSynthEngine implements SynthEngine {
       })
       synth.eventHandler.addEvent('noteOff', 'opusweave-playback', (event) => {
         if (this.playbackActive) this.callbacks.onPlaybackNoteOff?.(event.channel, event.midiNote)
+      })
+      synth.eventHandler.addEvent('programChange', 'opusweave-program-override', (event) => {
+        this.preserveProgramOverride(event.channel, event.program)
       })
       this.sequencer.eventHandler.addEvent('songEnded', 'opusweave', () => {
         this.playbackActive = false
@@ -189,9 +193,43 @@ export class SpessaSynthEngine implements SynthEngine {
         synth.pitchWheel(channel, ((message[2]! << 7) | message[1]!) - 8192)
         break
       case 0xc0:
+        this.programOverrides.set(channel, message[1]!)
         synth.programChange(channel, message[1]!)
         break
     }
+  }
+
+
+  private preserveProgramOverride(channel: number, sequenceProgram: number): void {
+    if (!this.playbackActive) return
+    const program = this.programOverrides.get(channel)
+    if (program !== undefined && program !== sequenceProgram) this.synth?.programChange(channel, program)
+  }
+  private applyProgramOverrides(data: ArrayBuffer): ArrayBuffer {
+    if (this.programOverrides.size === 0) return data
+    const midi = BasicMIDI.fromArrayBuffer(data)
+    for (const [channel, program] of this.programOverrides) {
+      let replaced = false
+      for (const track of midi.tracks) {
+        for (const event of track.events) {
+          if ((event.statusByte & 0xf0) !== 0xc0 || (event.statusByte & 0x0f) !== channel) continue
+          event.data[0] = program
+          replaced = true
+        }
+      }
+      if (replaced) continue
+      for (const track of midi.tracks) {
+        const index = track.events.findIndex((event) =>
+          event.statusByte >= 0x80
+          && event.statusByte < 0xf0
+          && (event.statusByte & 0x0f) === channel
+        )
+        if (index < 0) continue
+        track.addEvents(index, MIDIMessage.programChange(track.events[index]!.ticks, channel, program))
+        break
+      }
+    }
+    return midi.writeMIDI()
   }
 
   setLooping(enabled: boolean): void {
@@ -203,7 +241,10 @@ export class SpessaSynthEngine implements SynthEngine {
     await this.ensureReady()
     const seq = this.sequencer!
     if (this.ctx.state === 'suspended') await this.ctx.resume()
-    seq.loadNewSongList([{ binary: data, fileName: fileName ?? 'song.mid' }])
+    seq.loadNewSongList([{
+      binary: this.applyProgramOverrides(data),
+      fileName: fileName ?? 'song.mid',
+    }])
     seq.loopCount = this.looping ? Infinity : 0
     if (startSeconds > 0) seq.currentTime = startSeconds
     this.playbackActive = true

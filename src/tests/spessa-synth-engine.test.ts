@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test'
+import { BasicMIDI } from 'spessasynth_core'
 import { SpessaSynthEngine } from '../audio/spessa-synth-engine.ts'
+import { buildMidi } from '../domain/midi/midi-export.ts'
 
 interface SynthCall {
   method: string
@@ -107,5 +109,67 @@ describe('SpessaSynthEngine live MIDI delivery', () => {
     expect(sequencer.loopCount).toBe(Infinity)
     engine.setLooping(false)
     expect(sequencer.loopCount).toBe(0)
+  })
+
+  test('keeps a live preset override in the MIDI replayed by every loop', async () => {
+    const context = {
+      state: 'running',
+      destination: {},
+      currentTime: 0,
+      audioWorklet: { addModule: async () => {} },
+      createGain: () => ({
+        gain: { value: 0, setTargetAtTime: () => {} },
+        connect: () => {},
+      }),
+      resume: async () => {},
+      close: async () => {},
+    } as unknown as AudioContext
+    let loadedBinary: ArrayBuffer | undefined
+    const sequencer = {
+      loopCount: 0,
+      currentTime: 0,
+      loadNewSongList: (songs: Array<{ binary: ArrayBuffer }>) => { loadedBinary = songs[0]?.binary },
+      play: () => {},
+    }
+    const engine = new SpessaSynthEngine(context)
+    const synth: { programChange: (...args: number[]) => void } = { programChange: () => {} }
+    const seam = engine as unknown as { synth: typeof synth; sequencer: typeof sequencer }
+    seam.synth = synth
+    seam.sequencer = sequencer
+    engine.setLooping(true)
+    engine.send(new Uint8Array([0xc0, 73]))
+
+    await engine.playMidi(buildMidi({
+      ppq: 480,
+      tempos: [{ beat: 0, bpm: 120 }],
+      tracks: [{
+        name: 'Melody',
+        channel: 0,
+        program: 0,
+        programChanges: [{ beat: 1, program: 40 }],
+        notes: [{ startBeat: 0, durationBeats: 2, pitch: 60, velocity: 100 }],
+      }, {
+        name: 'Accompaniment',
+        channel: 1,
+        program: 48,
+        notes: [{ startBeat: 0, durationBeats: 2, pitch: 48, velocity: 80 }],
+      }],
+    }), 'preset-loop.mid')
+
+    expect(sequencer.loopCount).toBe(Infinity)
+    const replay = BasicMIDI.fromArrayBuffer(loadedBinary!)
+    const programs = replay.tracks.flatMap((track) => track.events
+      .filter((event) => (event.statusByte & 0xf0) === 0xc0)
+      .map((event) => ({ channel: event.statusByte & 0x0f, program: event.data[0] })))
+    expect(programs.filter((event) => event.channel === 0).map((event) => event.program)).toEqual([73, 73])
+    expect(programs.filter((event) => event.channel === 1).map((event) => event.program)).toEqual([48])
+
+    const programChanges: number[] = []
+    seam.synth = { programChange: (_channel: number, program: number) => programChanges.push(program) }
+    const preserveProgramOverride = engine as unknown as { preserveProgramOverride(channel: number, program: number): void }
+    preserveProgramOverride.preserveProgramOverride(0, 0)
+    expect(programChanges).toEqual([73])
+    preserveProgramOverride.preserveProgramOverride(1, 48)
+    expect(programChanges).toEqual([73])
   })
 })

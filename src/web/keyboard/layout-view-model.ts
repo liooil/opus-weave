@@ -3,6 +3,7 @@ import type { BuiltinComputerLayoutId } from '../../domain/devices/mapping-engin
 export interface ComputerKeyboardSectionSpec {
   id: string
   rows: readonly (readonly (string | null)[])[]
+  rowOffsets?: readonly number[]
 }
 
 const STANDARD_QWERTY_ROWS = [
@@ -54,8 +55,8 @@ const CODE_KEYS: Readonly<Record<string, string>> = {
 
 export function keyboardSectionsForLayout(layout: BuiltinComputerLayoutId): readonly ComputerKeyboardSectionSpec[] {
   if (layout === 'freepiano') return FREEPIANO_KEYBOARD_SECTIONS
-  if (layout === 'english' || layout === 'pinyin') return [{ id: 'main', rows: WORD_MELODY_ROWS }]
-  return [{ id: 'main', rows: STANDARD_QWERTY_ROWS }]
+  if (layout === 'english' || layout === 'pinyin') return [{ id: 'main', rows: WORD_MELODY_ROWS, rowOffsets: [0, 0.25, 0.75, 2] }]
+  return [{ id: 'main', rows: STANDARD_QWERTY_ROWS, rowOffsets: [0, 1.5, 1.75, 2.25] }]
 }
 
 export function computerKeyLabel(key: string): string {

@@ -1816,27 +1816,11 @@ function handleModalCommand(command: string, args = ''): void | Promise<void> {
     case 'play-example': void loadBuiltinExample(BUILTIN_OWT_EXAMPLES[0]?.id, true); return
     case 'timeline-restart': returnToBeginning(); return
     case 'ai-settings': showWorkspacePage('settings'); return
-    case 'ai-test': showWorkspacePage('settings'); $('btn-ai-test').click(); return
-    case 'ai-reset-templates': showWorkspacePage('settings'); $('btn-ai-reset-templates').click(); return
     case 'ai-compose': $('btn-ai-compose').click(); return
     case 'toggle-locale': localeButton.click(); return
     case 'toggle-theme': themeButton.click(); return
     case 'workspace-studio': showWorkspacePage('studio'); return
     case 'workspace-settings': showWorkspacePage('settings'); return
-    case 'midi-enable': showWorkspacePage('settings'); $('btn-request-midi').click(); return
-    case 'midi-refresh': showWorkspacePage('settings'); $('btn-refresh-midi').click(); return
-    case 'audio-output': showWorkspacePage('settings'); $('btn-choose-audio-output').click(); return
-    case 'soundfont-retry': showWorkspacePage('settings'); $('btn-retry-built-in-soundfont').click(); return
-    case 'soundfont-musescore': showWorkspacePage('settings'); $('btn-download-musescore-general').click(); return
-    case 'soundfont-generaluser': showWorkspacePage('settings'); $('btn-download-generaluser').click(); return
-    case 'soundfont-timgm': showWorkspacePage('settings'); $('btn-download-timgm').click(); return
-    case 'learn-volume': case 'learn-octave-up': case 'learn-octave-down': {
-      showWorkspacePage('settings')
-      const target = command.replace('learn-', '')
-      const control = document.querySelector<HTMLButtonElement>(`[data-learn="${target === 'volume' ? 'master-volume' : target}"]`)
-      control?.click()
-      return
-    }
     case 'diagnostics': {
       const diagnostic = buildOwtSyntaxIndex(owtEditor.value, owtDiagnostics).diagnostics[0]
       if (diagnostic) modalEditor.selectRange(diagnostic.start, diagnostic.end)
@@ -2006,6 +1990,12 @@ function renderAiConfig(config: OwtAiConfig): void {
   $<HTMLInputElement>('ai-model').value = config.model
   $<HTMLInputElement>('ai-api-key').value = config.apiKey ?? ''
   $<HTMLSelectElement>('ai-protocol').value = config.protocol ?? 'auto'
+  $<HTMLSelectElement>('ai-thinking-mode').value = config.thinkingMode ?? ''
+  $<HTMLSelectElement>('ai-reasoning-effort').value = config.reasoningEffort ?? ''
+  $<HTMLInputElement>('ai-temperature').value = config.temperature === undefined ? '' : String(config.temperature)
+  $<HTMLInputElement>('ai-top-p').value = config.topP === undefined ? '' : String(config.topP)
+  $<HTMLInputElement>('ai-max-tokens').value = String(config.maxTokens ?? DEFAULT_OWT_AI_CONFIG.maxTokens)
+  $<HTMLInputElement>('ai-thinking-budget').value = String(config.thinkingBudgetTokens ?? DEFAULT_OWT_AI_CONFIG.thinkingBudgetTokens)
   $<HTMLInputElement>('ai-retry-count').value = String(config.retryCount ?? DEFAULT_OWT_AI_CONFIG.retryCount)
   $<HTMLInputElement>('ai-auto-repair').checked = config.autoRepair !== false
   const templates = { ...defaultOwtAiPromptTemplates(config.locale ?? getLocale()), ...config.promptTemplates }
@@ -2013,6 +2003,12 @@ function renderAiConfig(config: OwtAiConfig): void {
   $<HTMLTextAreaElement>('ai-template-prompt').value = templates.prompt
   $<HTMLTextAreaElement>('ai-template-media').value = templates.scoreMedia
   $<HTMLTextAreaElement>('ai-template-improvise').value = templates.improvise
+}
+
+function optionalAiNumber(id: string, minimum: number, maximum: number): number | undefined {
+  const input = $<HTMLInputElement>(id)
+  if (input.value.trim() === '' || !Number.isFinite(input.valueAsNumber)) return undefined
+  return Math.max(minimum, Math.min(maximum, input.valueAsNumber))
 }
 
 function currentAiPromptTemplates(): OwtAiPromptTemplates {
@@ -2025,16 +2021,22 @@ function currentAiPromptTemplates(): OwtAiPromptTemplates {
 }
 
 function currentAiConfig(): OwtAiConfig {
+  const thinkingMode = $<HTMLSelectElement>('ai-thinking-mode').value
+  const reasoningEffort = $<HTMLSelectElement>('ai-reasoning-effort').value
   return {
     baseUrl: $<HTMLInputElement>('ai-endpoint').value.trim(),
     model: $<HTMLInputElement>('ai-model').value.trim(),
     apiKey: $<HTMLInputElement>('ai-api-key').value || undefined,
     protocol: $<HTMLSelectElement>('ai-protocol').value as AiProtocol,
     locale: getLocale(),
+    thinkingMode: thinkingMode ? thinkingMode as NonNullable<OwtAiConfig['thinkingMode']> : undefined,
+    reasoningEffort: reasoningEffort ? reasoningEffort as NonNullable<OwtAiConfig['reasoningEffort']> : undefined,
+    temperature: optionalAiNumber('ai-temperature', 0, 2),
+    topP: optionalAiNumber('ai-top-p', 0, 1),
+    maxTokens: Math.trunc(optionalAiNumber('ai-max-tokens', 1, 1_000_000) ?? 4096),
+    thinkingBudgetTokens: Math.trunc(optionalAiNumber('ai-thinking-budget', 1024, 1_000_000) ?? 2048),
     retryCount: Math.max(0, Math.min(10, Math.trunc($<HTMLInputElement>('ai-retry-count').valueAsNumber || 0))),
     autoRepair: $<HTMLInputElement>('ai-auto-repair').checked,
-    temperature: DEFAULT_OWT_AI_CONFIG.temperature,
-    maxTokens: DEFAULT_OWT_AI_CONFIG.maxTokens,
     promptTemplates: currentAiPromptTemplates(),
   }
 }
@@ -2314,10 +2316,13 @@ function handleConversationalImprovPlaybackEnded(): void {
 renderAiConfig(storedAiConfig())
 updateConversationalImprovUi()
 renderAiComposeButton()
-for (const id of ['ai-model', 'ai-protocol', 'ai-retry-count', 'ai-auto-repair']) {
+for (const id of ['ai-model', 'ai-protocol', 'ai-thinking-mode', 'ai-reasoning-effort', 'ai-retry-count', 'ai-auto-repair']) {
   $(id).addEventListener('change', () => { persistAiConfig(); updateConversationalImprovUi() })
 }
 $('ai-model').addEventListener('input', () => { persistAiConfig(); updateConversationalImprovUi() })
+for (const id of ['ai-temperature', 'ai-top-p', 'ai-max-tokens', 'ai-thinking-budget']) {
+  $(id).addEventListener('input', persistAiConfig)
+}
 for (const id of ['ai-endpoint', 'ai-api-key']) {
   $(id).addEventListener('input', () => { persistAiConfig(); updateConversationalImprovUi(); scheduleAiModelDiscovery() })
 }
@@ -2872,9 +2877,10 @@ function renderComputerKeyMap(): void {
     const section = document.createElement('div')
     section.className = 'keyboard-map-section'
     section.dataset.keyboardSection = sectionSpec.id
-    for (const rowKeys of sectionSpec.rows) {
+    for (const [rowIndex, rowKeys] of sectionSpec.rows.entries()) {
       const row = document.createElement('div')
       row.className = 'qwerty-row'
+      row.style.setProperty('--keyboard-row-offset', `${(sectionSpec.rowOffsets?.[rowIndex] ?? 0) * 49}px`)
       for (const keyName of rowKeys) {
         if (keyName === null) {
           const spacer = document.createElement('span')

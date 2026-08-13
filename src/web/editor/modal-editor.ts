@@ -450,7 +450,6 @@ export class ModalOwtEditor {
       if (key === 't') { this.setPending('space-timeline'); return true }
       if (key === 'z') { this.setPending('space-ai'); return true }
       if (key === 'b') { this.setPending('space-workspace'); return true }
-      if (key === 'k') { this.setPending('space-control'); return true }
       const map: Record<string, string> = { p: 'play-pause', P: 'play-from-cursor', r: 'play-selection', s: 'return-to-start', w: 'save', o: 'open', n: 'new', v: 'validate', f: 'format', e: 'export-midi', i: 'import-midi', d: 'diagnostics', q: 'perform', '?': 'help' }
       if (map[key]) void this.callbacks.onCommand(map[key]!); this.clearPending(); return true
     }
@@ -484,17 +483,12 @@ export class ModalOwtEditor {
       this.clearPending(); return true
     }
     if (prefix === 'space-ai') {
-      const map: Record<string, string> = { s: 'ai-settings', t: 'ai-test', c: 'ai-compose', i: 'improv', d: 'ai-reset-templates', l: 'toggle-locale', h: 'toggle-theme' }
+      const map: Record<string, string> = { s: 'ai-settings', c: 'ai-compose', i: 'improv', l: 'toggle-locale', h: 'toggle-theme' }
       if (map[key]) void this.callbacks.onCommand(map[key]!)
       this.clearPending(); return true
     }
     if (prefix === 'space-workspace') {
       const map: Record<string, string> = { s: 'workspace-studio', c: 'workspace-settings' }
-      if (map[key]) void this.callbacks.onCommand(map[key]!)
-      this.clearPending(); return true
-    }
-    if (prefix === 'space-control') {
-      const map: Record<string, string> = { e: 'midi-enable', r: 'midi-refresh', o: 'audio-output', f: 'soundfont-retry', '1': 'learn-volume', '2': 'learn-octave-up', '3': 'learn-octave-down', '4': 'soundfont-musescore', '5': 'soundfont-generaluser', '6': 'soundfont-timgm' }
       if (map[key]) void this.callbacks.onCommand(map[key]!)
       this.clearPending(); return true
     }

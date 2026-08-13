@@ -9,13 +9,20 @@ export interface OwtAiPromptTemplates {
   improvise: string
 }
 
+export type AiThinkingMode = 'adaptive' | 'enabled' | 'disabled'
+export type AiReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+
 export interface OwtAiConfig {
   baseUrl: string
   model: string
   protocol?: AiProtocol
   apiKey?: string
   temperature?: number
+  topP?: number
   maxTokens?: number
+  thinkingMode?: AiThinkingMode
+  reasoningEffort?: AiReasoningEffort
+  thinkingBudgetTokens?: number
   promptTemplates?: Partial<OwtAiPromptTemplates>
   locale?: 'en' | 'zh-CN'
   retryCount?: number
@@ -52,7 +59,8 @@ interface ChatMessage {
 interface ChatBody {
   model: string
   messages: ChatMessage[]
-  temperature: number
+  temperature?: number
+  top_p?: number
   max_tokens: number
   stream: true
 }
@@ -177,8 +185,8 @@ export function validateOwtAiPromptTemplates(templates: OwtAiPromptTemplates): O
 export const DEFAULT_OWT_AI_CONFIG: OwtAiConfig = {
   baseUrl: '',
   model: '',
-  temperature: 0.35,
   maxTokens: 4096,
+  thinkingBudgetTokens: 2048,
   retryCount: 3,
   autoRepair: true,
 }
@@ -272,7 +280,20 @@ async function postChat(config: OwtAiConfig, body: ChatBody, options: OwtAiTrans
   const system = messages.find((message) => message.role === 'system')
   const conversation = messages.filter((message) => message.role !== 'system')
   const userPrompt = conversation.map((message) => typeof message.content === 'string' ? message.content : message.content.map((part) => part.type === 'text' ? part.text : `[image: ${part.image_url.url}]`).join('\n')).join('\n\n')
-  let requestBody: unknown = body
+  const openAiEffort = config.reasoningEffort === 'max'
+    ? undefined
+    : config.reasoningEffort ?? (config.thinkingMode === 'disabled' ? 'none' : undefined)
+  const anthropicEffort = config.reasoningEffort && !['none', 'minimal'].includes(config.reasoningEffort)
+    ? config.reasoningEffort
+    : undefined
+  const sampling = {
+    ...(body.temperature === undefined ? {} : { temperature: body.temperature }),
+    ...(body.top_p === undefined ? {} : { top_p: body.top_p }),
+  }
+  let requestBody: unknown = {
+    ...body,
+    ...(openAiEffort ? { reasoning_effort: openAiEffort } : {}),
+  }
   if (protocol === 'openai-responses') {
     requestBody = {
       model: body.model,
@@ -285,13 +306,27 @@ async function postChat(config: OwtAiConfig, body: ChatBody, options: OwtAiTrans
             ? { type: 'input_text', text: part.text }
             : { type: 'input_image', image_url: part.image_url.url }),
       })),
-      temperature: body.temperature,
+      ...sampling,
       max_output_tokens: body.max_tokens,
+      ...(openAiEffort ? { reasoning: { effort: openAiEffort } } : {}),
       stream: true,
     }
   } else if (protocol === 'openai-completions') {
-    requestBody = { model: body.model, prompt: `${typeof system?.content === 'string' ? `${system.content}\n\n` : ''}${userPrompt}`, temperature: body.temperature, max_tokens: body.max_tokens, stream: true }
+    requestBody = { model: body.model, prompt: `${typeof system?.content === 'string' ? `${system.content}\n\n` : ''}${userPrompt}`, ...sampling, max_tokens: body.max_tokens, stream: true }
   } else if (protocol === 'anthropic-messages') {
+    if (config.thinkingMode === 'enabled' && body.max_tokens <= 1024) {
+      throw new Error('Anthropic manual thinking requires maxTokens to be greater than 1024')
+    }
+    const thinking = config.thinkingMode === 'adaptive'
+      ? { type: 'adaptive' }
+      : config.thinkingMode === 'enabled'
+        ? {
+            type: 'enabled',
+            budget_tokens: Math.max(1024, Math.min(config.thinkingBudgetTokens ?? 2048, body.max_tokens - 1)),
+          }
+        : config.thinkingMode === 'disabled'
+          ? { type: 'disabled' }
+          : undefined
     requestBody = {
       model: body.model,
       system: typeof system?.content === 'string' ? system.content : undefined,
@@ -303,11 +338,23 @@ async function postChat(config: OwtAiConfig, body: ChatBody, options: OwtAiTrans
             ? { type: 'text', text: part.text }
             : { type: 'image', source: { type: 'base64', media_type: /^data:([^;]+);base64,/.exec(part.image_url.url)?.[1] ?? 'image/png', data: part.image_url.url.replace(/^data:[^;]+;base64,/, '') } }),
       })),
-      temperature: body.temperature,
+      ...sampling,
       max_tokens: body.max_tokens,
+      ...(thinking ? { thinking } : {}),
+      ...(anthropicEffort ? { output_config: { effort: anthropicEffort } } : {}),
       stream: true,
     }
   } else if (protocol === 'ollama-native') {
+    const ollamaEffort = config.reasoningEffort === 'none'
+      ? false
+      : config.reasoningEffort === 'minimal'
+        ? 'low'
+        : config.reasoningEffort === 'xhigh'
+          ? 'max'
+          : config.reasoningEffort
+    const think = config.thinkingMode === 'disabled'
+      ? false
+      : ollamaEffort ?? (config.thinkingMode === 'enabled' || config.thinkingMode === 'adaptive' ? true : undefined)
     requestBody = {
       model: body.model,
       messages: messages.map((message) => ({
@@ -315,7 +362,8 @@ async function postChat(config: OwtAiConfig, body: ChatBody, options: OwtAiTrans
         content: typeof message.content === 'string' ? message.content : message.content.filter((part) => part.type === 'text').map((part) => 'text' in part ? part.text : '').join('\n'),
         images: typeof message.content === 'string' ? undefined : message.content.filter((part) => part.type === 'image_url').map((part) => 'image_url' in part ? part.image_url.url.replace(/^data:[^;]+;base64,/, '') : ''),
       })),
-      options: { temperature: body.temperature, num_predict: body.max_tokens },
+      options: { ...sampling, num_predict: body.max_tokens },
+      ...(think === undefined ? {} : { think }),
       stream: true,
     }
   }
@@ -334,7 +382,8 @@ export async function createOwtWithAi(config: OwtAiConfig, request: OwtAiRequest
   const body: ChatBody = {
     model: config.model.trim(),
     messages,
-    temperature: config.temperature ?? 0.35,
+    temperature: config.temperature,
+    top_p: config.topP,
     max_tokens: config.maxTokens ?? 4096,
     stream: true,
   }
@@ -363,8 +412,9 @@ export async function testOwtAiConnection(config: OwtAiConfig, options: OwtAiTra
   const body: ChatBody = {
     model: config.model.trim(),
     messages: [{ role: 'user', content: 'Reply with exactly OPUSWEAVE_AI_OK' }],
-    temperature: 0,
-    max_tokens: 24,
+    temperature: config.temperature,
+    top_p: config.topP,
+    max_tokens: config.maxTokens ?? 4096,
     stream: true,
   }
   return postChat(config, body, options)

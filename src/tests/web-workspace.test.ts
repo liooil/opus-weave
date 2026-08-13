@@ -104,18 +104,23 @@ describe('web workspace structure', () => {
     expect(studio.indexOf('id="live-panel"')).toBeGreaterThan(studio.indexOf('id="jianpu-panel"'))
   })
 
-  test('gives every visible button an executable keyboard shortcut', () => {
-    const buttons = [...html.matchAll(/<button\b[^>]*>/g)].map((match) => match[0])
+  test('gives studio controls shortcuts while leaving settings buttons mouse-first', () => {
+    const settingsStart = html.indexOf('data-workspace-page="settings"')
+    const settingsEnd = html.indexOf('</main>', settingsStart)
+    const settings = html.slice(settingsStart, settingsEnd)
+    const shortcutScope = `${html.slice(0, settingsStart)}${html.slice(settingsEnd)}`
+    const buttons = [...shortcutScope.matchAll(/<button\b[^>]*>/g)].map((match) => match[0])
     expect(buttons.filter((button) => !button.includes('data-shortcut') && !button.includes('aria-keyshortcuts') && !button.includes('data-shortcut-exempt'))).toEqual([])
     expect(buttons.filter((button) => button.includes('data-shortcut-exempt'))).toEqual([
       expect.stringContaining('id="owt-mode"'),
       expect.stringContaining('id="toggle-computer-map"'),
-      expect.stringContaining('id="btn-ai-refresh-models"'),
     ])
+    expect([...settings.matchAll(/<button\b[^>]*>/g)].map((match) => match[0]).filter((button) => button.includes('data-shortcut') || button.includes('aria-keyshortcuts'))).toEqual([])
     expect(app).toContain("case 'workspace-studio': showWorkspacePage('studio')")
     expect(app).toContain("case 'toggle-locale': localeButton.click()")
     expect(app).toContain("case 'toggle-theme': themeButton.click()")
-    expect(app).toContain("case 'midi-enable': showWorkspacePage('settings')")
+    expect(app).not.toContain("case 'midi-enable':")
+    expect(modalEditor).not.toContain("this.setPending('space-control')")
   })
 
   test('places an icon-only three-state theme control after the language button', () => {
@@ -155,6 +160,9 @@ describe('web workspace structure', () => {
     expect(html).not.toContain('id="record-panel"')
     expect(html).not.toContain('id="btn-record"')
     expect(html).not.toContain('data-page-target="tools"')
+    expect(html).toContain('class="settings-action-row"')
+    expect(html).not.toContain('id="btn-request-midi" class="primary full-width"')
+    expect(css).toContain(".workspace-page[data-workspace-page='settings'] button { min-height: 30px;")
   })
 
   test('fetches FluidR3Mono as a non-blocking, separately cached built-in bank', () => {
@@ -172,11 +180,9 @@ describe('web workspace structure', () => {
     for (const id of ['btn-download-musescore-general', 'btn-download-generaluser', 'btn-download-timgm']) {
       expect(html).toContain(`id="${id}"`)
     }
-    expect(html).toContain('data-shortcut="Space k 4"')
-    expect(html).toContain('data-shortcut="Space k 5"')
-    expect(html).toContain('data-shortcut="Space k 6"')
-    expect(app).toContain("case 'soundfont-musescore':")
-    expect(modalEditor).toContain("'4': 'soundfont-musescore'")
+    expect(html).not.toContain('data-shortcut="Space k 4"')
+    expect(app).not.toContain("case 'soundfont-musescore':")
+    expect(modalEditor).not.toContain("'4': 'soundfont-musescore'")
   })
 
   test('opens AI composition through one button and a modal prompt dialog', () => {
@@ -297,6 +303,19 @@ describe('web workspace structure', () => {
     expect(modalEditor).toContain("textarea.addEventListener('paste'")
   })
 
+  test('styles the model input and keeps model call parameters in advanced settings', () => {
+    expect(html).toContain('id="ai-model" type="text"')
+    expect(html).toContain('class="ai-advanced-settings"')
+    for (const id of ['ai-thinking-mode', 'ai-reasoning-effort', 'ai-temperature', 'ai-top-p', 'ai-max-tokens', 'ai-thinking-budget']) {
+      expect(html).toContain(`id="${id}"`)
+    }
+    expect(app).toContain("thinkingMode: thinkingMode ? thinkingMode as NonNullable<OwtAiConfig['thinkingMode']> : undefined")
+    expect(app).toContain("reasoningEffort: reasoningEffort ? reasoningEffort as NonNullable<OwtAiConfig['reasoningEffort']> : undefined")
+    expect(aiClient).toContain("reasoning: { effort: openAiEffort }")
+    expect(aiClient).toContain("output_config: { effort: anthropicEffort }")
+    expect(aiClient).toContain("{ think }")
+  })
+
   test('keeps contextual motion help inside the focused OWT editor', () => {
     expect(html).toContain('id="owt-motion-destinations"')
     expect(html).not.toContain('class="owt-motion-hints"')
@@ -371,6 +390,7 @@ describe('web workspace structure', () => {
     expect(mapHeader).toContain('id="oct-label"')
     expect(mapHeader).toContain('id="velocity-down"')
     expect(mapHeader).toContain('id="key-velocity"')
+    expect(mapHeader).toContain('id="computer-layout"')
     expect(mapHeader).toContain('class="map-shortcut-hint"')
     expect(mapHeader).toContain('id="toggle-computer-map"')
     expect(mapHeader).not.toContain('data-shortcut="Space k m"')
@@ -378,6 +398,8 @@ describe('web workspace structure', () => {
     expect(app).not.toContain("case 'toggle-key-map'")
     expect(css).toContain(".map-toggle[aria-expanded='false'] .map-toggle-icon")
     expect(mapHeader).toContain('id="live-notes"')
+    const mapContent = livePanel.slice(livePanel.indexOf('class="computer-map-content"'))
+    expect(mapContent).not.toContain('id="computer-layout"')
     expect(livePanel).not.toContain('data-i18n="section.instrument"')
     expect(livePanel).not.toContain('data-i18n="section.livePerformance"')
     expect(livePanel).not.toContain('class="hint keyboard-hint"')
@@ -391,12 +413,16 @@ describe('web workspace structure', () => {
     expect(keyboardLayout).toContain("id: 'numpad'")
     expect(keyboardLayout).toContain("['numlock', 'num/', 'num*', 'num-']")
     expect(keyboardLayout).toContain("['num0', 'num.', null]")
+    expect(keyboardLayout).toContain('rowOffsets: [0, 1.5, 1.75, 2.25]')
+    expect(keyboardLayout).toContain('rowOffsets: [0, 0.25, 0.75, 2]')
     expect(app).toContain("root.dataset.layout = layout")
+    expect(app).toContain("row.style.setProperty('--keyboard-row-offset'")
     expect(app).toContain('minNote: 0')
     expect(app).toContain('maxNote: 127')
     expect(app).not.toContain('keyboard.setRange(')
     expect(app).not.toContain('traceActiveOnly')
     expect(css).toContain('.keyboard-map-section + .keyboard-map-section')
+    expect(css).toContain('margin-inline-start: var(--keyboard-row-offset, 0px)')
   })
 
   test('explains hovered score source as a readable multiline field list', () => {

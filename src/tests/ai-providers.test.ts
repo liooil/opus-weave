@@ -97,10 +97,13 @@ describe('AI protocol adapters', () => {
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>
       expect(body).toHaveProperty('input')
       expect(body).toHaveProperty('max_output_tokens', 4096)
+      expect(body).toHaveProperty('temperature', 0.2)
+      expect(body).toHaveProperty('top_p', 0.8)
+      expect(body).toHaveProperty('reasoning.effort', 'high')
       expect(body).toHaveProperty('stream', true)
       return Response.json({ output_text: validOwt })
     }) as typeof fetch
-    expect(await createOwtWithAi({ baseUrl: 'https://api.openai.com', model: 'gpt-test' }, request, { fetcher })).toBe(validOwt)
+    expect(await createOwtWithAi({ baseUrl: 'https://api.openai.com', model: 'gpt-test', temperature: 0.2, topP: 0.8, reasoningEffort: 'high' }, request, { fetcher })).toBe(validOwt)
   })
 
   test('sends Anthropic Messages requests and extracts content blocks', async () => {
@@ -110,26 +113,50 @@ describe('AI protocol adapters', () => {
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>
       expect(body).toHaveProperty('stream', true)
       expect(body).toHaveProperty('system')
+      expect(body).toHaveProperty('thinking.type', 'adaptive')
+      expect(body).toHaveProperty('output_config.effort', 'xhigh')
       return Response.json({ content: [{ type: 'text', text: validOwt }] })
     }) as typeof fetch
-    expect(await createOwtWithAi({ baseUrl: 'https://api.anthropic.com', model: 'claude-test', apiKey: 'secret' }, request, { fetcher })).toBe(validOwt)
+    expect(await createOwtWithAi({ baseUrl: 'https://api.anthropic.com', model: 'claude-test', apiKey: 'secret', thinkingMode: 'adaptive', reasoningEffort: 'xhigh' }, request, { fetcher })).toBe(validOwt)
   })
 
   test('sends Ollama native chat requests and extracts message content', async () => {
     const fetcher = (async (input: URL | RequestInfo, init?: RequestInit) => {
       expect(String(input)).toBe('http://localhost:11434/api/chat')
-      expect(JSON.parse(String(init?.body))).toHaveProperty('options.num_predict', 4096)
-      expect(JSON.parse(String(init?.body))).toHaveProperty('stream', true)
+      const body = JSON.parse(String(init?.body))
+      expect(body).toHaveProperty('options.num_predict', 4096)
+      expect(body).toHaveProperty('options.temperature', 0.25)
+      expect(body).toHaveProperty('options.top_p', 0.9)
+      expect(body).toHaveProperty('think', 'low')
+      expect(body).toHaveProperty('stream', true)
       return Response.json({ message: { role: 'assistant', content: validOwt } })
     }) as typeof fetch
-    expect(await createOwtWithAi({ baseUrl: 'http://localhost:11434', model: 'qwen3:8b' }, request, { fetcher })).toBe(validOwt)
+    expect(await createOwtWithAi({ baseUrl: 'http://localhost:11434', model: 'qwen3:8b', thinkingMode: 'enabled', reasoningEffort: 'low', temperature: 0.25, topP: 0.9 }, request, { fetcher })).toBe(validOwt)
+  })
+
+  test('sends a manual thinking budget to legacy Anthropic models', async () => {
+    const fetcher = (async (_input: URL | RequestInfo, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body))
+      expect(body).toHaveProperty('thinking.type', 'enabled')
+      expect(body).toHaveProperty('thinking.budget_tokens', 3072)
+      return Response.json({ content: [{ type: 'text', text: validOwt }] })
+    }) as typeof fetch
+    expect(await createOwtWithAi({
+      baseUrl: 'https://api.anthropic.com',
+      model: 'claude-legacy-test',
+      thinkingMode: 'enabled',
+      thinkingBudgetTokens: 3072,
+      maxTokens: 4096,
+    }, request, { fetcher })).toBe(validOwt)
   })
 
   test('applies OpenAI-compatible SSE deltas while the score is still arriving', async () => {
     const pieces = [validOwt.slice(0, 24), validOwt.slice(24, 90), validOwt.slice(90)]
     const encoder = new TextEncoder()
     const fetcher = (async (_input: URL | RequestInfo, init?: RequestInit) => {
-      expect(JSON.parse(String(init?.body))).toHaveProperty('stream', true)
+      const body = JSON.parse(String(init?.body))
+      expect(body).toHaveProperty('stream', true)
+      expect(body).toHaveProperty('reasoning_effort', 'minimal')
       return new Response(new ReadableStream({
         start(controller) {
           for (const content of pieces) controller.enqueue(encoder.encode(`data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\n`))
@@ -139,7 +166,7 @@ describe('AI protocol adapters', () => {
       }), { headers: { 'content-type': 'text/event-stream' } })
     }) as typeof fetch
     const updates: string[] = []
-    const result = await createOwtWithAi({ baseUrl: 'http://model.test', model: 'stream-test' }, request, { fetcher, onUpdate: (text) => updates.push(text) })
+    const result = await createOwtWithAi({ baseUrl: 'http://model.test', model: 'stream-test', reasoningEffort: 'minimal' }, request, { fetcher, onUpdate: (text) => updates.push(text) })
     expect(result).toBe(validOwt)
     expect(updates).toHaveLength(3)
     expect(updates[0]!.length).toBeLessThan(result.length)

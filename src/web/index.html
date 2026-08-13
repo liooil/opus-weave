@@ -145,8 +145,8 @@
             <div class="computer-map-head">
               <strong id="computer-map-title" data-i18n="live.computerMap">Computer keyboard map</strong>
               <div id="live-notes" class="live-notes"><span class="notes-placeholder" data-i18n="live.notesPlaceholder">Played notes</span></div>
-              <div class="computer-map-actions">
-                <div class="map-performance-controls">
+              <label class="performance-layout-control computer-map-layout"><span class="stepper-label" data-i18n="live.layout">Layout</span><select id="computer-layout"><option value="default" data-i18n="layout.default">OpusWeave default</option><option value="english" data-i18n="layout.english">English word melody</option><option value="pinyin" data-i18n="layout.pinyin">Pinyin melody</option><option value="freepiano" data-i18n="layout.freepiano">FreePiano classic</option></select></label>
+              <div class="map-performance-controls">
                   <div class="map-performance-control">
                     <span class="map-control-name" data-i18n="live.octave">Octave</span>
                     <span class="map-shortcut-hint" aria-label="A / K"><kbd>A</kbd><kbd>K</kbd></span>
@@ -161,12 +161,10 @@
                     <input id="key-velocity" class="velocity-input" type="number" min="1" max="127" value="100" data-i18n-aria-label="live.velocity" aria-label="Velocity" />
                     <button id="velocity-up" class="stepper" data-shortcut="4" aria-keyshortcuts="4" data-i18n-title="live.velocityUpControl" data-i18n-aria-label="live.velocityUpControl" title="Increase velocity (4)" aria-label="Increase velocity (4)">+</button>
                   </div>
-                </div>
-                <button id="toggle-computer-map" class="map-toggle" data-shortcut-exempt="disclosure" data-i18n-title="live.collapseMap" data-i18n-aria-label="live.collapseMap" title="Collapse keyboard map" aria-label="Collapse keyboard map" aria-expanded="true"><span class="map-toggle-icon" aria-hidden="true"></span></button>
               </div>
+              <button id="toggle-computer-map" class="map-toggle" data-shortcut-exempt="disclosure" data-i18n-title="live.collapseMap" data-i18n-aria-label="live.collapseMap" title="Collapse keyboard map" aria-label="Collapse keyboard map" aria-expanded="true"><span class="map-toggle-icon" aria-hidden="true"></span></button>
             </div>
             <div id="computer-map-content" class="computer-map-content">
-              <label class="performance-layout-control computer-map-layout"><span class="stepper-label" data-i18n="live.layout">Layout</span><select id="computer-layout"><option value="default" data-i18n="layout.default">OpusWeave default</option><option value="english" data-i18n="layout.english">English word melody</option><option value="pinyin" data-i18n="layout.pinyin">Pinyin melody</option><option value="freepiano" data-i18n="layout.freepiano">FreePiano classic</option></select></label>
               <div id="computer-key-map" class="qwerty-map"></div>
               <div class="keyboard-bridge" aria-hidden="true"><svg id="keyboard-links" class="keyboard-links"></svg></div>
             </div>
@@ -186,7 +184,7 @@
           </section>
           <section class="panel" id="midi-panel">
             <div class="section-heading"><div><span class="eyebrow" data-i18n="section.hardware">Hardware</span><h2 data-i18n="section.midiConnections">MIDI connections</h2></div></div>
-            <div class="stacked-actions"><button id="btn-request-midi" class="primary full-width" data-shortcut="Space k e" data-i18n="midi.enable">Enable MIDI access</button><button id="btn-refresh-midi" class="quiet full-width" data-shortcut="Space k r" data-i18n="midi.refresh">Refresh devices</button></div>
+            <div class="settings-action-row"><button id="btn-request-midi" class="primary" data-i18n="midi.enable">Enable MIDI access</button><button id="btn-refresh-midi" class="quiet" data-i18n="midi.refresh">Refresh devices</button></div>
             <div class="field-stack"><label><span data-i18n="midi.inputDevice">Input device</span><select id="midi-input-select"></select></label><label><span data-i18n="midi.outputDevice">Output device</span><select id="midi-output-select"></select></label></div>
             <div id="port-details" class="port-details"></div><div id="device-profile" class="device-profile" hidden><strong id="profile-name"></strong><div id="profile-controls" class="profile-controls"></div></div>
           </section>
@@ -196,7 +194,7 @@
               <span class="soundfont-state-marker" aria-hidden="true"></span>
               <div class="built-in-soundfont-copy"><strong data-i18n="sound.builtInName">FluidR3Mono GM + FreePiano piano</strong><small data-i18n="sound.builtInSeparate">The GM bank is fetched separately and never blocks the application.</small></div>
               <span id="built-in-soundfont-state" class="soundfont-state-label" data-i18n="sound.stateLoading">Loading</span>
-              <button id="btn-retry-built-in-soundfont" class="quiet" data-shortcut="Space k f" data-i18n="sound.retry" hidden>Retry</button>
+              <button id="btn-retry-built-in-soundfont" class="quiet" data-i18n="sound.retry" hidden>Retry</button>
             </div>
             <label class="drop-zone"><input id="sf-file" type="file" accept=".sf2,.sf3,.sfogg" /><span class="drop-icon">SF</span><span class="built-in-badge" data-i18n="sound.customBadge">Custom</span><strong data-i18n="sound.load">Load another SoundFont</strong><small data-i18n="sound.formats">Optional: SF2, SF3 or SFOGG</small></label>
             <div class="field-stack compact-fields">
@@ -204,16 +202,16 @@
               <label><span data-i18n="sound.masterVolume">Master volume</span><input id="master-volume" type="range" min="0" max="100" value="80" /></label>
               <div class="audio-output-field">
                 <label><span data-i18n="sound.audioOutput">Audio output</span><select id="audio-output-select"></select></label>
-                <button id="btn-choose-audio-output" class="quiet" data-shortcut="Space k o" data-i18n="sound.chooseOutput">Choose…</button>
+                <button id="btn-choose-audio-output" class="quiet" data-i18n="sound.chooseOutput">Choose…</button>
               </div>
             </div>
             <div id="sf-status" class="status"></div>
             <div id="audio-output-status" class="status"></div>
             <div class="soundfont-downloads">
               <div class="soundfont-downloads-heading"><strong data-i18n="sound.downloads">Optional sound banks</strong><small data-i18n="sound.downloadsHint">Download from the official source, then load the saved file above.</small></div>
-              <div class="soundfont-download-option"><div><strong>MuseScore General</strong><small data-i18n="sound.museScoreGeneralMeta">about 38 MB · SF3 · MIT · richer standard bank</small></div><button id="btn-download-musescore-general" class="quiet" data-shortcut="Space k 4" data-soundfont-download="https://ftp.osuosl.org/pub/musescore/soundfont/MuseScore_General/MuseScore_General.sf3" data-i18n="sound.download">Download</button></div>
-              <div class="soundfont-download-option"><div><strong>GeneralUser GS</strong><small data-i18n="sound.generalUserMeta">about 31 MB · SF2 · custom license · opens the official download page</small></div><button id="btn-download-generaluser" class="quiet" data-shortcut="Space k 5" data-soundfont-download="https://www.schristiancollins.com/generaluser.php" data-i18n="sound.download">Download</button></div>
-              <div class="soundfont-download-option"><div><strong>TimGM6mb</strong><small data-i18n="sound.timGmMeta">about 5.7 MB · SF2 · GPL-2.0 · smallest option</small></div><button id="btn-download-timgm" class="quiet" data-shortcut="Space k 6" data-soundfont-download="https://sourceforge.net/p/mscore/code/HEAD/tree/trunk/mscore/share/sound/TimGM6mb.sf2?format=raw" data-i18n="sound.download">Download</button></div>
+              <div class="soundfont-download-option"><div><strong>MuseScore General</strong><small data-i18n="sound.museScoreGeneralMeta">about 38 MB · SF3 · MIT · richer standard bank</small></div><button id="btn-download-musescore-general" class="quiet" data-soundfont-download="https://ftp.osuosl.org/pub/musescore/soundfont/MuseScore_General/MuseScore_General.sf3" data-i18n="sound.download">Download</button></div>
+              <div class="soundfont-download-option"><div><strong>GeneralUser GS</strong><small data-i18n="sound.generalUserMeta">about 31 MB · SF2 · custom license · opens the official download page</small></div><button id="btn-download-generaluser" class="quiet" data-soundfont-download="https://www.schristiancollins.com/generaluser.php" data-i18n="sound.download">Download</button></div>
+              <div class="soundfont-download-option"><div><strong>TimGM6mb</strong><small data-i18n="sound.timGmMeta">about 5.7 MB · SF2 · GPL-2.0 · smallest option</small></div><button id="btn-download-timgm" class="quiet" data-soundfont-download="https://sourceforge.net/p/mscore/code/HEAD/tree/trunk/mscore/share/sound/TimGM6mb.sf2?format=raw" data-i18n="sound.download">Download</button></div>
               <a id="fluidr3mono-license" class="soundfont-license-link" target="_blank" rel="noopener" data-i18n="sound.builtInLicense">FluidR3Mono license and acknowledgements</a>
             </div>
           </section>
@@ -223,11 +221,23 @@
               <label class="ai-endpoint-field"><span data-i18n="ai.endpoint">Service URL</span><input id="ai-endpoint" type="url" spellcheck="false" data-i18n-placeholder="ai.endpointPlaceholder" placeholder="OpenAI, Anthropic, OpenRouter, Ollama or llama.cpp URL" /></label>
               <label><span data-i18n="ai.apiKey">API key (optional)</span><input id="ai-api-key" type="password" autocomplete="off" /></label>
               <label><span data-i18n="ai.protocol">Protocol</span><select id="ai-protocol"><option value="auto" data-i18n="ai.protocolAuto">Auto detect</option><option value="openai-responses">OpenAI Responses</option><option value="openai-chat-completions">OpenAI Chat Completions</option><option value="openai-completions">OpenAI Completions</option><option value="anthropic-messages">Anthropic Messages</option><option value="ollama-native">Ollama Native</option></select></label>
-              <label class="ai-model-field"><span data-i18n="ai.model">Model</span><input id="ai-model" list="ai-model-options" spellcheck="false" autocomplete="off" data-i18n-placeholder="ai.modelPlaceholder" placeholder="Enter URL to load models" /><datalist id="ai-model-options"></datalist></label>
-              <label><span data-i18n="ai.retryCount">Repair retries</span><input id="ai-retry-count" type="number" min="0" max="10" step="1" value="3" /></label>
-              <label class="ai-checkbox-field"><input id="ai-auto-repair" type="checkbox" checked /><span data-i18n="ai.autoRepair">Automatically repair invalid AI OWT</span></label>
-              <div class="ai-settings-actions"><button id="btn-ai-refresh-models" class="quiet" data-shortcut-exempt data-i18n="ai.refreshModels">Refresh models</button><button id="btn-ai-test" class="quiet" data-shortcut="Space z t" data-i18n="ai.test">Test connection</button></div>
+              <label class="ai-model-field"><span data-i18n="ai.model">Model</span><input id="ai-model" type="text" list="ai-model-options" spellcheck="false" autocomplete="off" data-i18n-placeholder="ai.modelPlaceholder" placeholder="Enter URL to load models" /><datalist id="ai-model-options"></datalist></label>
+              <div class="ai-settings-actions"><button id="btn-ai-refresh-models" class="quiet" data-i18n="ai.refreshModels">Refresh models</button><button id="btn-ai-test" class="quiet" data-i18n="ai.test">Test connection</button></div>
             </div>
+            <details class="ai-advanced-settings">
+              <summary data-i18n="ai.advancedParameters">Advanced model parameters</summary>
+              <p class="hint" data-i18n="ai.advancedParametersHint">Unset values follow the provider or model default. Unsupported values are not sent for that protocol.</p>
+              <div class="ai-model-parameter-grid">
+                <label><span data-i18n="ai.thinkingMode">Thinking mode</span><select id="ai-thinking-mode"><option value="" data-i18n="ai.providerDefault">Provider default</option><option value="adaptive" data-i18n="ai.thinkingAdaptive">Adaptive</option><option value="enabled" data-i18n="ai.thinkingEnabled">Enabled (manual)</option><option value="disabled" data-i18n="ai.thinkingDisabled">Disabled</option></select></label>
+                <label><span data-i18n="ai.reasoningEffort">Reasoning effort</span><select id="ai-reasoning-effort"><option value="" data-i18n="ai.providerDefault">Provider default</option><option value="none">none</option><option value="minimal">minimal</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option><option value="xhigh">xhigh</option><option value="max">max</option></select></label>
+                <label><span data-i18n="ai.temperature">Temperature</span><input id="ai-temperature" type="number" min="0" max="2" step="0.05" data-i18n-placeholder="ai.providerDefault" placeholder="Provider default" /></label>
+                <label><span data-i18n="ai.topP">Top P</span><input id="ai-top-p" type="number" min="0" max="1" step="0.05" data-i18n-placeholder="ai.providerDefault" placeholder="Provider default" /></label>
+                <label><span data-i18n="ai.maxTokens">Maximum output tokens</span><input id="ai-max-tokens" type="number" min="1" max="1000000" step="1" value="4096" /></label>
+                <label><span data-i18n="ai.thinkingBudget">Manual thinking budget</span><input id="ai-thinking-budget" type="number" min="1024" max="1000000" step="1" value="2048" /></label>
+                <label><span data-i18n="ai.retryCount">Repair retries</span><input id="ai-retry-count" type="number" min="0" max="10" step="1" value="3" /></label>
+                <label class="ai-checkbox-field"><input id="ai-auto-repair" type="checkbox" checked /><span data-i18n="ai.autoRepair">Automatically repair invalid AI OWT</span></label>
+              </div>
+            </details>
             <details class="ai-prompt-settings">
               <summary data-i18n="ai.promptTemplates">Prompt templates</summary>
               <p class="hint" data-i18n="ai.promptTemplatesHint">Use {instruction} where the request entered for that feature should appear.</p>
@@ -237,7 +247,7 @@
                 <label><span data-i18n="ai.mediaPromptTemplate">Media transcription</span><textarea id="ai-template-media" rows="3" spellcheck="false"></textarea></label>
                 <label><span data-i18n="ai.improvPromptTemplate">AI improvisation</span><textarea id="ai-template-improvise" rows="3" spellcheck="false"></textarea></label>
               </div>
-              <div class="ai-settings-actions"><button id="btn-ai-test-templates" type="button" class="quiet" data-shortcut="Space z p" data-i18n="ai.testPromptTemplates">Test prompt templates</button><button id="btn-ai-reset-templates" type="button" class="quiet" data-shortcut="Space z d" data-i18n="ai.resetPromptTemplates">Restore defaults</button></div>
+              <div class="ai-settings-actions"><button id="btn-ai-test-templates" type="button" class="quiet" data-i18n="ai.testPromptTemplates">Test prompt templates</button><button id="btn-ai-reset-templates" type="button" class="quiet" data-i18n="ai.resetPromptTemplates">Restore defaults</button></div>
             </details>
             <div id="ai-status" class="status" data-status-key="ai.ready">API configuration is optional; without it, AI composition provides a prompt for manual use.</div>
             <dialog id="ai-prompt-test-dialog" class="ai-prompt-test-dialog" aria-labelledby="ai-prompt-test-title">
@@ -249,7 +259,7 @@
                 </div>
                 <div id="ai-prompt-test-results" class="ai-prompt-test-results" aria-live="polite"></div>
                 <div class="dialog-actions">
-                  <button id="btn-ai-prompt-test-close" type="button" class="quiet" data-shortcut="Esc" aria-keyshortcuts="Escape" data-i18n="common.close">Close</button>
+                  <button id="btn-ai-prompt-test-close" type="button" class="quiet" data-i18n="common.close">Close</button>
                 </div>
               </div>
             </dialog>
@@ -260,7 +270,7 @@
           <div class="advanced-settings-grid">
             <section class="panel module-panel" id="learn-panel">
               <div class="section-heading"><div><span class="eyebrow" data-i18n="section.control">Control</span><h2 data-i18n="section.midiLearn">MIDI Learn</h2></div></div><p class="hint" data-i18n="learn.description">Select a parameter, then move a hardware control to create a binding.</p>
-              <div class="learn-grid"><button data-learn="master-volume" data-shortcut="Space k 1" data-i18n="learn.volume">Volume</button><button data-learn="octave-up" data-shortcut="Space k 2" data-i18n="learn.octaveUp">Octave +</button><button data-learn="octave-down" data-shortcut="Space k 3" data-i18n="learn.octaveDown">Octave −</button></div><div id="learn-status" class="status"></div><ul id="learn-bindings"></ul>
+              <div class="learn-grid"><button data-learn="master-volume" data-i18n="learn.volume">Volume</button><button data-learn="octave-up" data-i18n="learn.octaveUp">Octave +</button><button data-learn="octave-down" data-i18n="learn.octaveDown">Octave −</button></div><div id="learn-status" class="status"></div><ul id="learn-bindings"></ul>
             </section>
             <section class="panel monitor-panel"><div class="section-heading inline-heading"><div><span class="eyebrow" data-i18n="section.diagnostics">Diagnostics</span><h2 data-i18n="section.messageMonitor">Message monitor</h2></div><span class="mono-label" data-i18n="monitor.liveStream">LIVE STREAM</span></div><div id="midi-monitor" class="monitor" aria-live="polite"><div class="monitor-empty" data-i18n="monitor.waiting">Waiting for MIDI activity…</div></div></section>
           </div>

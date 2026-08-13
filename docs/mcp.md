@@ -90,9 +90,15 @@ OWT is the primary persistent format documented in `docs/owt.md`:
 | Tool | Purpose |
 |---|---|
 | `validate_owt` | Parse OWT and return source-located diagnostics plus composition validation |
+| `format_owt` | Validate and emit canonical OWT; comments are intentionally removed |
 | `play_owt` | Compile OWT to a MIDI payload for the internal SoundFont player |
 | `export_owt_to_midi` | Validate OWT and write a derived `.mid` file |
 | `import_midi_to_owt` | Extract a simple one-track melody from MIDI and return OWT plus a loss report |
+| `create_composition_plan` | Runtime-validate a section-based full-composition plan |
+| `compose_section` | Validate and canonicalize one independently generated section |
+| `assemble_composition` | Join sections with program-owned offsets, tracks and tempo map |
+| `validate_full_composition` | Report duration, range, density, repetition, silence, conflicts and plan conformance |
+| `revise_section` | Replace and validate only one selected section |
 
 `import_midi_to_owt` is intentionally lossy. `grid` accepts `1/8`, `1/16` or
 `1/32`; `voice` accepts `continuous`, `highest` or `lowest`. Optional `track`

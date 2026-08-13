@@ -59,6 +59,34 @@ describe('OWT 0.1', () => {
     expect(codes).toContain('score.bar.misaligned')
     expect(invalid.diagnostics.every((issue) => issue.line > 0 && issue.column > 0)).toBe(true)
   })
+
+  test('rejects unknown and duplicate track and note attributes with locations', () => {
+    const cases = [
+      ['track "Bad" channe=1', 'score.track.attribute.unsupported'],
+      ['track "Bad" channel=1 channel=2', 'score.track.attribute.duplicate'],
+      ['track "Bad" channel=1\n| C4:4{v=80,v=90} |', 'score.attribute.duplicate'],
+    ] as const
+    for (const [track, code] of cases) {
+      const result = parseOwt(`owt 0.1 score\nmeter 1:1 4/4\n${track}\n| C4:4 |\nend\n`)
+      expect(result.document).toBeUndefined()
+      expect(result.diagnostics.find((item) => item.code === code)).toMatchObject({ line: expect.any(Number), column: expect.any(Number) })
+    }
+  })
+
+  test('rejects out-of-measure positions, zero-tick durations, and incomplete final measures', () => {
+    const position = parseOwt('owt 0.1 score\nmeter 1:1 4/4\ntempo 1:5 120\ntrack "M" channel=1\n| C4:4 |\nend\n')
+    expect(position.diagnostics.map((item) => item.code)).toContain('score.position.outOfMeasure')
+    const zeroTick = parseOwt('owt 0.1 score\nppq 1\ntrack "M" channel=1\n| C4:1/3 R:11/3 |\nend\n')
+    expect(zeroTick.diagnostics.map((item) => item.code)).toContain('score.duration.zeroTick')
+    const incomplete = parseOwt('owt 0.1 score\ntrack "M" channel=1\nC4:1\nend\n')
+    expect(incomplete.diagnostics.map((item) => item.code)).toContain('score.track.incompleteMeasure')
+  })
+
+  test('warns only when shared MIDI channels have conflicting programs', () => {
+    const result = parseOwt('owt 0.1 score\ntrack "A" channel=1 program=0\n| C4:4 |\ntrack "B" channel=1 program=40\n| C3:4 |\nend\n')
+    expect(result.document).toBeDefined()
+    expect(result.diagnostics).toContainEqual(expect.objectContaining({ severity: 'warning', code: 'score.channel.programConflict' }))
+  })
 })
 
 describe('lossy MIDI melody extraction', () => {

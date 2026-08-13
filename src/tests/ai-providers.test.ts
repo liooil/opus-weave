@@ -97,6 +97,7 @@ describe('AI protocol adapters', () => {
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>
       expect(body).toHaveProperty('input')
       expect(body).toHaveProperty('max_output_tokens', 4096)
+      expect(body).toHaveProperty('stream', true)
       return Response.json({ output_text: validOwt })
     }) as typeof fetch
     expect(await createOwtWithAi({ baseUrl: 'https://api.openai.com', model: 'gpt-test' }, request, { fetcher })).toBe(validOwt)
@@ -107,6 +108,7 @@ describe('AI protocol adapters', () => {
       expect(String(input)).toBe('https://api.anthropic.com/v1/messages')
       expect(new Headers(init?.headers).get('anthropic-version')).toBe('2023-06-01')
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+      expect(body).toHaveProperty('stream', true)
       expect(body).toHaveProperty('system')
       return Response.json({ content: [{ type: 'text', text: validOwt }] })
     }) as typeof fetch
@@ -117,8 +119,30 @@ describe('AI protocol adapters', () => {
     const fetcher = (async (input: URL | RequestInfo, init?: RequestInit) => {
       expect(String(input)).toBe('http://localhost:11434/api/chat')
       expect(JSON.parse(String(init?.body))).toHaveProperty('options.num_predict', 4096)
+      expect(JSON.parse(String(init?.body))).toHaveProperty('stream', true)
       return Response.json({ message: { role: 'assistant', content: validOwt } })
     }) as typeof fetch
     expect(await createOwtWithAi({ baseUrl: 'http://localhost:11434', model: 'qwen3:8b' }, request, { fetcher })).toBe(validOwt)
+  })
+
+  test('applies OpenAI-compatible SSE deltas while the score is still arriving', async () => {
+    const pieces = [validOwt.slice(0, 24), validOwt.slice(24, 90), validOwt.slice(90)]
+    const encoder = new TextEncoder()
+    const fetcher = (async (_input: URL | RequestInfo, init?: RequestInit) => {
+      expect(JSON.parse(String(init?.body))).toHaveProperty('stream', true)
+      return new Response(new ReadableStream({
+        start(controller) {
+          for (const content of pieces) controller.enqueue(encoder.encode(`data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\n`))
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+          controller.close()
+        },
+      }), { headers: { 'content-type': 'text/event-stream' } })
+    }) as typeof fetch
+    const updates: string[] = []
+    const result = await createOwtWithAi({ baseUrl: 'http://model.test', model: 'stream-test' }, request, { fetcher, onUpdate: (text) => updates.push(text) })
+    expect(result).toBe(validOwt)
+    expect(updates).toHaveLength(3)
+    expect(updates[0]!.length).toBeLessThan(result.length)
+    expect(updates.at(-1)).toBe(validOwt)
   })
 })

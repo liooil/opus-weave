@@ -1,6 +1,6 @@
 import { parseOwt } from '../owt/parser.ts'
 import { buildOwt01Reference } from '../owt/reference.ts'
-import { aiRequestEndpoint, aiRequestHeaders, resolvedAiProtocol, sendAiProviderRequest, type AiProtocol } from './providers.ts'
+import { aiRequestEndpoint, aiRequestHeaders, readAiTextResponse, resolvedAiProtocol, sendAiProviderRequest, type AiProtocol } from './providers.ts'
 
 export interface OwtAiPromptTemplates {
   system: string
@@ -17,6 +17,9 @@ export interface OwtAiConfig {
   temperature?: number
   maxTokens?: number
   promptTemplates?: Partial<OwtAiPromptTemplates>
+  locale?: 'en' | 'zh-CN'
+  retryCount?: number
+  autoRepair?: boolean
 }
 
 export interface OwtAiAttachment {
@@ -38,6 +41,7 @@ export interface OwtAiTransportOptions {
   fetcher?: typeof fetch
   proxyUrl?: string
   signal?: AbortSignal
+  onUpdate?: (text: string) => void
 }
 
 interface ChatMessage {
@@ -50,18 +54,123 @@ interface ChatBody {
   messages: ChatMessage[]
   temperature: number
   max_tokens: number
-  stream: false
-  response_format?: {
-    type: 'json_schema'
-    json_schema: { name: string; strict: true; schema: Record<string, unknown> }
+  stream: true
+}
+export function defaultOwtAiPromptTemplates(locale: 'en' | 'zh-CN' = 'en'): OwtAiPromptTemplates {
+  if (locale === 'zh-CN') {
+    return {
+      system: `你是 OpusWeave 的 OWT 0.1 乐谱生成器。输出会直接送入严格解析器。
+
+权威 OWT 0.1 格式与解析语义：
+{owtReference}
+
+生成行为：
+1. 只输出一份完整 OWT 文档；不要使用 Markdown 围栏、前言、解释、尾注或检查过程。
+2. 修改或续写时输出完整替换文档，不要输出补丁或仅输出新增片段。现有无效 OWT 只能作为音乐素材，不得保留其语法错误。
+3. 严格采用参考中定义的语法。优先使用简单、明确的写法，不要发明未支持的记谱。
+4. 默认使用一行一个成对小节“| ... |”。每个小节必须独立计算事件时值之和，并严格等于当前拍号的小节长度：numerator*4/denominator（4/4=4，3/4=3，6/8=3）。右侧小节线之前若不足，必须加入休止符；绝不在不完整小节后输出小节线。输出前逐小节重新求和，并确认每条轨道结束在完整小节边界。
+5. 多轨默认分配不同 MIDI channel，避免同一 channel 使用冲突的 program。
+6. 若用户要求复制仍受版权保护的现代作品，应创作情绪或风格相近的原创音乐，而不是生成可辨识的长篇转录。`,
+      prompt: `任务：根据用户要求创作或修改一份完整 OWT 乐谱。
+
+用户要求：
+{instruction}
+
+当前 OWT（可作为素材；若为空或无效则重新构建合法文档）：
+{currentOwt}
+
+先在内部规划调号、拍号、速度、轨道和完整小节数。对于 4/4，每条轨道先复制下面的节奏骨架，再只替换音高；需要更多小节就继续复制同一行，不得修改任何 :1：
+| C4:1 D4:1 E4:1 F4:1 |
+| C4:1 D4:1 E4:1 F4:1 |
+| C4:1 D4:1 E4:1 F4:1 |
+| C4:1 D4:1 E4:1 F4:1 |
+对于 3/4 或 6/8，每行写三个 :1 事件。轨道事件中不得输出分数时值或 :2、:3、:4。逐行数清事件后，最后只输出完整 OWT。`,
+      scoreMedia: `任务：读取附带的乐谱图像或视频采样帧，把可见音乐转写为一份完整、可播放的 OWT 乐谱。
+
+用户补充要求：
+{instruction}
+
+当前 OWT（仅在用户要求编辑时作为素材）：
+{currentOwt}
+
+无法确定的细节应采用保守、合法的记谱，不要发明 OWT 未支持的符号。每个小节独立求和，只有总时值严格等于当前拍号的小节长度时才闭合右侧小节线；不足使用休止符补齐。只输出最终的完整 OWT。`,
+      improvise: `任务：把当前演奏继续成连贯的音乐问答，保留可辨识的动机，加入合乎调性与节拍的回答，并返回合并后的完整 OWT。
+
+用户补充要求：
+{instruction}
+
+当前 OWT：
+{currentOwt}
+
+不得只输出新增片段。保持原有拍号；每个小节独立求和，严格补足所有轨道后才能写右侧小节线，并只输出最终的完整 OWT。`,
+    }
+  }
+  return {
+    system: `You are OpusWeave's OWT 0.1 score generator. Output is sent directly to a strict parser.
+
+Authoritative OWT 0.1 format and parser semantics:
+{owtReference}
+
+GENERATION BEHAVIOR:
+1. Return one complete OWT document only. No Markdown fence, preface, explanation, trailing note, or visible verification.
+2. When editing or continuing, return the complete replacement document—not a patch or only the new fragment. Treat invalid current OWT as musical material only; do not preserve its syntax errors.
+3. Use only syntax defined by the reference. Prefer simple, explicit forms and never invent unsupported notation.
+4. Use one paired | ... | measure per line by default. Independently sum the event durations in every measure and require the exact active-meter length: numerator*4/denominator (4/4=4, 3/4=3, 6/8=3). Before a closing bar line, add a rest when short; never emit a bar line after an incomplete measure. Before answering, recompute every measure and confirm every track ends on a complete boundary.
+5. Use distinct MIDI channels for multiple tracks by default and avoid conflicting programs on one channel.
+6. If asked to copy a copyrighted modern work, create original music with a similar mood or style rather than a recognizable extended transcription.`,
+    prompt: `TASK: Create or edit one complete OWT score according to the user's request.
+
+USER REQUEST:
+{instruction}
+
+CURRENT OWT (use as material; rebuild it if empty or invalid):
+{currentOwt}
+
+Silently plan the key, meter, tempo, tracks, and complete measure count. For 4/4, first copy this rhythmic skeleton for every track, then replace pitches only; if more measures are needed, keep copying the same line and never modify any :1:
+| C4:1 D4:1 E4:1 F4:1 |
+| C4:1 D4:1 E4:1 F4:1 |
+| C4:1 D4:1 E4:1 F4:1 |
+| C4:1 D4:1 E4:1 F4:1 |
+For 3/4 or 6/8, write three :1 events per line. Do not output fractional event durations or :2, :3, or :4. Count each line's events, then output only the complete OWT.`,
+    scoreMedia: `TASK: Read the attached score image or sampled video frames and transcribe the visible music into one complete, playable OWT score.
+
+ADDITIONAL USER REQUEST:
+{instruction}
+
+CURRENT OWT (use only when the user requests an edit):
+{currentOwt}
+
+Resolve uncertain details conservatively with valid notation; never invent unsupported OWT symbols. Sum each measure independently and close its right bar line only when the duration exactly equals the active-meter measure length; fill any deficit with a rest. Output only the final complete OWT.`,
+    improvise: `TASK: Continue the current performance as coherent musical call-and-response. Preserve its recognizable motif, add an answer consistent with its key and meter, and return the complete combined OWT.
+
+ADDITIONAL USER REQUEST:
+{instruction}
+
+CURRENT OWT:
+{currentOwt}
+
+Do not return only the new fragment. Preserve the meter. Sum each measure independently, fill every deficit with a rest, and write its closing bar line only after the exact measure length is reached. Output only the final complete OWT.`,
   }
 }
-export const DEFAULT_OWT_AI_PROMPT_TEMPLATES: OwtAiPromptTemplates = {
-  system: `You are OpusWeave's score editor. Follow the built-in OWT 0.1 reference appended to this instruction. Return one complete, valid OWT Score and nothing else.
-For newly written material, prefer clear paired bar lines and conventionally complete measures even though OWT 0.1 does not require them. Preserve useful current-score material when editing or improvising. If the user names a copyrighted modern work, create an original piece evoking the requested mood rather than a long recognizable transcription. Do not use Markdown fences or add prose outside the OWT document.`,
-  prompt: 'Edit the current OWT according to this request: {instruction}',
-  scoreMedia: 'Read the attached score image or sampled video frames. Transcribe the visible music into OWT. {instruction}',
-  improvise: 'Continue the supplied performance as a musical call-and-response. Keep its motif recognizable, add a coherent answer, and return the complete combined OWT. {instruction}',
+
+
+export const DEFAULT_OWT_AI_PROMPT_TEMPLATES: OwtAiPromptTemplates = defaultOwtAiPromptTemplates()
+export interface OwtAiPromptTemplateIssue {
+  field: keyof OwtAiPromptTemplates
+  kind: 'empty' | 'unknown-variable'
+  variable?: string
+}
+
+export function validateOwtAiPromptTemplates(templates: OwtAiPromptTemplates): OwtAiPromptTemplateIssue[] {
+  const supported = new Set(['instruction', 'currentOwt', 'owtReference'])
+  const issues: OwtAiPromptTemplateIssue[] = []
+  for (const [field, template] of Object.entries(templates) as Array<[keyof OwtAiPromptTemplates, string]>) {
+    if (!template.trim()) issues.push({ field, kind: 'empty' })
+    for (const match of template.matchAll(/\{([A-Za-z][A-Za-z0-9]*)\}/g)) {
+      if (!supported.has(match[1]!)) issues.push({ field, kind: 'unknown-variable', variable: match[1] })
+    }
+  }
+  return issues
 }
 
 
@@ -70,6 +179,8 @@ export const DEFAULT_OWT_AI_CONFIG: OwtAiConfig = {
   model: '',
   temperature: 0.35,
   maxTokens: 4096,
+  retryCount: 3,
+  autoRepair: true,
 }
 
 export function hasConfiguredAiApi(config: Pick<OwtAiConfig, 'baseUrl' | 'model'>): boolean {
@@ -103,21 +214,27 @@ ${score}`
 }
 
 function promptTemplates(config?: OwtAiConfig): OwtAiPromptTemplates {
-  return { ...DEFAULT_OWT_AI_PROMPT_TEMPLATES, ...config?.promptTemplates }
+  return { ...defaultOwtAiPromptTemplates(config?.locale), ...config?.promptTemplates }
 }
 
 function chatEndpoint(config: OwtAiConfig): string {
   return aiRequestEndpoint(config)
 }
 
-function taskInstruction(request: OwtAiRequest, templates: OwtAiPromptTemplates): string {
-  const template = request.task === 'score-media' ? templates.scoreMedia : templates[request.task]
-  return template.replaceAll('{instruction}', request.instruction)
+function expandPromptTemplate(template: string, request: OwtAiRequest, locale: 'en' | 'zh-CN'): string {
+  const variables: Record<string, string> = {
+    instruction: request.instruction,
+    currentOwt: request.currentOwt,
+    owtReference: buildOwt01Reference(locale),
+  }
+  return template.replace(/\{([A-Za-z][A-Za-z0-9]*)\}/g, (token, name: string) => variables[name] ?? token).trim()
 }
 
 export function buildOwtAiMessages(request: OwtAiRequest, config?: OwtAiConfig): ChatMessage[] {
   const templates = promptTemplates(config)
-  const text = `${taskInstruction(request, templates)}\n\nCURRENT OWT:\n${request.currentOwt}`
+  const locale = config?.locale ?? 'en'
+  const taskTemplate = request.task === 'score-media' ? templates.scoreMedia : templates[request.task]
+  const text = expandPromptTemplate(taskTemplate, request, locale)
   const attachments = request.attachments ?? []
   const content: ChatMessage['content'] = attachments.length === 0
     ? text
@@ -125,7 +242,7 @@ export function buildOwtAiMessages(request: OwtAiRequest, config?: OwtAiConfig):
         { type: 'text', text },
         ...attachments.map((attachment) => ({ type: 'image_url' as const, image_url: { url: attachment.dataUrl } })),
       ]
-  const system = `${templates.system.trim()}\n\n${buildOwt01Reference('en')}`.trim()
+  const system = expandPromptTemplate(templates.system, request, locale)
   return [{ role: 'system', content: system }, { role: 'user', content }]
 }
 
@@ -170,11 +287,10 @@ async function postChat(config: OwtAiConfig, body: ChatBody, options: OwtAiTrans
       })),
       temperature: body.temperature,
       max_output_tokens: body.max_tokens,
-      stream: false,
-      text: body.response_format ? { format: { type: 'json_schema', ...body.response_format.json_schema } } : undefined,
+      stream: true,
     }
   } else if (protocol === 'openai-completions') {
-    requestBody = { model: body.model, prompt: `${typeof system?.content === 'string' ? `${system.content}\n\n` : ''}${userPrompt}`, temperature: body.temperature, max_tokens: body.max_tokens, stream: false }
+    requestBody = { model: body.model, prompt: `${typeof system?.content === 'string' ? `${system.content}\n\n` : ''}${userPrompt}`, temperature: body.temperature, max_tokens: body.max_tokens, stream: true }
   } else if (protocol === 'anthropic-messages') {
     requestBody = {
       model: body.model,
@@ -189,7 +305,7 @@ async function postChat(config: OwtAiConfig, body: ChatBody, options: OwtAiTrans
       })),
       temperature: body.temperature,
       max_tokens: body.max_tokens,
-      stream: false,
+      stream: true,
     }
   } else if (protocol === 'ollama-native') {
     requestBody = {
@@ -200,8 +316,7 @@ async function postChat(config: OwtAiConfig, body: ChatBody, options: OwtAiTrans
         images: typeof message.content === 'string' ? undefined : message.content.filter((part) => part.type === 'image_url').map((part) => 'image_url' in part ? part.image_url.url.replace(/^data:[^;]+;base64,/, '') : ''),
       })),
       options: { temperature: body.temperature, num_predict: body.max_tokens },
-      format: body.response_format?.json_schema.schema,
-      stream: false,
+      stream: true,
     }
   }
   const response = await sendAiProviderRequest({
@@ -210,83 +325,9 @@ async function postChat(config: OwtAiConfig, body: ChatBody, options: OwtAiTrans
     body: requestBody,
     apiKey: config.apiKey,
   }, options)
-  const raw = await response.text()
-  if (!response.ok) throw new Error(`AI request failed (${response.status}): ${raw.slice(0, 500)}`)
-  let parsed: Record<string, unknown>
-  try { parsed = JSON.parse(raw) as Record<string, unknown> } catch { throw new Error('AI endpoint returned non-JSON content') }
-  let content: unknown
-  if (protocol === 'openai-responses') {
-    content = parsed.output_text
-    if (!content && Array.isArray(parsed.output)) {
-      content = parsed.output.flatMap((item) => item && typeof item === 'object' && Array.isArray((item as { content?: unknown }).content) ? (item as { content: Array<{ text?: unknown }> }).content.map((part) => part.text) : []).find((text) => typeof text === 'string')
-    }
-  } else if (protocol === 'openai-completions') {
-    content = (parsed.choices as Array<{ text?: unknown }> | undefined)?.[0]?.text
-  } else if (protocol === 'anthropic-messages') {
-    content = (parsed.content as Array<{ type?: unknown; text?: unknown }> | undefined)?.find((part) => part.type === 'text')?.text
-  } else if (protocol === 'ollama-native') {
-    content = (parsed.message as { content?: unknown } | undefined)?.content
-  } else {
-    content = (parsed.choices as Array<{ message?: { content?: unknown } }> | undefined)?.[0]?.message?.content
-  }
-  if (typeof content !== 'string' || !content) throw new Error('AI endpoint returned no message content')
-  return content
+  return readAiTextResponse(response, protocol, options.onUpdate)
 }
 
-function midiNoteName(note: number): string {
-  const names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
-  return `${names[note % 12]}${Math.floor(note / 12) - 1}`
-}
-
-async function structuredScoreFallback(config: OwtAiConfig, request: OwtAiRequest, options: OwtAiTransportOptions): Promise<string> {
-  const messages = buildOwtAiMessages(request, config)
-  messages.push({ role: 'user', content: 'Return the music as strict JSON instead. Supply 4-16 bars; every bar must contain exactly eight MIDI pitches (0-127) or -1 for a rest. These become eighth notes in 4/4.' })
-  const body: ChatBody = {
-    model: config.model.trim(),
-    messages,
-    temperature: 0.2,
-    max_tokens: 2048,
-    stream: false,
-    response_format: {
-      type: 'json_schema',
-      json_schema: {
-        name: 'opusweave_safe_score',
-        strict: true,
-        schema: {
-          type: 'object',
-          properties: {
-            title: { type: 'string' },
-            tempo: { type: 'integer', minimum: 40, maximum: 220 },
-            bars: {
-              type: 'array', minItems: 4, maxItems: 16,
-              items: { type: 'array', minItems: 8, maxItems: 8, items: { type: 'integer', minimum: -1, maximum: 127 } },
-            },
-          },
-          required: ['title', 'tempo', 'bars'],
-          additionalProperties: false,
-        },
-      },
-    },
-  }
-  const content = await postChat(config, body, options)
-  let score: { title?: unknown; tempo?: unknown; bars?: unknown }
-  try {
-    score = JSON.parse(content) as typeof score
-  } catch {
-    throw new Error('AI structured fallback returned invalid JSON')
-  }
-  if (typeof score.title !== 'string' || !Number.isInteger(score.tempo) || !Array.isArray(score.bars) || score.bars.length < 4 || score.bars.length > 16) {
-    throw new Error('AI structured fallback did not match the score schema')
-  }
-  const bars = score.bars.map((bar) => {
-    if (!Array.isArray(bar) || bar.length !== 8 || bar.some((note) => !Number.isInteger(note) || note < -1 || note > 127)) {
-      throw new Error('AI structured fallback contained an invalid measure')
-    }
-    return `| ${bar.map((note) => note === -1 ? 'R:1/2' : `${midiNoteName(note)}:1/2`).join(' ')} |`
-  })
-  const title = score.title.replace(/["\\]/g, '').slice(0, 80) || 'AI Composition'
-  return `owt 0.1 score\n\ntitle "${title}"\nppq 480\nmeter 1:1 4/4\ntempo 1:1 ${score.tempo}\nkey 1:1 C major\n\ntrack "Melody" channel=1 program=0 velocity=88\n${bars.join('\n')}\nend\n`
-}
 
 export async function createOwtWithAi(config: OwtAiConfig, request: OwtAiRequest, options: OwtAiTransportOptions = {}): Promise<string> {
   const messages = buildOwtAiMessages(request, config)
@@ -295,17 +336,18 @@ export async function createOwtWithAi(config: OwtAiConfig, request: OwtAiRequest
     messages,
     temperature: config.temperature ?? 0.35,
     max_tokens: config.maxTokens ?? 4096,
-    stream: false,
+    stream: true,
   }
   if (!body.model) throw new Error('AI model is required')
   let content = await postChat(config, body, options)
   let validationError: unknown
-  for (let attempt = 0; attempt < 4; attempt++) {
+  const retryCount = config.autoRepair === false ? 0 : Math.max(0, Math.min(10, Math.trunc(config.retryCount ?? 3)))
+  for (let attempt = 0; attempt <= retryCount; attempt++) {
     try {
       return extractOwtFromAiResponse(content)
     } catch (error) {
       validationError = error
-      if (attempt === 3) break
+      if (attempt === retryCount) break
       body.messages = [
         ...messages,
         { role: 'assistant', content },
@@ -314,11 +356,7 @@ export async function createOwtWithAi(config: OwtAiConfig, request: OwtAiRequest
       content = await postChat(config, body, options)
     }
   }
-  try {
-    return extractOwtFromAiResponse(await structuredScoreFallback(config, request, options))
-  } catch (fallbackError) {
-    throw new Error(`${validationError instanceof Error ? validationError.message : String(validationError)}; structured fallback failed: ${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)}`)
-  }
+  throw validationError
 }
 
 export async function testOwtAiConnection(config: OwtAiConfig, options: OwtAiTransportOptions = {}): Promise<string> {
@@ -327,7 +365,7 @@ export async function testOwtAiConnection(config: OwtAiConfig, options: OwtAiTra
     messages: [{ role: 'user', content: 'Reply with exactly OPUSWEAVE_AI_OK' }],
     temperature: 0,
     max_tokens: 24,
-    stream: false,
+    stream: true,
   }
   return postChat(config, body, options)
 }

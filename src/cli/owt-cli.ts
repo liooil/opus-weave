@@ -6,7 +6,7 @@ import type { MelodyVoiceStrategy } from '../domain/owt/integration.ts'
 
 export type OwtCliResult =
   | { kind: 'done' }
-  | { kind: 'play'; midi: Uint8Array<ArrayBuffer>; title?: string }
+  | { kind: 'play'; owt: string }
 
 interface ParsedArgs {
   positional: string[]
@@ -18,11 +18,17 @@ function parseArgs(args: string[]): ParsedArgs {
   const flags: Record<string, string> = {}
   for (let index = 0; index < args.length; index++) {
     const value = args[index]!
-    if (value === '-o' || value.startsWith('--')) {
-      const name = value === '-o' ? 'output' : value.slice(2)
+    if (value === '-o' || value === '--output') {
       const next = args[index + 1]
       if (!next || next.startsWith('-')) throw new Error(`${value} requires a value`)
-      flags[name] = next
+      flags.output = next
+      index++
+    } else if (value === '--check') {
+      flags.check = 'true'
+    } else if (value.startsWith('--')) {
+      const next = args[index + 1]
+      if (!next || next.startsWith('-')) throw new Error(`${value} requires a value`)
+      flags[value.slice(2)] = next
       index++
     } else positional.push(value)
   }
@@ -52,7 +58,7 @@ export async function runOwtCli(args: string[], service: OpusWeaveService): Prom
   const command = args[0]
   const parsed = parseArgs(args.slice(1))
   const input = parsed.positional[0]
-  if (!command || !input) throw new Error('usage: opusweave owt <validate|play|to-midi|from-midi> <file> [options]')
+  if (!command || !input) throw new Error('usage: opusweave owt <validate|fmt|play|to-midi|from-midi> <file> [options]')
 
   if (command === 'validate') {
     const result = service.validateOwt(await Bun.file(resolve(input)).text())
@@ -61,9 +67,20 @@ export async function runOwtCli(args: string[], service: OpusWeaveService): Prom
     return { kind: 'done' }
   }
 
+  if (command === 'fmt') {
+    const source = await Bun.file(resolve(input)).text()
+    const formatted = service.formatOwt(source)
+    if (parsed.flags.check === 'true') {
+      if (source !== formatted) process.exitCode = 1
+      return { kind: 'done' }
+    }
+    await outputText(formatted, parsed.flags.output)
+    return { kind: 'done' }
+  }
+
   if (command === 'play') {
-    const playback = service.prepareOwtPlayback(await Bun.file(resolve(input)).text())
-    return { kind: 'play', midi: Uint8Array.from(Buffer.from(playback.midiBase64, 'base64')), title: playback.title }
+    const owt = service.formatOwt(await Bun.file(resolve(input)).text())
+    return { kind: 'play', owt }
   }
 
   if (command === 'to-midi') {

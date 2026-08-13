@@ -39,10 +39,11 @@ MIDI playback/export  →  SoundFont synthesis
 | 6 | Inspect and edit imported MIDI on a multi-track beat timeline before extracting or exporting |
 | 7 | Monitor Note On/Off, CC and Pitch Bend in real time |
 | 8 | Render MIDI + SoundFont to WAV via the optional system FluidSynth (`render-midi`) |
-| 9 | Drive OWT validation, playback, import and export through MCP |
-| 10 | Switch the live computer keyboard between OpusWeave chromatic, English-word, Pinyin-tone and FreePiano classic performance layouts |
-| 11 | Load public-domain piano examples including Ode to Joy, Für Elise, Canon in D, Minuet in G and Moonlight Sonata |
-| 12 | Open or drop OWT directly, convert MIDI deterministically, or send score images/MP4 to OpenAI, Anthropic, OpenRouter, Ollama, llama.cpp or a compatible multimodal endpoint through one unified import path |
+| 9 | Stream a fast **Sketch** directly into the editor, or build a section-based **Full Composition** from a plain-text plan with live section updates, validation, assembly and local revision |
+| 10 | Drive OWT formatting, validation, playback, import/export and section-based composition through MCP |
+| 11 | Switch the live computer keyboard between OpusWeave chromatic, English-word, Pinyin-tone and FreePiano classic performance layouts |
+| 12 | Load public-domain piano examples including Ode to Joy, Für Elise, Canon in D, Minuet in G and Moonlight Sonata |
+| 13 | Open or drop OWT directly, convert MIDI deterministically, or send score images/MP4 to OpenAI, Anthropic, OpenRouter, Ollama, llama.cpp or a compatible multimodal endpoint through one unified import path |
 
 ## Quick start
 
@@ -67,6 +68,7 @@ The server binds `127.0.0.1` only — it is never exposed to the LAN by default.
 
 ```bash
 bun run opusweave owt validate examples/twinkle.owt
+bun run opusweave owt fmt examples/twinkle.owt --check
 bun run opusweave owt play examples/twinkle.owt
 bun run opusweave owt to-midi examples/twinkle.owt -o tmp/twinkle.mid
 bun run opusweave owt from-midi tmp/twinkle.mid --grid 1/16 --voice continuous -o tmp/melody.owt
@@ -85,9 +87,10 @@ Add to your MCP client config:
 { "command": "bun", "args": ["<repo>/src/main.ts", "mcp"] }
 ```
 
-OWT-first tools are `validate_owt`, `play_owt`, `export_owt_to_midi`, and
-`import_midi_to_owt`. Lower-level MIDI and CompositionSpec utilities remain
-available. See [docs/mcp.md](docs/mcp.md) and [docs/owt.md](docs/owt.md).
+OWT-first tools include `validate_owt`, `format_owt`, `play_owt`,
+`export_owt_to_midi`, `import_midi_to_owt`, and the section-based composition
+plan/compose/assemble/validate/revise tools. Lower-level MIDI and CompositionSpec
+utilities remain available. See [docs/mcp.md](docs/mcp.md) and [docs/owt.md](docs/owt.md).
 
 ## SoundFonts
 
@@ -111,10 +114,14 @@ temporary stream without recording it.
 ## Format model
 
 
-- **OWT (`.owt`)** is the primary persistent format: simple, deterministic,
-  human-editable melody text. See [docs/owt.md](docs/owt.md).
-- **MIDI** is an import, playback and export format. MIDI → OWT is intentionally
-  lossy: accompaniment, performance controls and microtiming are discarded.
+- **OWT (`.owt`)** is the primary persistent format: deterministic,
+  human/AI-editable score text. It deliberately describes intended notation,
+  not exact performance. See [docs/owt.md](docs/owt.md).
+- **MIDI** preserves performance-oriented events for import, playback and
+  export. MIDI/recording → OWT is intentionally lossy score transcription:
+  voice selection, melody extraction and quantization discard accompaniment,
+  microtiming and most controls. It organizes a performance into editable
+  notation; it does not reconstruct the performance.
 - **CompositionSpec** is an internal structured compilation model shared by
   OWT validation and MIDI export, not the user-facing file format.
 - **Score images and MP4 video** can be sent to a configured multimodal model

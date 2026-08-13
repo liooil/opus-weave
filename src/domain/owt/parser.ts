@@ -39,6 +39,10 @@ function issue(ctx: ParseContext, line: number, column: number, code: string, me
   ctx.diagnostics.push({ severity: 'error', line, column, code, message })
 }
 
+function warning(ctx: ParseContext, line: number, column: number, code: string, message: string): void {
+  ctx.diagnostics.push({ severity: 'warning', line, column, code, message })
+}
+
 function stripComment(line: string): string {
   let quoted = false
   let escaped = false
@@ -133,10 +137,54 @@ function isMeasureBoundary(cursor: Rational, meters: MeterDirective[]): boolean 
   return false
 }
 
-function parseAttributes(text: string): Record<string, string> {
+function lastTrackCursor(track: OwtScoreTrack): Rational {
+  let cursor = ZERO
+  for (const event of track.events) {
+    if (event.kind === 'note' || event.kind === 'rest') {
+      const end = addRational(event.at, event.duration)
+      if (compareRational(end, cursor) > 0) cursor = end
+    }
+  }
+  return cursor
+}
+
+function validatePosition(
+  position: ScorePosition,
+  meters: MeterDirective[],
+  ctx: ParseContext,
+  line: number,
+  column: number,
+): boolean {
+  const meter = meterAtMeasure(position.measure, meters)
+  const upper = rational(meter.numerator + 1)
+  if (compareRational(position.beat, upper) >= 0) {
+    issue(ctx, line, column, 'score.position.outOfMeasure', `beat must be at least 1 and less than ${meter.numerator + 1} in ${meter.numerator}/${meter.denominator}; write the next measure at beat 1`)
+    return false
+  }
+  return true
+}
+
+interface ParsedAttributes {
+  values: Record<string, string>
+  duplicates: string[]
+  malformed: boolean
+}
+
+function parseAttributes(text: string): ParsedAttributes {
   const values: Record<string, string> = {}
-  for (const match of text.matchAll(ATTR_PATTERN)) values[match[1]!] = match[2]!
-  return values
+  const duplicates: string[] = []
+  let consumed = ''
+  let cursor = 0
+  for (const match of text.matchAll(ATTR_PATTERN)) {
+    const index = match.index ?? 0
+    consumed += text.slice(cursor, index).replace(/[,\s]+/g, '')
+    const key = match[1]!
+    if (Object.hasOwn(values, key)) duplicates.push(key)
+    else values[key] = match[2]!
+    cursor = index + match[0].length
+  }
+  consumed += text.slice(cursor).replace(/[,\s]+/g, '')
+  return { values, duplicates, malformed: consumed.length > 0 }
 }
 
 function scoreTokens(line: string): Array<{ text: string; column: number }> {
@@ -181,13 +229,15 @@ function scoreTokens(line: string): Array<{ text: string; column: number }> {
 
 function parseVelocity(attrs: string | undefined, ctx: ParseContext, line: number, column: number): number | undefined {
   if (!attrs) return undefined
-  const values = parseAttributes(attrs)
-  const unknown = Object.keys(values).filter((key) => key !== 'v')
+  const parsed = parseAttributes(attrs)
+  const unknown = Object.keys(parsed.values).filter((key) => key !== 'v')
   if (unknown.length > 0) issue(ctx, line, column, 'score.attribute.unsupported', `unsupported note attribute: ${unknown.join(', ')}`)
-  if (values.v === undefined) return undefined
-  const velocity = Number(values.v)
+  if (parsed.duplicates.length > 0) issue(ctx, line, column, 'score.attribute.duplicate', `duplicate note attribute: ${parsed.duplicates.join(', ')}`)
+  if (parsed.malformed) issue(ctx, line, column, 'score.attribute.syntax', 'note attributes must use comma-separated name=value pairs')
+  if (parsed.values.v === undefined) return undefined
+  const velocity = Number(parsed.values.v)
   if (!Number.isInteger(velocity) || velocity < 1 || velocity > 127) {
-    issue(ctx, line, column, 'score.velocity.range', `velocity must be an integer from 1 to 127, got ${values.v}`)
+    issue(ctx, line, column, 'score.velocity.range', `velocity must be an integer from 1 to 127, got ${parsed.values.v}`)
     return undefined
   }
   return velocity
@@ -198,6 +248,7 @@ function parseScoreEvent(
   cursor: Rational,
   line: number,
   column: number,
+  ppq: number,
   ctx: ParseContext,
 ): { event?: ScoreEvent; advance?: Rational } {
   if (token.startsWith('<')) {
@@ -237,6 +288,10 @@ function parseScoreEvent(
   const duration = parseRational(match[2]!)
   if (!duration || compareRational(duration, ZERO) <= 0) {
     issue(ctx, line, column, 'score.duration.invalid', `duration must be a positive integer or rational, got ${match[2]}`)
+    return {}
+  }
+  if (compareRational(multiplyRational(duration, rational(ppq * 2)), ONE) < 0) {
+    issue(ctx, line, column, 'score.duration.zeroTick', `duration ${match[2]} rounds to zero ticks at PPQ ${ppq}`)
     return {}
   }
   const velocity = parseVelocity(match[3], ctx, line, column)
@@ -310,6 +365,7 @@ function parseScore(ctx: ParseContext): OwtScore {
         issue(ctx, line, source.indexOf(parts[1] ?? '') + 1, 'score.position.invalid', 'position must use measure:beat with one-based values')
         continue
       }
+      if (!validatePosition(position, score.meters, ctx, line, source.indexOf(parts[1] ?? '') + 1)) continue
       if (parts[0] === 'meter') {
         const meter = /^(\d+)\/(\d+)$/.exec(parts[2] ?? '')
         if (!meter) {
@@ -338,6 +394,9 @@ function parseScore(ctx: ParseContext): OwtScore {
       continue
     }
     if (source.startsWith('track ')) {
+      if (currentTrack && !isMeasureBoundary(cursor, score.meters)) {
+        issue(ctx, line, 1, 'score.track.incompleteMeasure', `track "${currentTrack.name}" must end on a complete measure boundary`)
+      }
       sawTrack = true
       const match = /^track\s+("(?:\\.|[^"\\])*")(.*)$/.exec(source)
       if (!match) {
@@ -346,13 +405,20 @@ function parseScore(ctx: ParseContext): OwtScore {
         continue
       }
       const name = parseQuotedValue(match[1]!)!
-      const attrs = parseAttributes(match[2]!)
+      const parsedAttrs = parseAttributes(match[2]!)
+      const attrs = parsedAttrs.values
+      const unknown = Object.keys(attrs).filter((key) => key !== 'channel' && key !== 'program' && key !== 'velocity')
+      if (unknown.length > 0) issue(ctx, line, 1, 'score.track.attribute.unsupported', `unsupported track attribute: ${unknown.join(', ')}`)
+      if (parsedAttrs.duplicates.length > 0) issue(ctx, line, 1, 'score.track.attribute.duplicate', `duplicate track attribute: ${parsedAttrs.duplicates.join(', ')}`)
+      if (parsedAttrs.malformed) issue(ctx, line, 1, 'score.track.attribute.syntax', 'track attributes must use whitespace-separated name=value pairs')
       const channel = Number(attrs.channel ?? score.tracks.length + 1)
       const program = Number(attrs.program ?? 0)
       const velocity = Number(attrs.velocity ?? 80)
       if (!Number.isInteger(channel) || channel < 1 || channel > 16) issue(ctx, line, 1, 'score.channel.range', 'track channel must be an integer from 1 to 16')
       if (!Number.isInteger(program) || program < 0 || program > 127) issue(ctx, line, 1, 'score.program.range', 'track program must be an integer from 0 to 127')
       if (!Number.isInteger(velocity) || velocity < 1 || velocity > 127) issue(ctx, line, 1, 'score.velocity.range', 'track velocity must be an integer from 1 to 127')
+      const conflicting = score.tracks.find((track) => track.channel === channel && track.program !== program)
+      if (conflicting) warning(ctx, line, 1, 'score.channel.programConflict', `tracks "${conflicting.name}" and "${name}" share channel ${channel} with different programs`)
       currentTrack = { name, channel, program, velocity, events: [] }
       score.tracks.push(currentTrack)
       cursor = ZERO
@@ -368,10 +434,13 @@ function parseScore(ctx: ParseContext): OwtScore {
         if (!isMeasureBoundary(cursor, score.meters)) issue(ctx, line, token.column, 'score.bar.misaligned', 'bar boundary does not match the active meter')
         continue
       }
-      const parsed = parseScoreEvent(token.text, cursor, line, token.column, ctx)
+      const parsed = parseScoreEvent(token.text, cursor, line, token.column, score.ppq, ctx)
       if (parsed.event) currentTrack.events.push(parsed.event)
       if (parsed.advance) cursor = addRational(cursor, parsed.advance)
     }
+  }
+  if (currentTrack && !isMeasureBoundary(cursor, score.meters)) {
+    issue(ctx, ctx.lines.length, 1, 'score.track.incompleteMeasure', `track "${currentTrack.name}" must end on a complete measure boundary`)
   }
 
   if (!ctx.ended) issue(ctx, ctx.lines.length, 1, 'document.end.missing', 'document must end with end')

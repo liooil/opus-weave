@@ -29,7 +29,6 @@
           <button id="btn-owt-new-score" data-shortcut="Space n" data-i18n="owt.newScore">New melody</button>
           <button id="btn-owt-save" data-shortcut="Space w" data-i18n="owt.save">Save OWT</button>
           <button id="btn-owt-export-midi" data-shortcut="Space e" data-i18n="owt.exportMidi">Export MIDI</button>
-          <button id="btn-export-arrangement" data-shortcut="Space t e" data-i18n="arranger.export" disabled>Export edit</button>
           <div class="file-menu-separator" role="separator"></div>
           <button id="btn-owt-reference" data-shortcut="Space ?" data-i18n="owt.reference">OWT 0.1 reference</button>
         </div>
@@ -47,6 +46,7 @@
         <button id="btn-loop-playback" class="loop-playback-button topbar-control" data-shortcut="Space t l" aria-pressed="false" data-i18n-aria-label="playback.loop" data-i18n-title="playback.loop" aria-label="Loop playback" title="Loop playback"><span class="control-icon" aria-hidden="true">↻</span><span class="control-label" data-i18n="playback.loop">Loop</span></button>
         <button id="btn-return-to-start" class="topbar-control return-to-start-button" data-shortcut="Space s" data-i18n-aria-label="playback.returnToStart" data-i18n-title="playback.returnToStart" aria-label="Return to beginning" title="Return to beginning" disabled><span class="control-icon" aria-hidden="true">|←</span><span class="control-label" data-i18n="playback.returnToStart">Return to beginning</span></button>
         <button id="btn-owt-practice" class="topbar-control performance-button" data-studio-only data-shortcut="Space q" aria-keyshortcuts="Space Q" aria-pressed="false" data-i18n-aria-label="owt.practice" data-i18n-title="owt.practice" aria-label="Perform" title="Perform"><span class="control-icon" aria-hidden="true">♩</span><span class="control-label" data-i18n="owt.practice">Perform</span></button>
+        <button id="btn-owt-repair" class="topbar-control repair-button" data-studio-only data-shortcut="Space f" data-i18n-aria-label="owt.repair" data-i18n-title="owt.repair" aria-label="Repair OWT" title="Repair OWT" hidden><span class="control-icon" aria-hidden="true">◇</span><span class="control-label" data-i18n="owt.repair">Repair OWT</span></button>
         <button id="btn-ai-compose" class="ai-compose-button topbar-control" data-studio-only data-ai-state="idle" data-shortcut="Space z c" data-i18n-aria-label="ai.compose" data-i18n-title="ai.compose" aria-label="AI composition" title="AI composition"><span class="control-icon" aria-hidden="true">✦</span><span class="control-label" data-i18n="ai.compose">AI composition</span></button>
         <button id="btn-ai-improvise" class="ai-improv-button topbar-control" data-studio-only data-improv-state="off" data-shortcut="Space z i" aria-pressed="false" data-i18n-aria-label="ai.improviseStart" data-i18n-title="ai.improviseStart" aria-label="Start improv mode" title="Start improv mode"><span class="control-icon" aria-hidden="true">∞</span><span class="control-label" data-i18n="simpleEdit.improvMode">Improv</span></button>
         </nav>
@@ -65,6 +65,7 @@
           </button>
         </div>
       </div>
+      <progress id="header-playback-progress" class="header-playback-progress" value="0" max="1000" data-i18n-aria-label="playback.position" aria-label="Playback position"></progress>
     </header>
 
     <main class="workspace-pages">
@@ -105,17 +106,6 @@
             </div>
           </div>
 
-          <div class="arranger-selection-bar">
-            <div>
-              <strong data-i18n="arranger.selection">Selection</strong>
-              <span id="arranger-selection-status" data-i18n="arranger.selectHint">Drag across a track to select a range.</span>
-            </div>
-            <div class="selection-actions">
-              <button id="btn-clear-range" class="quiet" data-shortcut="Space t c" data-i18n="arranger.clearSelection" disabled>Clear</button>
-              <button id="btn-replace-range" class="primary" data-shortcut="Space t p" data-i18n="arranger.replaceSelection" disabled>Replace selection</button>
-              <button id="btn-stop-replace" class="record-stop" data-shortcut="Space t f" data-i18n="arranger.stopReplace" disabled>Finish recording</button>
-            </div>
-          </div>
 
           <div class="arranger-grid" id="arranger-grid">
             <div class="track-header-column">
@@ -127,16 +117,15 @@
                 <div id="timeline-ruler" class="timeline-ruler"></div>
                 <div id="timeline-tracks" class="timeline-tracks"></div>
                 <div id="timeline-cursors" class="timeline-cursors" aria-hidden="true"></div>
-                <div id="timeline-selection" class="timeline-selection" hidden></div>
                 <div id="timeline-playhead" class="timeline-playhead" hidden></div>
               </div>
             </div>
             <div id="arranger-empty" class="arranger-empty">
-              <strong data-i18n="arranger.emptyTitle">Open a MIDI file to start editing</strong>
-              <span data-i18n="arranger.emptyDescription">Tracks and notes will appear here on a beat-based timeline.</span>
+              <strong data-i18n="arranger.emptyTitle">Fix the OWT score to view its timeline</strong>
+              <span data-i18n="arranger.emptyDescription">OWT tracks, notes, chords and rests appear here in score time.</span>
             </div>
           </div>
-          <div id="midi-status" class="status" data-status-key="playback.dropMidi">Drop in a MIDI file to begin.</div>
+          <div id="timeline-status" class="status" data-status-key="scoreViews.timelineSynced">Timeline synchronized from the current OWT.</div>
         </section>
         <section class="panel notation-panel staff-panel" id="staff-panel" data-score-view="staff" hidden>
           <div id="staff-score" class="notation-surface" aria-live="polite"></div>
@@ -235,6 +224,8 @@
               <label><span data-i18n="ai.apiKey">API key (optional)</span><input id="ai-api-key" type="password" autocomplete="off" /></label>
               <label><span data-i18n="ai.protocol">Protocol</span><select id="ai-protocol"><option value="auto" data-i18n="ai.protocolAuto">Auto detect</option><option value="openai-responses">OpenAI Responses</option><option value="openai-chat-completions">OpenAI Chat Completions</option><option value="openai-completions">OpenAI Completions</option><option value="anthropic-messages">Anthropic Messages</option><option value="ollama-native">Ollama Native</option></select></label>
               <label class="ai-model-field"><span data-i18n="ai.model">Model</span><input id="ai-model" list="ai-model-options" spellcheck="false" autocomplete="off" data-i18n-placeholder="ai.modelPlaceholder" placeholder="Enter URL to load models" /><datalist id="ai-model-options"></datalist></label>
+              <label><span data-i18n="ai.retryCount">Repair retries</span><input id="ai-retry-count" type="number" min="0" max="10" step="1" value="3" /></label>
+              <label class="ai-checkbox-field"><input id="ai-auto-repair" type="checkbox" checked /><span data-i18n="ai.autoRepair">Automatically repair invalid AI OWT</span></label>
               <div class="ai-settings-actions"><button id="btn-ai-refresh-models" class="quiet" data-shortcut-exempt data-i18n="ai.refreshModels">Refresh models</button><button id="btn-ai-test" class="quiet" data-shortcut="Space z t" data-i18n="ai.test">Test connection</button></div>
             </div>
             <details class="ai-prompt-settings">
@@ -246,9 +237,22 @@
                 <label><span data-i18n="ai.mediaPromptTemplate">Media transcription</span><textarea id="ai-template-media" rows="3" spellcheck="false"></textarea></label>
                 <label><span data-i18n="ai.improvPromptTemplate">AI improvisation</span><textarea id="ai-template-improvise" rows="3" spellcheck="false"></textarea></label>
               </div>
-              <button id="btn-ai-reset-templates" type="button" class="quiet" data-shortcut="Space z d" data-i18n="ai.resetPromptTemplates">Restore defaults</button>
+              <div class="ai-settings-actions"><button id="btn-ai-test-templates" type="button" class="quiet" data-shortcut="Space z p" data-i18n="ai.testPromptTemplates">Test prompt templates</button><button id="btn-ai-reset-templates" type="button" class="quiet" data-shortcut="Space z d" data-i18n="ai.resetPromptTemplates">Restore defaults</button></div>
             </details>
             <div id="ai-status" class="status" data-status-key="ai.ready">API configuration is optional; without it, AI composition provides a prompt for manual use.</div>
+            <dialog id="ai-prompt-test-dialog" class="ai-prompt-test-dialog" aria-labelledby="ai-prompt-test-title">
+              <div class="ai-prompt-test-shell">
+                <div class="dialog-heading">
+                  <span class="eyebrow" data-i18n="ai.promptTestEyebrow">Live model test</span>
+                  <h2 id="ai-prompt-test-title" data-i18n="ai.promptTestTitle">Prompt template results</h2>
+                  <p data-i18n="ai.promptTestDescription">Each built-in request is sent to the configured model, then its OWT response is parsed and checked.</p>
+                </div>
+                <div id="ai-prompt-test-results" class="ai-prompt-test-results" aria-live="polite"></div>
+                <div class="dialog-actions">
+                  <button id="btn-ai-prompt-test-close" type="button" class="quiet" data-shortcut="Esc" aria-keyshortcuts="Escape" data-i18n="common.close">Close</button>
+                </div>
+              </div>
+            </dialog>
           </section>
         </div>
         <details class="advanced-settings">
@@ -338,6 +342,16 @@
           <h2 id="ai-compose-title" data-i18n="ai.dialogTitle">AI composition</h2>
           <p id="ai-compose-description" data-i18n="ai.dialogDescription">Describe how AI should create or edit the current OWT score.</p>
         </div>
+        <fieldset class="ai-compose-mode">
+          <legend data-i18n="ai.mode">Workflow</legend>
+          <label><input type="radio" name="ai-compose-mode" value="sketch" checked><span data-i18n="ai.sketch">Sketch</span></label>
+          <label><input type="radio" name="ai-compose-mode" value="full"><span data-i18n="ai.fullComposition">Full Composition</span></label>
+        </fieldset>
+        <section id="ai-full-progress" class="ai-full-progress" hidden aria-live="polite">
+          <strong id="ai-full-stage"></strong>
+          <ol id="ai-full-sections"></ol>
+          <button id="btn-ai-full-cancel" type="button" class="quiet" data-shortcut="Esc" aria-keyshortcuts="Escape" data-i18n="common.cancel">Cancel</button>
+        </section>
         <label class="dialog-prompt"><span data-i18n="ai.promptLabel">Composition request</span><textarea id="ai-prompt" rows="7" autofocus placeholder="It’s raining"></textarea></label>
         <div class="dialog-actions">
           <button id="btn-ai-cancel" type="button" class="quiet" data-shortcut="Esc" aria-keyshortcuts="Escape" data-i18n="common.cancel">Cancel</button>

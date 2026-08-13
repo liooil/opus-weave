@@ -10,13 +10,16 @@
  *    without extra permission plumbing.
  */
 import { createDesktopApp } from 'bundesk'
-import { resolve, dirname } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
+import { tmpdir } from 'node:os'
+import { mkdtemp, rm } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { mainMcp } from './mcp/server.ts'
 import { OpusWeaveService } from './domain/services/opusweave-service.ts'
 import { OpusWeaveError } from './shared/errors.ts'
 import { optionalNumber, optionalString, printJson, requireString, type ActionArgs } from './cli/cli.ts'
 import { runOwtCli, type OwtCliResult } from './cli/owt-cli.ts'
+import { runCompositionCli } from './cli/composition-cli.ts'
 import { proxyAiChat } from './ai/llama-proxy.ts'
 import page from './web/index.html'
 import { readFileSync } from 'node:fs'
@@ -42,11 +45,14 @@ if (argv[0] === 'mcp') {
 } else if (argv[0] === 'owt') {
   const result = await runOwtCli(argv.slice(1), service)
   if (result.kind === 'play') await runDesktopApp(result)
+} else if (argv[0] === 'composition') {
+  await runCompositionCli(argv.slice(1), service)
 } else {
   await runDesktopApp()
 }
 
 async function runDesktopApp(startupPlayback?: Extract<OwtCliResult, { kind: 'play' }>): Promise<void> {
+  const smokeDataDirectory = argv.includes('--smoke') ? await mkdtemp(join(tmpdir(), 'opusweave-smoke-')) : undefined
   const app = createDesktopApp({
     id: APP_ID,
     version: VERSION,
@@ -66,12 +72,9 @@ async function runDesktopApp(startupPlayback?: Extract<OwtCliResult, { kind: 'pl
         }),
         '/api/health': Response.json({ ok: true, version: VERSION }),
         '/api/ai/chat': { POST: proxyAiChat },
-        '/api/startup-midi': startupPlayback
-          ? new Response(startupPlayback.midi, {
-              headers: {
-                'content-type': 'audio/midi',
-                'x-opusweave-title': encodeURIComponent(startupPlayback.title ?? 'OWT Score'),
-              },
+        '/api/startup-owt': startupPlayback
+          ? new Response(startupPlayback.owt, {
+              headers: { 'content-type': 'text/plain; charset=utf-8' },
             })
           : new Response(null, { status: 204 }),
       },
@@ -88,7 +91,7 @@ async function runDesktopApp(startupPlayback?: Extract<OwtCliResult, { kind: 'pl
       exitWithWindow: true,
     },
 
-    singleInstance: {},
+    singleInstance: smokeDataDirectory ? { dataDirectory: smokeDataDirectory } : {},
 
     actions: [
       {
@@ -163,18 +166,16 @@ async function runDesktopApp(startupPlayback?: Extract<OwtCliResult, { kind: 'pl
 
   // ─── Headless smoke test ───────────────────────────────────────────────────
   if (argv.includes('--smoke')) {
-    const result = await app.start(['--no-browser'])
-    if (result.kind === 'primary') {
-      const health = (await fetch(new URL('/api/health', result.url)).then((r) => r.json())) as { ok: boolean }
+    try {
+      const result = await app.start(['--no-browser'])
+      if (result.kind !== 'primary') throw new Error(`smoke start returned ${result.kind}`)
+      const health = (await fetch(new URL('/api/health', result.url)).then((response) => response.json())) as { ok: boolean }
       console.log(`[smoke] server ok: ${result.url.href} health=${JSON.stringify(health)}`)
       await result.stop()
-      process.exit(0)
+    } finally {
+      if (smokeDataDirectory) await rm(smokeDataDirectory, { recursive: true, force: true })
     }
-    if (result.kind === 'action') {
-      console.log('[smoke] action result:', result.result)
-      process.exit(0)
-    }
-    process.exit(1)
+    process.exit(0)
   }
 
   try {

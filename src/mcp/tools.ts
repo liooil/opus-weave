@@ -5,13 +5,15 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import { OpusWeaveService } from '../domain/services/opusweave-service.ts'
+import { analyzeFullComposition, assembleFullComposition, parseCompositionPlan } from '../domain/ai/full-composition.ts'
+import { parseOwtOrThrow } from '../domain/owt/parser.ts'
 
 const TextContent = (text: string) => ({ content: [{ type: 'text' as const, text }] })
 
 const CompositionSpecSchema = z
   .object({
     title: z.string().optional().describe('Sequence title'),
-    ppq: z.number().int().positive().optional().describe('Ticks per quarter note (default 480)'),
+    ppq: z.number().int().min(1).max(32767).optional().describe('Ticks per quarter note (default 480)'),
     tempos: z
       .array(z.object({ beat: z.number().min(0), bpm: z.number().positive() }))
       .optional()
@@ -133,6 +135,13 @@ export function registerTools(server: McpServer, service: OpusWeaveService): voi
   )
 
   server.tool(
+    'format_owt',
+    'Parse, validate, and canonicalize OWT. The canonical formatter intentionally removes comments because OWT 0.1 has an AST rather than a comment-preserving CST.',
+    { text: z.string().describe('OWT 0.1 score text') },
+    async ({ text }) => TextContent(service.formatOwt(text)),
+  )
+
+  server.tool(
     'play_owt',
     'Compile OWT into a playable MIDI payload for the OpusWeave internal SoundFont player.',
     { text: z.string().describe('OWT 0.1 score text') },
@@ -167,6 +176,48 @@ export function registerTools(server: McpServer, service: OpusWeaveService): voi
         preserveVelocity: args.preserveVelocity,
       })
       return TextContent(JSON.stringify(result))
+    },
+  )
+
+  server.tool(
+    'create_composition_plan',
+    'Validate and normalize a section-based full-composition plan created by an agent. This does not generate notes.',
+    { plan: z.unknown().describe('CompositionPlan with title, duration target, meter, key, and ordered sections') },
+    async ({ plan }) => TextContent(JSON.stringify(parseCompositionPlan(plan))),
+  )
+
+  server.tool(
+    'compose_section',
+    'Validate one independently composed section score before assembly. Agents should generate one section at a time, not individual notes.',
+    { sectionId: z.string(), owt: z.string().describe('Complete independently valid OWT section score') },
+    async ({ sectionId, owt }) => {
+      parseOwtOrThrow(owt)
+      return TextContent(JSON.stringify({ id: sectionId, owt: service.formatOwt(owt), valid: true }))
+    },
+  )
+
+  server.tool(
+    'assemble_composition',
+    'Assemble validated section OWT scores according to a CompositionPlan. The program owns measure offsets, tempo map, and track alignment.',
+    { plan: z.unknown(), sections: z.array(z.object({ id: z.string(), owt: z.string(), attempts: z.number().int().positive().default(1) })) },
+    async ({ plan, sections }) => TextContent(assembleFullComposition(parseCompositionPlan(plan), sections)),
+  )
+
+  server.tool(
+    'validate_full_composition',
+    'Analyze structural full-score metrics: duration, bars, ranges, density, repetition, silence, channel conflicts, sections and tempo conformance. It does not judge musical quality.',
+    { plan: z.unknown(), owt: z.string() },
+    async ({ plan, owt }) => TextContent(JSON.stringify(analyzeFullComposition(parseCompositionPlan(plan), owt))),
+  )
+
+  server.tool(
+    'revise_section',
+    'Validate a revised section and return the section list with only that target replaced.',
+    { sectionId: z.string(), revisedOwt: z.string(), sections: z.array(z.object({ id: z.string(), owt: z.string(), attempts: z.number().int().positive().default(1) })) },
+    async ({ sectionId, revisedOwt, sections }) => {
+      parseOwtOrThrow(revisedOwt)
+      if (!sections.some((section) => section.id === sectionId)) throw new Error(`unknown section ${sectionId}`)
+      return TextContent(JSON.stringify(sections.map((section) => section.id === sectionId ? { ...section, owt: service.formatOwt(revisedOwt) } : section)))
     },
   )
 }

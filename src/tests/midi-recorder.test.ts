@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'bun:test'
 import { MidiRecorder, takeToMidi, RECORD_PPQ } from '../domain/midi/midi-recorder.ts'
 import { importMidi, inspectMidi } from '../domain/midi/midi-import.ts'
+import { getArrangementNotes } from '../domain/midi/midi-arrangement.ts'
 
 // 120 BPM → 1 beat = 500 ms = 480 ticks → 0.96 ticks/ms
 const T0 = 1_000_000
@@ -51,25 +52,46 @@ describe('MidiRecorder', () => {
     expect(pb.data[2]).toBe(0x40)
   })
 
-  it('handles repeated note-on as note-on then note-off (no dangling)', () => {
+  it('closes a repeated note at the second Note On tick without a zero-length note', () => {
     const r = recorderWithEvents([
       [0, [0x90, 60, 100]],
-      [200, [0x90, 60, 100]], // repeated press
+      [200, [0x90, 60, 100]],
       [400, [0x80, 60, 64]],
     ])
     const take = r.stop(T0 + 400)
-    const ons = take.events.filter((e) => (e.data[0]! & 0xf0) === 0x90)
-    const offs = take.events.filter((e) => (e.data[0]! & 0xf0) === 0x80)
-    expect(ons).toHaveLength(2)
-    expect(offs).toHaveLength(2)
+    expect(take.events.map((event) => ({
+      kind: event.data[0]! & 0xf0,
+      tick: event.tick,
+    }))).toEqual([
+      { kind: 0x90, tick: 0 },
+      { kind: 0x80, tick: 192 },
+      { kind: 0x90, tick: 192 },
+      { kind: 0x80, tick: 384 },
+    ])
+    const midi = importMidi(takeToMidi(take))
+    const notes = midi.tracks.flatMap((_, index) => getArrangementNotes(midi, index))
+    expect(notes.map((note) => [note.startTick, note.endTick])).toEqual([[0, 192], [192, 384]])
+    expect(notes.every((note) => note.endTick > note.startTick)).toBe(true)
   })
 
-  it('closes hanging notes on stop (sustain held at end)', () => {
+  it('closes a hanging note at the stop tick', () => {
     const r = recorderWithEvents([[0, [0x90, 60, 100]]])
     const take = r.stop(T0 + 1000)
-    const offs = take.events.filter((e) => (e.data[0]! & 0xf0) === 0x80)
-    expect(offs).toHaveLength(1)
-    expect(offs[0]!.data[1]).toBe(60)
+    const off = take.events.find((event) => (event.data[0]! & 0xf0) === 0x80)
+    expect(off?.tick).toBe(960)
+    const midi = importMidi(takeToMidi(take))
+    const note = midi.tracks.flatMap((_, index) => getArrangementNotes(midi, index))[0]
+    expect([note?.startTick, note?.endTick]).toEqual([0, 960])
+  })
+
+  it('closes a hanging note at the device disconnect tick', () => {
+    const r = recorderWithEvents([[0, [0x91, 64, 90]]])
+    r.stopHeldNotes(T0 + 375)
+    const take = r.stop(T0 + 500)
+    const off = take.events.find((event) => (event.data[0]! & 0xf0) === 0x80)
+    expect(off?.tick).toBe(360)
+    expect([...off!.data]).toEqual([0x81, 64, 0x40])
+    expect(take.events.filter((event) => (event.data[0]! & 0xf0) === 0x80)).toHaveLength(1)
   })
 
   it('ignores messages while not recording', () => {

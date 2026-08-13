@@ -60,8 +60,13 @@ key 1:1 G major
 track "Melody" channel=1 program=0 velocity=88
 ```
 
-Positions use one-based `measure:beat`. OWT channels are human-facing `1`
-through `16`; MIDI conversion maps them to channels `0` through `15`.
+Positions use one-based `measure:beat`. A beat is expressed in the meter's
+denominator unit and must satisfy $1 \le beat < numerator + 1$; write a change
+at the bar line as the next measure's `N+1:1` (`1:5` is invalid in 4/4).
+OWT channels are human-facing `1` through `16`; MIDI conversion maps them to
+channels `0` through `15`. `ppq` must be an integer from `1` through `32767`.
+Track attributes are limited to `channel`, `program`, and `velocity`; the only
+note attribute is `{v=...}`. Unknown or duplicate attributes are errors.
 
 The primary editing profile is one `Melody` track. Multiple tracks, chords and
 control events remain available for music that needs them:
@@ -76,6 +81,12 @@ C4:1{v=64}
 
 Automatic imports deliberately produce the simpler one-track profile and omit
 per-note velocity unless explicitly requested.
+
+OWT 0.1 does not support pickups or incomplete final measures. Each non-empty
+track must end on a complete measure boundary. A positive duration that rounds
+to zero MIDI ticks at the selected PPQ is an error rather than a silently
+dropped event. Tracks may share a MIDI channel, but conflicting programs or
+channel settings produce structural warnings.
 
 ## Editor highlighting
 
@@ -243,14 +254,37 @@ Recordings use the same extraction pipeline. Future audio/video transcription
 and score-image recognition should also produce the same simple OWT model after
 recognition and normalization.
 
+## What OWT deliberately does not preserve
+
+OWT is executable score notation, not a performance log. It deliberately does
+not preserve human microtiming, absolute millisecond timestamps, performance
+mistakes or velocity jitter, most MIDI CC, aftertouch, SysEx, the original MIDI
+track layout, or complete MIDI round-trip identity. A recording may still be
+kept/exported as `.mid` when those events matter. Converting it to OWT organizes
+the performance into editable notation; it does not exactly reproduce it.
+
+## OWT 有意不保留什么
+
+OWT 是可执行乐谱，不是演奏日志。它有意不保存人类演奏的微小时序、绝对毫秒时间、
+演奏误差或力度抖动、大多数 MIDI CC、aftertouch、SysEx、原始 MIDI 轨道结构及
+完整 MIDI 往返一致性。需要这些事件时仍可保留或导出 `.mid`；转换为 OWT 的含义
+是把演奏整理成可编辑谱面，而不是精确还原演奏。
+
 ## CLI
 
 ```bash
 opusweave owt validate examples/twinkle.owt
+opusweave owt fmt examples/twinkle.owt
+opusweave owt fmt examples/twinkle.owt -o canonical.owt
+opusweave owt fmt examples/twinkle.owt --check
 opusweave owt play examples/twinkle.owt
 opusweave owt to-midi examples/twinkle.owt -o twinkle.mid
 opusweave owt from-midi twinkle.mid --grid 1/16 --voice continuous -o melody.owt
 ```
+
+`owt fmt` parses, validates, and emits canonical OWT. The current AST does not
+preserve comments, so formatting intentionally removes them. `--check` exits
+zero only when the input already equals canonical output.
 
 Optional MIDI import flags:
 
@@ -266,6 +300,12 @@ policy may require one click before playback starts.
 ## MCP tools
 
 - `validate_owt`
+- `format_owt`
+- `create_composition_plan`
+- `compose_section`
+- `assemble_composition`
+- `validate_full_composition`
+- `revise_section`
 - `play_owt`
 - `export_owt_to_midi`
 - `import_midi_to_owt`

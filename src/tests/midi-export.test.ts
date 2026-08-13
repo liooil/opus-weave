@@ -136,12 +136,9 @@ describe('buildMidi (SMF Type 1 export)', () => {
     expect(midi.tracks.length).toBe(1)
   })
 
-  it('emits no note when a tiny duration rounds to zero ticks', () => {
-    const buf = buildMidi({
+  it('rejects a duration that rounds to zero ticks', () => {
+    expect(() => buildMidi({
       tracks: [{ name: 'T', notes: [{ startBeat: 0, durationBeats: 0.0001, pitch: 60, velocity: 100 }] }],
-    })
-    const midi = BasicMIDI.fromArrayBuffer(buf)
-    const notes = midi.tracks.flatMap((t) => t.events.filter((e) => e.statusByte === 0x90))
-    expect(notes).toHaveLength(0)
+    })).toThrow('tracks[0].notes[0].durationBeats: rounds to zero ticks at PPQ 480')
   })
 })

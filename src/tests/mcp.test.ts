@@ -62,14 +62,20 @@ describe('MCP server (stdio)', () => {
     const tools = (await waitFor(2)) as { result?: { tools?: Array<{ name: string }> } }
     const names = tools.result?.tools?.map((t) => t.name).sort()
     expect(names).toEqual([
+      'assemble_composition',
+      'compose_section',
+      'create_composition_plan',
       'create_example_composition',
       'create_midi',
       'export_owt_to_midi',
+      'format_owt',
       'import_midi_to_owt',
       'inspect_midi',
       'play_owt',
       'render_midi',
+      'revise_section',
       'validate_composition',
+      'validate_full_composition',
       'validate_owt',
     ])
   })

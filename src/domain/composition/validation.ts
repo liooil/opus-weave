@@ -105,11 +105,10 @@ export function validateCompositionSpec(input: unknown): ValidationResult {
     errors.push(err('title', `must be a string, got ${typeof spec.title}`))
   }
 
-  // ppq (optional, positive integer)
-  if (spec.ppq !== undefined) {
-    if (!isInt(spec.ppq) || spec.ppq < 1) {
-      errors.push(err('ppq', `must be a positive integer, got ${JSON.stringify(spec.ppq)}`))
-    }
+  // ppq (optional, same 1–32767 range as OWT)
+  const ppq = spec.ppq ?? 480
+  if (!isInt(ppq) || ppq < 1 || ppq > 32767) {
+    errors.push(err('ppq', `must be an integer in range 1–32767, got ${JSON.stringify(ppq)}`))
   }
 
   // tracks (required, array)
@@ -168,6 +167,9 @@ export function validateCompositionSpec(input: unknown): ValidationResult {
           const okVel = checkNumber(note.velocity, prefix(`notes[${n}].velocity`), { min: 1, max: 127 }, nctx, errors)
           const okStart = checkNumber(note.startBeat, prefix(`notes[${n}].startBeat`), { min: 0, max: Infinity }, nctx, errors, false)
           const okDur = checkNumber(note.durationBeats, prefix(`notes[${n}].durationBeats`), { min: Number.MIN_VALUE, max: Infinity }, nctx, errors, false)
+          if (okDur && isInt(ppq) && ppq >= 1 && ppq <= 32767 && (note.durationBeats as number) * ppq < 0.5) {
+            errors.push(err(prefix(`notes[${n}].durationBeats`), `rounds to zero ticks at PPQ ${ppq}`, nctx))
+          }
 
           if (okStart && okDur) {
             totalDurationBeats = Math.max(totalDurationBeats, (note.startBeat as number) + (note.durationBeats as number))
@@ -238,6 +240,36 @@ export function validateCompositionSpec(input: unknown): ValidationResult {
     stats.trackDensities.push(noteCount)
     stats.noteCount += noteCount
   })
+
+  const tracksByChannel = new Map<number, Array<{ index: number; track: Record<string, unknown> }>>()
+  spec.tracks.forEach((rawTrack, index) => {
+    if (!isRecord(rawTrack) || !isInt(rawTrack.channel) || rawTrack.channel < 0 || rawTrack.channel > 15) return
+    const group = tracksByChannel.get(rawTrack.channel) ?? []
+    group.push({ index, track: rawTrack })
+    tracksByChannel.set(rawTrack.channel, group)
+  })
+  for (const [channel, group] of tracksByChannel) {
+    if (group.length < 2) continue
+    for (const field of ['program', 'volume', 'pan'] as const) {
+      const values = new Set(group.map(({ track }) => track[field]).filter((value) => value !== undefined))
+      if (values.size > 1) {
+        warnings.push(warn('tracks', `tracks sharing MIDI channel ${channel} have conflicting ${field} values`))
+      }
+    }
+    const programsAtBeat = new Map<number, Set<number>>()
+    for (const { track } of group) {
+      if (!Array.isArray(track.programChanges)) continue
+      for (const change of track.programChanges) {
+        if (!isRecord(change) || typeof change.beat !== 'number' || typeof change.program !== 'number') continue
+        const programs = programsAtBeat.get(change.beat) ?? new Set<number>()
+        programs.add(change.program)
+        programsAtBeat.set(change.beat, programs)
+      }
+    }
+    if ([...programsAtBeat.values()].some((programs) => programs.size > 1)) {
+      warnings.push(warn('tracks', `tracks sharing MIDI channel ${channel} contain simultaneous conflicting program changes`))
+    }
+  }
 
   // tempos
   if (spec.tempos !== undefined) {

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { ConversationalImprovSession } from '../domain/ai/conversational-improv.ts'
 import { RecentPerformanceCapture } from '../domain/ai/recent-performance.ts'
-import { buildManualOwtPrompt, buildOwtAiMessages, createOwtWithAi, DEFAULT_OWT_AI_CONFIG, extractOwtFromAiResponse, hasConfiguredAiApi } from '../domain/ai/owt-ai.ts'
+import { buildManualOwtPrompt, buildOwtAiMessages, createOwtWithAi, defaultOwtAiPromptTemplates, DEFAULT_OWT_AI_CONFIG, extractOwtFromAiResponse, hasConfiguredAiApi, validateOwtAiPromptTemplates } from '../domain/ai/owt-ai.ts'
 import { keyboardLayoutTextToOwt } from '../domain/composition/keyboard-layout-composition.ts'
 import { musicalTypingPitches, musicalTypingStep, musicalTypingToOwt } from '../domain/composition/musical-typing.ts'
 import { BUILTIN_OWT_EXAMPLES } from '../domain/owt/builtin-examples.ts'
@@ -75,7 +75,7 @@ describe('OWT AI client', () => {
     const prompt = buildManualOwtPrompt(validAiOwt, 'zh-CN')
     expect(prompt).toContain(buildOwt01Reference('zh-CN'))
     expect(prompt).toContain('OWT 0.1 的时值单位是四分音符')
-    expect(prompt).toContain('不要求小节线成对出现')
+    expect(prompt).toContain('每一对 | ... | 之间必须恰好写一个完整小节')
     expect(prompt).toContain(validAiOwt.trim())
     expect(prompt).toContain('请在这里写下希望创作或修改的内容')
   })
@@ -95,28 +95,65 @@ describe('OWT AI client', () => {
     expect(messages[1]!.content).toContainEqual({ type: 'image_url', image_url: { url: 'data:image/png;base64,AA==' } })
   })
 
-  test('applies editable prompt templates to each AI feature', () => {
+  test('expands only explicit variables in editable prompt templates', () => {
     const config = {
       baseUrl: 'http://model.test',
       model: 'test',
       promptTemplates: {
-        system: 'CUSTOM SYSTEM',
-        prompt: 'COMPOSE::{instruction}',
-        scoreMedia: 'MEDIA::{instruction}',
-        improvise: 'IMPROV::{instruction}',
+        system: 'SYSTEM::{owtReference}',
+        prompt: 'COMPOSE::{instruction}::{currentOwt}',
+        scoreMedia: 'MEDIA::{instruction}::{currentOwt}',
+        improvise: 'IMPROV::{instruction}::{currentOwt}',
       },
     }
     for (const [task, marker] of [['prompt', 'COMPOSE'], ['score-media', 'MEDIA'], ['improvise', 'IMPROV']] as const) {
       const messages = buildOwtAiMessages({ task, instruction: 'user request', currentOwt: validAiOwt }, config)
-      expect(messages[0]!.content).toBe(`CUSTOM SYSTEM\n\n${buildOwt01Reference('en')}`)
-      expect(messages[1]!.content).toContain(`${marker}::user request`)
-      expect(messages[1]!.content).toContain(`CURRENT OWT:\n${validAiOwt}`)
+      expect(messages[0]!.content).toContain(`SYSTEM::${buildOwt01Reference('en')}`)
+      expect(messages[1]!.content).toContain(`${marker}::user request::${validAiOwt.trim()}`)
     }
+  })
+
+  test('provides concise bilingual behavior prompts backed by the complete reference', () => {
+    const english = defaultOwtAiPromptTemplates('en')
+    const chinese = defaultOwtAiPromptTemplates('zh-CN')
+    for (const templates of [english, chinese]) {
+      expect(templates.system).toContain('{owtReference}')
+      expect(templates.prompt).toContain('{instruction}')
+      expect(templates.prompt).toContain('{currentOwt}')
+      expect(templates.system).toContain('numerator*4/denominator')
+      expect(templates.system).not.toContain('ppq 480')
+      expect(templates.system).not.toContain('track "Melody"')
+    }
+    expect(english.system).toContain('return the complete replacement document')
+    expect(english.system).toContain('create original music')
+    expect(english.system).toContain('4/4=4, 3/4=3, 6/8=3')
+    expect(english.prompt).toContain('copy this rhythmic skeleton')
+    expect(chinese.system).toContain('输出完整替换文档')
+    expect(chinese.system).toContain('创作情绪或风格相近的原创音乐')
+    expect(chinese.system).toContain('4/4=4，3/4=3，6/8=3')
+    expect(chinese.prompt).toContain('复制下面的节奏骨架')
+  })
+
+
+  test('rejects empty templates and unknown custom variables', () => {
+    const templates = defaultOwtAiPromptTemplates('en')
+    expect(validateOwtAiPromptTemplates({ ...templates, prompt: '' })).toContainEqual({ field: 'prompt', kind: 'empty' })
+    expect(validateOwtAiPromptTemplates({ ...templates, improvise: 'Use {mystery}' })).toContainEqual({
+      field: 'improvise',
+      kind: 'unknown-variable',
+      variable: 'mystery',
+    })
+    expect(validateOwtAiPromptTemplates({ ...templates, system: 'Use {locale}' })).toContainEqual({
+      field: 'system',
+      kind: 'unknown-variable',
+      variable: 'locale',
+    })
+    expect(validateOwtAiPromptTemplates(templates)).toEqual([])
   })
 
   test('uses one complete built-in OWT reference for people and every AI task', () => {
     const reference = buildOwt01Reference('en')
-    for (const field of ['title "Title"', 'ppq 480', 'meter 1:1 4/4', 'tempo 1:1 120', 'key 1:1 C major', 'channel=1', 'program=0', 'velocity=88', 'C4:1', 'R:1', '[C4 E4 G4]:2', '<cc64=127>', '<bend=8192>', '| does not create a measure object']) {
+    for (const field of ['title "Title"', 'ppq 480', 'meter 1:1 4/4', 'tempo 1:1 120', 'key 1:1 C major', 'channel=1', 'program=0', 'velocity=88', 'C4:1', 'R:1', '[C4 E4 G4]:2', '<cc64=127>', '<bend=8192>', 'bar line is a validation assertion']) {
       expect(reference).toContain(field)
     }
     for (const task of ['prompt', 'score-media', 'improvise'] as const) {
@@ -141,21 +178,36 @@ describe('OWT AI client', () => {
     expect(requests[1]!.messages).toHaveLength(4)
   })
 
-  test('falls back to schema-constrained notes when OWT repairs keep failing', async () => {
+  test('never falls back to JSON when streamed OWT repairs remain invalid', async () => {
     let calls = 0
     const fetcher = (async (_input: URL | RequestInfo, init?: RequestInit) => {
       calls++
-      const body = JSON.parse(String(init?.body)) as { response_format?: unknown }
-      const content = body.response_format
-        ? JSON.stringify({ title: 'Safe Answer', tempo: 96, bars: Array.from({ length: 4 }, () => [60, 62, 64, 67, 69, 67, 64, 62]) })
-        : 'still invalid'
-      return Response.json({ choices: [{ message: { content } }] })
+      const body = JSON.parse(String(init?.body)) as { stream?: unknown; response_format?: unknown }
+      expect(body.stream).toBe(true)
+      expect(body.response_format).toBeUndefined()
+      return Response.json({ choices: [{ message: { content: 'still invalid' } }] })
     }) as typeof fetch
-    const result = await createOwtWithAi({ baseUrl: 'http://model.test', model: 'test' }, {
+    await expect(createOwtWithAi({ baseUrl: 'http://model.test', model: 'test' }, {
       task: 'improvise', instruction: 'answer it', currentOwt: validAiOwt,
-    }, { fetcher })
-    expect(calls).toBe(5)
-    expect(parseOwtOrThrow(result).title).toBe('Safe Answer')
+    }, { fetcher })).rejects.toThrow('AI response did not contain an OWT score')
+    expect(calls).toBe(4)
+  })
+
+  test('honors configurable retry count and automatic repair switch', async () => {
+    let calls = 0
+    const fetcher = (async (_input: URL | RequestInfo, _init?: RequestInit) => {
+      calls++
+      return Response.json({ choices: [{ message: { content: 'invalid' } }] })
+    }) as typeof fetch
+    await expect(createOwtWithAi({ baseUrl: 'http://model.test', model: 'test', retryCount: 1 }, {
+      task: 'prompt', instruction: 'test', currentOwt: validAiOwt,
+    }, { fetcher })).rejects.toThrow()
+    expect(calls).toBe(2)
+    calls = 0
+    await expect(createOwtWithAi({ baseUrl: 'http://model.test', model: 'test', retryCount: 9, autoRepair: false }, {
+      task: 'prompt', instruction: 'test', currentOwt: validAiOwt,
+    }, { fetcher })).rejects.toThrow()
+    expect(calls).toBe(1)
   })
 })
 

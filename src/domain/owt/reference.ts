@@ -75,8 +75,8 @@ All global directives must appear before the first track.
 - program is the initial MIDI program, integer 0–127; default 0.
 - velocity is the default note velocity, integer 1–127; default 80.
 - channel, program and velocity are syntactically optional.
-- Unsupported track attributes currently have no meaning and are ignored by the parser.
-- Each track has its own sequential time cursor starting at score time 0. Tracks therefore play in parallel. Tracks may have different lengths, and an empty track is valid.
+- Unknown or duplicate track attributes are errors.
+- Each track has its own sequential time cursor starting at score time 0. Tracks therefore play in parallel. OWT 0.1 requires every non-empty track to end on a complete measure boundary; pickup and incomplete final measures are not supported.
 - At least one track is required.
 
 6. NOTES, RESTS, CHORDS AND DURATIONS
@@ -115,11 +115,11 @@ All global directives must appear before the first track.
 
     | C4:1 D4:1 E4:1 F4:1 |
 
-- | does not create a measure object and does not advance time.
-- Whenever | appears, the parser checks that the current track cursor is exactly on a measure boundary calculated from the meter map.
-- In 4/4, the closing | above is valid because the four durations total 4 quarter-note units.
-- OWT 0.1 does not require paired bar lines, one measure per line, a final closing bar, or even any bar lines. Without a bar line at a position, no boundary check is performed there.
-- An event may extend across a calculated measure boundary when no bar line checks the crossed boundary.
+- A bar line is a validation assertion: whenever | appears, the accumulated duration of that track must be exactly a measure boundary calculated from the meter map.
+- Put exactly one complete measure between a paired | ... |. In 4/4 its event durations must sum to exactly 4 quarter-note units; in 3/4 exactly 3; in 6/8 exactly 3.
+- Count every measure independently. For example, "| G4:1/2 B4:1/2 D5:1 G5:1 |" is invalid in 4/4 because it totals 3, so it needs R:1 or another duration totaling 1 before the closing bar.
+- Prefer paired bar lines with one complete measure per line. Do not place a bar line after an incomplete measure, and do not use a leading bar to hide an incomplete previous measure.
+- Although the parser permits omitted bar lines and events crossing an unchecked boundary, generated OWT must not rely on those permissive forms.
 
 9. TIME AND DEFAULT SUMMARY
 
@@ -220,8 +220,8 @@ const OWT_0_1_REFERENCE_ZH_CN = `OWT 0.1——完整格式参考
 - program 是初始 MIDI 音色编号，必须是 0–127 的整数；默认值为 0。
 - velocity 是音符的默认 MIDI 力度，必须是 1–127 的整数；默认值为 80。
 - channel、program、velocity 在语法上都可以省略。
-- 不支持的轨道属性目前没有语义，并会被解析器忽略。
-- 每条轨道都有从乐谱时间 0 开始的独立顺序游标，因此各轨道并行播放。轨道可以长度不同，也可以是空轨道。
+- 未知或重复的轨道属性是错误。
+- 每条轨道都有从乐谱时间 0 开始的独立顺序游标，因此各轨道并行播放。OWT 0.1 要求每条非空轨道结束于完整小节边界；不支持弱起或不完整末小节。
 - 文档至少需要一条轨道。
 
 6. 音符、休止符、和弦与时值
@@ -260,11 +260,11 @@ const OWT_0_1_REFERENCE_ZH_CN = `OWT 0.1——完整格式参考
 
     | C4:1 D4:1 E4:1 F4:1 |
 
-- | 不创建小节对象，也不推进时间。
-- 每当出现 |，解析器都会检查当前轨道游标是否恰好位于根据拍号表计算的小节边界。
-- 上面的右侧 | 在 4/4 中有效，因为四个事件的时值总和是 4 个四分音符单位。
-- OWT 0.1 不要求小节线成对出现，不要求每行一个小节，不要求最后有闭合小节线，甚至不要求出现任何小节线。某个位置没有 |，解析器就不会在那里执行边界检查。
-- 如果跨越的位置没有小节线检查，一个事件可以延伸穿过计算得到的小节边界。
+- 小节线是校验断言：每当出现 |，该轨道累计时值必须恰好位于根据拍号表计算的小节边界。
+- 每一对 | ... | 之间必须恰好写一个完整小节。4/4 中事件时值之和必须严格等于 4 个四分音符单位；3/4 必须等于 3；6/8 必须等于 3。
+- 每个小节必须独立计数。例如“| G4:1/2 B4:1/2 D5:1 G5:1 |”在 4/4 中只有 3 拍，因此无效；右侧小节线前还需要 R:1 或其他总时值为 1 的事件。
+- 默认使用成对小节线并且每行只写一个完整小节。不得在不完整小节后写小节线，也不得用下一行开头的小节线掩盖上一小节不完整。
+- 虽然解析器允许省略小节线以及事件跨过未检查的边界，但生成的 OWT 不得依赖这些宽松形式。
 
 9. 时间与默认值汇总
 

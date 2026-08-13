@@ -149,6 +149,98 @@ export async function sendAiProviderRequest(request: AiProviderRequest, options:
   })
 }
 
+export function extractAiResponseText(protocol: Exclude<AiProtocol, 'auto'>, payload: Record<string, unknown>): string {
+  let content: unknown
+  if (protocol === 'openai-responses') {
+    content = payload.output_text
+    if (!content && Array.isArray(payload.output)) {
+      content = payload.output.flatMap((item) => item && typeof item === 'object' && Array.isArray((item as { content?: unknown }).content)
+        ? (item as { content: Array<{ text?: unknown }> }).content.map((part) => part.text)
+        : []).find((text) => typeof text === 'string')
+    }
+  } else if (protocol === 'openai-completions') {
+    content = (payload.choices as Array<{ text?: unknown }> | undefined)?.[0]?.text
+  } else if (protocol === 'anthropic-messages') {
+    content = (payload.content as Array<{ type?: unknown; text?: unknown }> | undefined)?.find((part) => part.type === 'text')?.text
+  } else if (protocol === 'ollama-native') {
+    content = (payload.message as { content?: unknown } | undefined)?.content
+  } else {
+    content = (payload.choices as Array<{ message?: { content?: unknown } }> | undefined)?.[0]?.message?.content
+  }
+  if (typeof content !== 'string' || !content) throw new Error('AI endpoint returned no message content')
+  return content
+}
+
+function extractAiStreamDelta(protocol: Exclude<AiProtocol, 'auto'>, payload: Record<string, unknown>): string {
+  if (protocol === 'openai-responses') return typeof payload.delta === 'string' ? payload.delta : ''
+  if (protocol === 'anthropic-messages') {
+    const delta = payload.delta as { text?: unknown } | undefined
+    return typeof delta?.text === 'string' ? delta.text : ''
+  }
+  if (protocol === 'ollama-native') {
+    const message = payload.message as { content?: unknown } | undefined
+    return typeof message?.content === 'string' ? message.content : typeof payload.response === 'string' ? payload.response : ''
+  }
+  const choice = (payload.choices as Array<{ delta?: { content?: unknown }; text?: unknown }> | undefined)?.[0]
+  return typeof choice?.delta?.content === 'string' ? choice.delta.content : typeof choice?.text === 'string' ? choice.text : ''
+}
+
+export async function readAiTextResponse(
+  response: Response,
+  protocol: Exclude<AiProtocol, 'auto'>,
+  onUpdate?: (text: string) => void,
+): Promise<string> {
+  if (!response.ok) {
+    const detail = await response.text()
+    throw new Error(`AI request failed (${response.status}): ${detail.slice(0, 500)}`)
+  }
+  const contentType = response.headers.get('content-type')?.toLowerCase() ?? ''
+  if (!response.body || (contentType.includes('application/json') && !contentType.includes('ndjson'))) {
+    const raw = await response.text()
+    let payload: Record<string, unknown>
+    try { payload = JSON.parse(raw) as Record<string, unknown> } catch { throw new Error('AI endpoint returned a non-streaming, non-JSON response') }
+    const text = extractAiResponseText(protocol, payload)
+    onUpdate?.(text)
+    return text
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let pending = ''
+  let text = ''
+  let finalPayload: Record<string, unknown> | undefined
+  const consume = (line: string): void => {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith('event:') || trimmed.startsWith(':')) return
+    const data = trimmed.startsWith('data:') ? trimmed.slice(5).trim() : trimmed
+    if (!data || data === '[DONE]') return
+    let payload: Record<string, unknown>
+    try { payload = JSON.parse(data) as Record<string, unknown> } catch { return }
+    const delta = extractAiStreamDelta(protocol, payload)
+    if (delta) {
+      text += delta
+      onUpdate?.(text)
+    } else {
+      finalPayload = payload
+    }
+  }
+  while (true) {
+    const { value, done } = await reader.read()
+    pending += decoder.decode(value, { stream: !done })
+    const lines = pending.split(/\r?\n/)
+    pending = lines.pop() ?? ''
+    for (const line of lines) consume(line)
+    if (done) break
+  }
+  if (pending.trim()) consume(pending)
+  if (!text && finalPayload) {
+    text = extractAiResponseText(protocol, finalPayload)
+    onUpdate?.(text)
+  }
+  if (!text) throw new Error('AI stream returned no message content')
+  return text
+}
+
 function parseOpenAiModels(value: unknown): AiModelInfo[] {
   if (!value || typeof value !== 'object') return []
   const body = value as { data?: unknown; models?: unknown }

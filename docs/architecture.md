@@ -40,8 +40,8 @@ src/build.ts       Single-file binary via bundesk; the AudioWorklet processor
                    is embedded with a `with { type: 'file' }` import and
                    served at /spessasynth_processor.min.js.
 src/domain/
-  ai/              Multi-protocol provider adapters, URL-driven model discovery,
-                   OWT schema fallback, phrase detection and AI improvisation.
+  ai/              Multi-protocol streaming adapters, live Sketch generation,
+                   plain-text sectional Full Composition and AI improvisation.
   composition/     CompositionSpec types, runtime validation, TempoMap and
                    deterministic English/Pinyin musical typing.
   owt/             Score-only OWT AST, rational parser, stable serializer,
@@ -54,8 +54,11 @@ src/domain/
 src/audio/         SynthEngine contract, spessasynth engine, mock, renderers.
 src/midi/          WebMidiManager (browser) + pure port-selection logic.
 src/mcp/           MCP server (stdio) + tool definitions.
-src/web/           GUI plus Helix-style modal OWT editor, semantic selections,
-                   syntax/playback layers and guided performance UI.
+src/web/           GUI composition root plus explicit WorkspaceStore,
+  controllers/     transport, improv and full-composition state transitions.
+  state/           serializable workspace state; no DOM nodes.
+  views/           focused DOM rendering/binding modules.
+  editor/          Helix-style modal OWT editor and semantic selections.
 src/tests/         Deterministic Bun test suite.
 ```
 

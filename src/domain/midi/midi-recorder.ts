@@ -28,16 +28,11 @@ export interface RecordedTake {
   durationMs: number
 }
 
-interface ActiveNote {
-  channel: number
-  note: number
-}
 
 export class MidiRecorder {
   private events: RecordedMidiEvent[] = []
   private startTime = 0
   private recording = false
-  private readonly activeNotes = new Map<string, ActiveNote>()
 
   /** Note keys currently held down: `ch:note` -> tick of the last note-on. */
   private readonly held = new Map<string, number>()
@@ -54,11 +49,16 @@ export class MidiRecorder {
     this.recording = true
   }
 
+  /** Convert a high-resolution wall-clock timestamp to an absolute take tick. */
+  private timestampToTick(timestampMs: number): number {
+    return Math.max(0, Math.round(((timestampMs - this.startTime) * RECORD_PPQ) / (60000 / DEFAULT_TEMPO_BPM)))
+  }
+
   /** Feed one raw MIDI message with a high-resolution timestamp (ms). */
   push(data: Uint8Array, timestampMs: number): void {
     if (!this.recording || data.length < 1) return
     const status = data[0]!
-    const tick = Math.max(0, Math.round(((timestampMs - this.startTime) * RECORD_PPQ) / (60000 / DEFAULT_TEMPO_BPM)))
+    const tick = this.timestampToTick(timestampMs)
 
     if ((status & 0xf0) === 0x90 && data.length >= 3) {
       const channel = status & 0x0f
@@ -72,7 +72,7 @@ export class MidiRecorder {
       const key = `${channel}:${note}`
       if (this.held.has(key)) {
         // Repeated Note On while held — close the previous one first.
-        this.events.push({ tick: this.held.get(key)!, data: new Uint8Array([0x80 | channel, note, 0x40]) })
+        this.events.push({ tick, data: new Uint8Array([0x80 | channel, note, 0x40]) })
       }
       this.held.set(key, tick)
       this.events.push({ tick, data: Uint8Array.from(data) })
@@ -92,9 +92,11 @@ export class MidiRecorder {
     this.events.push({ tick, data: Uint8Array.from(data) })
   }
 
-  /** Close any notes still held (device disconnect, page close). */
-  stopHeldNotes(): void {
-    for (const [key, tick] of this.held) {
+  /** Close any notes still held at the supplied disconnect/page-close time. */
+  stopHeldNotes(timestampMs: number): void {
+    if (!this.recording) return
+    const tick = this.timestampToTick(timestampMs)
+    for (const key of this.held.keys()) {
       const [ch, note] = key.split(':')
       this.events.push({ tick, data: new Uint8Array([0x80 | Number(ch), Number(note), 0x40]) })
     }
@@ -104,7 +106,7 @@ export class MidiRecorder {
   /** End the take. Emits note-offs for any still-held notes first. */
   stop(nowMs: number): RecordedTake {
     if (!this.recording) return { events: [], durationMs: 0 }
-    this.stopHeldNotes()
+    this.stopHeldNotes(nowMs)
     this.recording = false
     const durationMs = Math.max(0, nowMs - this.startTime)
     return { events: this.events, durationMs }

@@ -7,6 +7,7 @@
 
 export type OpusWeaveErrorCode =
   | 'invalid-spec'
+  | 'invalid-owt'
   | 'midi-corrupt'
   | 'file-not-found'
   | 'file-unreadable'

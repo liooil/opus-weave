@@ -1,5 +1,4 @@
-import { BasicMIDI, MIDIMessage, MIDIMessageType } from 'spessasynth_core'
-import { RECORD_PPQ, type RecordedTake } from './midi-recorder.ts'
+import { BasicMIDI } from 'spessasynth_core'
 
 export interface ArrangementNote {
   trackIndex: number
@@ -13,9 +12,6 @@ export interface ArrangementNote {
 interface PairedNote extends ArrangementNote {
   onIndex: number
   offIndex: number | null
-  onStatus: number
-  offStatus: number
-  offData: Uint8Array
 }
 
 function pairTrackNotes(midi: BasicMIDI, trackIndex: number): PairedNote[] {
@@ -54,9 +50,6 @@ function pairTrackNotes(midi: BasicMIDI, trackIndex: number): PairedNote[] {
         endTick: Math.max(start.tick + 1, event.ticks),
         onIndex: start.index,
         offIndex: index,
-        onStatus: start.status,
-        offStatus: event.statusByte,
-        offData: Uint8Array.from(event.data),
       })
     }
   }
@@ -73,9 +66,6 @@ function pairTrackNotes(midi: BasicMIDI, trackIndex: number): PairedNote[] {
         endTick: Math.max(start.tick + 1, fallbackEnd),
         onIndex: start.index,
         offIndex: null,
-        onStatus: start.status,
-        offStatus: 0x80 | channel!,
-        offData: new Uint8Array([note!, 0x40]),
       })
     }
   }
@@ -84,77 +74,5 @@ function pairTrackNotes(midi: BasicMIDI, trackIndex: number): PairedNote[] {
 }
 
 export function getArrangementNotes(midi: BasicMIDI, trackIndex: number): ArrangementNote[] {
-  return pairTrackNotes(midi, trackIndex).map(({ onIndex: _on, offIndex: _off, onStatus: _status, offStatus: _offStatus, offData: _offData, ...note }) => note)
-}
-
-function message(ticks: number, status: number, data: ArrayLike<number>): MIDIMessage {
-  return new MIDIMessage(ticks, status as MIDIMessageType, Uint8Array.from(data))
-}
-
-export function replaceArrangementRange(
-  midi: BasicMIDI,
-  options: {
-    trackIndex: number
-    startTick: number
-    endTick: number
-    take?: RecordedTake | null
-    /** Wall-clock length represented by the selected range. */
-    selectionDurationMs?: number
-  },
-): BasicMIDI {
-  const { trackIndex } = options
-  const startTick = Math.max(0, Math.round(options.startTick))
-  const endTick = Math.max(startTick + 1, Math.round(options.endTick))
-  if (!midi.tracks[trackIndex]) throw new RangeError(`Track ${trackIndex} does not exist`)
-
-  const copy = BasicMIDI.copyFrom(midi)
-  const track = copy.tracks[trackIndex]!
-  const pairedNotes = pairTrackNotes(copy, trackIndex)
-  const deleteIndexes = new Set<number>()
-  const pairedIndexes = new Set<number>()
-  const additions: MIDIMessage[] = []
-
-  for (const note of pairedNotes) {
-    pairedIndexes.add(note.onIndex)
-    if (note.offIndex !== null) pairedIndexes.add(note.offIndex)
-    if (note.startTick >= endTick || note.endTick <= startTick) continue
-
-    deleteIndexes.add(note.onIndex)
-    if (note.offIndex !== null) deleteIndexes.add(note.offIndex)
-
-    if (note.startTick < startTick) {
-      additions.push(message(note.startTick, note.onStatus, [note.note, note.velocity]))
-      additions.push(message(startTick, 0x80 | note.channel, [note.note, 0x40]))
-    }
-    if (note.endTick > endTick) {
-      additions.push(message(endTick, note.onStatus, [note.note, note.velocity]))
-      additions.push(message(note.endTick, note.offStatus, note.offData))
-    }
-  }
-
-  for (let index = 0; index < track.events.length; index++) {
-    if (pairedIndexes.has(index)) continue
-    const event = track.events[index]!
-    const isChannelMessage = event.statusByte >= 0x80 && event.statusByte < 0xf0
-    if (isChannelMessage && event.ticks >= startTick && event.ticks < endTick) deleteIndexes.add(index)
-  }
-
-  for (const index of [...deleteIndexes].sort((left, right) => right - left)) track.deleteEvent(index)
-  const endOfTrackIndex = track.events.findIndex((event) => event.statusByte === 0x2f)
-  if (endOfTrackIndex >= 0) track.deleteEvent(endOfTrackIndex)
-
-  const take = options.take
-  if (take) {
-    const selectedTicks = endTick - startTick
-    const selectionDurationMs = Math.max(1, options.selectionDurationMs ?? take.durationMs)
-    for (const event of take.events) {
-      const elapsedMs = (event.tick / RECORD_PPQ) * 500
-      const relative = Math.max(0, Math.min(1, elapsedMs / selectionDurationMs))
-      additions.push(message(startTick + Math.round(relative * selectedTicks), event.data[0]!, event.data.slice(1)))
-    }
-  }
-
-  for (const event of additions) track.pushEvent(event)
-  copy.flush(true)
-  return copy
+  return pairTrackNotes(midi, trackIndex).map(({ onIndex: _on, offIndex: _off, ...note }) => note)
 }

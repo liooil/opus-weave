@@ -100,6 +100,17 @@ export class OpusWeaveService {
     }
   }
 
+  /** Parse, validate, and serialize canonical OWT. Comments are intentionally removed. */
+  formatOwt(text: string): string {
+    const parsed = parseOwt(text)
+    if (!parsed.document) throw new OpusWeaveError('invalid-owt', `invalid OWT: ${parsed.diagnostics.map((item) => `${item.line}:${item.column} ${item.message}`).join('; ')}`)
+    const composition = validateCompositionSpec(compileScoreText(text).spec)
+    if (composition.errors.length > 0) {
+      throw new OpusWeaveError('invalid-owt', `invalid OWT composition: ${composition.errors.map((item) => `${item.field}: ${item.message}`).join('; ')}`)
+    }
+    return serializeScore(parsed.document)
+  }
+
   async compileOwtScore(text: string, outputPath?: string): Promise<CreateMidiResult & { text: string }> {
     const compiled = compileScoreText(text)
     const result = await this.createMidi(compiled.spec, outputPath)
@@ -210,7 +221,7 @@ export class OpusWeaveService {
       soundfont,
       features: [
         'SMF import/export (spessasynth_core)',
-        'OWT 0.1 Score/Take parsing, quantization and comparison',
+        'OWT 0.1 score parsing, formatting, MIDI compilation, and lossy melody extraction',
         'SoundFont synthesis (spessasynth_lib, browser)',
         'FluidSynth offline rendering (optional)',
         'MCP server (stdio)',

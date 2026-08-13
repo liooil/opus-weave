@@ -8,6 +8,8 @@ const aiClient = await Bun.file('src/domain/ai/owt-ai.ts').text()
 const owtReference = await Bun.file('src/domain/owt/reference.ts').text()
 const owtDocs = await Bun.file('docs/owt.md').text()
 const webBuild = await Bun.file('src/build-web.ts').text()
+const sourceHover = await Bun.file('src/web/views/source-hover-view.ts').text()
+const keyboardLayout = await Bun.file('src/web/keyboard/layout-view-model.ts').text()
 
 describe('web workspace structure', () => {
   test('integrates score controls into the top bar without a local-session badge', () => {
@@ -203,6 +205,20 @@ describe('web workspace structure', () => {
     expect(aiClient).toContain("buildOwt01Reference('en')")
   })
 
+  test('tests prompt templates through live model requests and reports validated OWT results', () => {
+    expect(html).toContain('id="ai-prompt-test-dialog"')
+    expect(html).toContain('id="ai-prompt-test-results"')
+    expect(app).toContain('const promptTestCases = [')
+    expect(app).toContain("id: 'compose'")
+    expect(app).toContain("id: 'edit'")
+    expect(app).toContain("id: 'continue'")
+    expect(app).toContain('await createOwtWithAi(config,')
+    expect(app).toContain('const parsed = parseOwt(text)')
+    expect(app).toContain("track.events.filter((event) => event.kind === 'note')")
+    expect(app).toContain("card.classList.replace('running', 'passed')")
+    expect(app).not.toContain('buildOwtAiMessages(request, config)')
+  })
+
   test('collapses four score views into one cycling button on narrow screens', () => {
     expect(html.match(/<button class="score-view-tab/g)).toHaveLength(4)
     expect(html).toContain('id="btn-score-view-cycle"')
@@ -216,6 +232,20 @@ describe('web workspace structure', () => {
     expect(modalEditor).toContain("n: 'view-next'")
   })
 
+  test('renders the timeline only from the current OWT score', () => {
+    const timeline = html.slice(html.indexOf('id="playback-panel"'), html.indexOf('id="staff-panel"'))
+    expect(timeline).toContain('id="timeline-tracks"')
+    expect(timeline).not.toContain('btn-export-arrangement')
+    expect(timeline).not.toContain('btn-replace-range')
+    expect(timeline).not.toContain('btn-clear-range')
+    expect(app).toContain('timelineModel = buildScoreViewModel(result.document)')
+    expect(app).toContain('for (const measure of track.measures)')
+    expect(app).not.toContain('replaceArrangementRange')
+    expect(app).not.toContain('loadMidiData')
+    expect(css).toContain('.arranger-grid.has-score .arranger-empty')
+    expect(css).not.toContain('.arranger-grid.has-midi .arranger-empty')
+  })
+
   test('opens the same built-in OWT reference for people and AI', () => {
     expect(owtReference).toContain('OWT 0.1 — COMPLETE FORMAT REFERENCE')
     expect(owtReference).toContain('OWT 0.1——完整格式参考')
@@ -226,8 +256,8 @@ describe('web workspace structure', () => {
     expect(html).toContain('id="btn-owt-reference-copy"')
     expect(app).toContain("$('owt-reference-content').textContent = buildOwt01Reference(getLocale())")
     expect(app).toContain("case 'help': showOwtReferenceDialog(); return")
-    expect(aiClient).toContain("const system = `${templates.system.trim()}\\n\\n${buildOwt01Reference('en')}`.trim()")
-    expect(aiClient).toContain("${buildOwt01Reference('zh-CN')}")
+    expect(aiClient).toContain("owtReference: buildOwt01Reference(locale)")
+    expect(aiClient).toContain("defaultOwtAiPromptTemplates(locale")
   })
 
   test('randomizes composition suggestions and submits the visible suggestion when empty', () => {
@@ -357,10 +387,10 @@ describe('web workspace structure', () => {
   test('renders layout-specific key maps including the complete FreePiano keyboard', () => {
     expect(html).not.toContain('class="bridge-label"')
     expect(html).not.toContain('data-i18n="live.mappingBridge"')
-    expect(app).toContain("id: 'navigation'")
-    expect(app).toContain("id: 'numpad'")
-    expect(app).toContain("['numlock', 'num/', 'num*', 'num-']")
-    expect(app).toContain("NumpadEnter: 'numenter'")
+    expect(keyboardLayout).toContain("id: 'navigation'")
+    expect(keyboardLayout).toContain("id: 'numpad'")
+    expect(keyboardLayout).toContain("['numlock', 'num/', 'num*', 'num-']")
+    expect(keyboardLayout).toContain("['num0', 'num.', null]")
     expect(app).toContain("root.dataset.layout = layout")
     expect(app).toContain('minNote: 0')
     expect(app).toContain('maxNote: 127')
@@ -373,8 +403,7 @@ describe('web workspace structure', () => {
     expect(html).toContain('id="source-hover-card"')
     expect(html).toContain('id="source-hover-raw"')
     expect(html).toContain('id="source-hover-fields"')
-    expect(app).toContain('function describeOwtSourceToken(raw: string)')
-    expect(app).toContain("].join('\\n')")
+    expect(sourceHover).toContain('function describeOwtSourceToken(raw: string')
     expect(app).toContain('attachSourceHover(block, raw')
     expect(app).toContain('attachSourceHover(element, raw')
     expect(app).not.toContain('block.title = `${noteName(note.note)}')
@@ -408,4 +437,15 @@ describe('web workspace structure', () => {
     const requestEnd = app.indexOf('function cancelAiMediaImport()', requestStart)
     expect(app.slice(requestStart, requestEnd)).not.toContain('mediaFileToAiAttachments')
   })
+  test('shows OWT repair only for validation errors and exposes AI repair settings', () => {
+    expect(html).toContain('id="btn-owt-repair"')
+    expect(html.match(/<button id="btn-owt-repair"[^>]*>/)?.[0]).toContain('hidden')
+    expect(app).toContain("diagnostics.some((diagnostic) => diagnostic.severity === 'error')")
+    expect(app).toContain("control.id === 'btn-owt-repair' && !owtHasErrors")
+    expect(html).toContain('id="ai-retry-count"')
+    expect(html).toContain('id="ai-auto-repair"')
+    expect(html).toContain('id="btn-ai-test-templates"')
+    expect(app).toContain('repairCommonOwtErrors(owtEditor.value)')
+  })
+
 })

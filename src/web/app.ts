@@ -7,19 +7,16 @@ import { SpessaSynthEngine } from '../audio/spessa-synth-engine.ts'
 import { selectAudioOutputDevice, type AudioOutputDevice, type SavedAudioOutput } from '../audio/audio-output.ts'
 import { WebMidiManager, type MidiManagerState } from '../midi/web-midi-manager.ts'
 import { MidiRecorder, type RecordedTake } from '../domain/midi/midi-recorder.ts'
-import { applyTrackMutes, createMidiTempoMap, importMidi, inspectMidi, type MidiInspection } from '../domain/midi/midi-import.ts'
-import { getArrangementNotes, replaceArrangementRange } from '../domain/midi/midi-arrangement.ts'
 import { MappingEngine, noteName, type BuiltinComputerLayoutId, type ComputerKeyAssignment } from '../domain/devices/mapping-engine.ts'
 import { MidiLearn } from '../domain/midi-learn.ts'
 import { findProfileForPort, overrideControl, type DeviceProfile } from '../domain/devices/device-profile.ts'
 import { midiplusTinyPlusProfile } from '../domain/devices/midiplus-tiny-plus.ts'
 import { VirtualKeyboard } from './components/virtual-keyboard.ts'
 import { enableHorizontalPointerScroll } from './components/horizontal-pointer-scroll.ts'
-import type { BasicMIDI } from 'spessasynth_core'
 import { getLocale, resolveLocale, setLocale, t, translateDocument, type TranslationValues } from './i18n.ts'
 import { compileScoreText, extractMelodyFromMidi, extractMelodyFromRecording, type MelodyExtractionResult, type MelodyVoiceStrategy } from '../domain/owt/integration.ts'
 import { parseOwt } from '../domain/owt/parser.ts'
-import { parseRational, rational } from '../domain/owt/rational.ts'
+import { parseRational, rational, rationalToNumber } from '../domain/owt/rational.ts'
 import { serializeOwt } from '../domain/owt/serializer.ts'
 import { buildOwt01Reference } from '../domain/owt/reference.ts'
 import type { OwtDocument } from '../domain/owt/ast.ts'
@@ -29,163 +26,28 @@ import { ModalOwtEditor, normalizedSelection, owtMotionDestinations, type ModalE
 import { buildOwtSyntaxIndex, objectContaining, replaceOwtEventPitch, semanticDeletionEdits, type OwtTextObject } from './editor/owt-objects.ts'
 import { buildPracticePrompts, PracticeSession } from '../domain/owt/practice-session.ts'
 import { BUILTIN_OWT_EXAMPLES, builtinOwtExample } from '../domain/owt/builtin-examples.ts'
-import { buildScoreViewModel } from '../domain/owt/score-views.ts'
+import { buildScoreViewModel, type ScoreViewModel } from '../domain/owt/score-views.ts'
 import { renderJianpuScore, renderStaffScore } from './components/score-views.ts'
-import { buildManualOwtPrompt, createOwtWithAi, DEFAULT_OWT_AI_CONFIG, DEFAULT_OWT_AI_PROMPT_TEMPLATES, hasConfiguredAiApi, testOwtAiConnection, type OwtAiConfig, type OwtAiPromptTemplates, type OwtAiRequest } from '../domain/ai/owt-ai.ts'
+import { buildManualOwtPrompt, createOwtWithAi, defaultOwtAiPromptTemplates, DEFAULT_OWT_AI_CONFIG, hasConfiguredAiApi, testOwtAiConnection, validateOwtAiPromptTemplates, type OwtAiConfig, type OwtAiPromptTemplates, type OwtAiRequest } from '../domain/ai/owt-ai.ts'
 import { discoverAiModels, type AiProtocol } from '../domain/ai/providers.ts'
 import { ConversationalImprovSession } from '../domain/ai/conversational-improv.ts'
 import { mediaFileToAiAttachments } from './ai-media.ts'
 import { scoreFileKind } from './open-file.ts'
 import { nextThemePreference, normalizeThemePreference, resolveTheme, type ThemePreference } from './theme.ts'
 import { decodeOwtHash, encodeOwtHash } from './owt-url-state.ts'
+import { createFullCompositionWorkflow } from './controllers/composition-controller.ts'
+import type { FullCompositionStage, FullCompositionStreamUpdate } from '../domain/ai/full-composition.ts'
+import { repairCommonOwtErrors } from '../domain/owt/repair.ts'
+import { attachSourceHover, describeOwtSourceToken, type SourceHoverField } from './views/source-hover-view.ts'
+import { computerInputKey, computerKeyLabel, computerKeyWidth, keyboardSectionsForLayout } from './keyboard/layout-view-model.ts'
+import { byId as $, clearStatus, retranslateTrackedCopy, setStatus, setTranslatedStatus, setTranslatedText, showError } from './views/status-view.ts'
+import { WorkspaceStore, type WorkspaceState } from './state/workspace-store.ts'
+import { TransportController } from './controllers/transport-controller.ts'
+import { ImprovController } from './controllers/improv-controller.ts'
 import builtInGmSoundFontUrl from './assets/soundfonts/FluidR3Mono_GM.sf3' with { type: 'file' }
 import builtInGmLicenseUrl from './assets/soundfonts/FluidR3Mono_License.md' with { type: 'file' }
 import freePianoSoundFontUrl from './assets/freepiano-mda-piano.sf2' with { type: 'file' }
 
-// ─── DOM helpers ─────────────────────────────────────────────────────────────
-
-function $<T extends HTMLElement = HTMLElement>(id: string): T {
-  const el = document.getElementById(id)
-  if (!el) throw new Error(`Element #${id} not found`)
-  return el as unknown as T
-}
-
-interface SourceHoverField {
-  label: string
-  description: string
-}
-
-function positionSourceHoverCard(clientX: number, clientY: number): void {
-  const card = $<HTMLElement>('source-hover-card')
-  const gap = 14
-  const left = Math.min(clientX + gap, window.innerWidth - card.offsetWidth - 12)
-  const top = Math.min(clientY + gap, window.innerHeight - card.offsetHeight - 12)
-  card.style.left = `${Math.max(12, left)}px`
-  card.style.top = `${Math.max(12, top)}px`
-}
-
-function showSourceHoverCard(raw: string, fields: readonly SourceHoverField[], event: PointerEvent | FocusEvent): void {
-  const card = $<HTMLElement>('source-hover-card')
-  $('source-hover-raw').textContent = raw
-  const list = $<HTMLDListElement>('source-hover-fields')
-  list.replaceChildren()
-  for (const field of fields) {
-    const term = document.createElement('dt')
-    const description = document.createElement('dd')
-    term.textContent = field.label
-    description.textContent = field.description
-    list.append(term, description)
-  }
-  card.hidden = false
-  const target = event.currentTarget as HTMLElement
-  const rect = target.getBoundingClientRect()
-  positionSourceHoverCard(event instanceof PointerEvent ? event.clientX : rect.right, event instanceof PointerEvent ? event.clientY : rect.top)
-}
-
-function hideSourceHoverCard(): void {
-  $('source-hover-card').hidden = true
-}
-
-function attachSourceHover(target: HTMLElement, raw: string, fields: () => readonly SourceHoverField[]): void {
-  target.removeAttribute('title')
-  target.addEventListener('pointerenter', (event) => showSourceHoverCard(raw, fields(), event))
-  target.addEventListener('pointermove', (event) => positionSourceHoverCard(event.clientX, event.clientY))
-  target.addEventListener('pointerleave', hideSourceHoverCard)
-  target.addEventListener('focus', (event) => showSourceHoverCard(raw, fields(), event))
-  target.addEventListener('blur', hideSourceHoverCard)
-}
-
-function midiPitchNumber(pitch: string): number | null {
-  const match = /^([A-G])([#b]?)(-?\d+)$/.exec(pitch)
-  if (!match) return null
-  const semitones: Record<string, number> = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 }
-  const accidental = match[2] === '#' ? 1 : match[2] === 'b' ? -1 : 0
-  return (Number(match[3]) + 1) * 12 + semitones[match[1]!]! + accidental
-}
-
-function describeOwtSourceToken(raw: string): SourceHoverField[] {
-  const control = /^<(cc(\d+)|bend|program)=(-?\d+)>$/.exec(raw)
-  if (control) return [
-    { label: t('sourceHover.type'), description: t('sourceHover.type.control') },
-    { label: t('sourceHover.control'), description: control[2] ? t('sourceHover.control.cc', { controller: control[2] }) : t(`sourceHover.control.${control[1]}`) },
-    { label: t('sourceHover.value'), description: t('sourceHover.value.control', { value: control[3]! }) },
-  ]
-  const velocity = /\{v=(\d+)\}$/.exec(raw)?.[1]
-  const core = raw.replace(/\{v=\d+\}$/, '')
-  const separator = core.lastIndexOf(':')
-  if (separator < 0) return [{ label: t('sourceHover.type'), description: t('sourceHover.type.event') }]
-  const pitchText = core.slice(0, separator)
-  const duration = core.slice(separator + 1)
-  const pitches = pitchText.startsWith('[') ? pitchText.slice(1, -1).trim().split(/\s+/) : pitchText === 'R' ? [] : [pitchText]
-  const fields: SourceHoverField[] = [
-    { label: t('sourceHover.type'), description: t(pitches.length === 0 ? 'sourceHover.type.rest' : pitches.length > 1 ? 'sourceHover.type.chord' : 'sourceHover.type.note') },
-  ]
-  if (pitches.length > 0) {
-    const values = pitches.map((pitch) => {
-      const midi = midiPitchNumber(pitch)
-      return midi === null ? pitch : `${pitch} (MIDI ${midi})`
-    }).join(', ')
-    fields.push({ label: t(pitches.length > 1 ? 'sourceHover.pitches' : 'sourceHover.pitch'), description: t('sourceHover.pitch.description', { value: values }) })
-  }
-  fields.push({ label: t('sourceHover.duration'), description: t('sourceHover.duration.description', { value: duration }) })
-  if (velocity) fields.push({ label: t('sourceHover.velocity'), description: t('sourceHover.velocity.description', { value: velocity }) })
-  return fields
-}
-
-function setStatus(id: string, msg: string, kind: 'ok' | 'warn' | 'err' | '' = ''): void {
-  const el = $<HTMLElement>(id)
-  el.hidden = false
-  delete el.dataset.statusKey
-  delete el.dataset.statusValues
-  el.textContent = msg
-  el.className = `status${kind ? ` ${kind}` : ''}`
-}
-
-function setTranslatedStatus(
-  id: string,
-  key: string,
-  values: TranslationValues = {},
-  kind: 'ok' | 'warn' | 'err' | '' = '',
-): void {
-  const el = $<HTMLElement>(id)
-  el.hidden = false
-  el.dataset.statusKey = key
-  el.dataset.statusValues = JSON.stringify(values)
-  el.textContent = t(key, values)
-  el.className = `status${kind ? ` ${kind}` : ''}`
-}
-
-function clearStatus(id: string): void {
-  const el = $<HTMLElement>(id)
-  el.hidden = true
-  el.textContent = ''
-  delete el.dataset.statusKey
-  delete el.dataset.statusValues
-}
-
-function setTranslatedText(id: string, key: string, values: TranslationValues = {}): void {
-  const el = $<HTMLElement>(id)
-  el.dataset.textKey = key
-  el.dataset.textValues = JSON.stringify(values)
-  el.textContent = t(key, values)
-}
-
-function retranslateTrackedCopy(): void {
-  for (const el of document.querySelectorAll<HTMLElement>('[data-status-key]')) {
-    const values = JSON.parse(el.dataset.statusValues ?? '{}') as TranslationValues
-    el.textContent = t(el.dataset.statusKey!, values)
-  }
-  for (const el of document.querySelectorAll<HTMLElement>('[data-text-key]')) {
-    const values = JSON.parse(el.dataset.textValues ?? '{}') as TranslationValues
-    el.textContent = t(el.dataset.textKey!, values)
-  }
-}
-
-function showError(msg: string): void {
-  const box = $<HTMLDivElement>('st-error')
-  box.textContent = msg
-  box.hidden = false
-}
 
 const localeButton = $<HTMLButtonElement>('language-toggle')
 const themeButton = $<HTMLButtonElement>('theme-toggle')
@@ -231,13 +93,19 @@ systemTheme.addEventListener('change', () => {
 })
 
 localeButton.addEventListener('click', () => {
+  const previousDefaults = defaultOwtAiPromptTemplates(getLocale())
+  const templatesUseDefaults = Object.entries(previousDefaults).every(([key, value]) => currentAiPromptTemplates()[key as keyof OwtAiPromptTemplates] === value)
   const locale = document.documentElement.lang === 'en' ? 'zh-CN' : 'en'
   setLocale(locale)
   window.localStorage.setItem('opusweave.locale', locale)
   translateDocument()
+  if (templatesUseDefaults) {
+    renderAiConfig({ ...currentAiConfig(), locale, promptTemplates: defaultOwtAiPromptTemplates(locale) })
+    persistAiConfig()
+  }
   retranslateTrackedCopy()
   renderMidiState(midiManager.getState())
-  renderArrangement()
+  if (timelineModel) renderTimelineView()
   renderLearnBindings()
   populatePresets()
   void refreshAudioOutputs(false)
@@ -259,7 +127,9 @@ const workspacePages = [...document.querySelectorAll<HTMLElement>('[data-workspa
 const studioOnlyTopbarControls = [...document.querySelectorAll<HTMLElement>('[data-studio-only]')]
 
 function showWorkspacePage(pageId: string): void {
-  for (const control of studioOnlyTopbarControls) control.hidden = pageId !== 'studio'
+  for (const control of studioOnlyTopbarControls) {
+    control.hidden = pageId !== 'studio' || (control.id === 'btn-owt-repair' && !owtHasErrors)
+  }
   for (const page of workspacePages) {
     const active = page.dataset.workspacePage === pageId
     page.hidden = !active
@@ -330,21 +200,8 @@ let bundledPianoReady = false
 let builtInGmReady = false
 let customSoundFontName: string | null = null
 const BUILT_IN_SOUND_FONT_NAME = 'FreePiano mda Piano + FluidR3Mono GM'
-let loadedMidi: BasicMIDI | null = null
-let loadedInspection: MidiInspection | null = null
-const mutedTracks = new Set<number>()
-
-interface TimelineSelection {
-  trackIndex: number
-  startTick: number
-  endTick: number
-}
-
-let timelineSelection: TimelineSelection | null = null
-let selectedTrackIndex = 0
+let timelineModel: ScoreViewModel | null = null
 let timelineBeatWidth = 64
-let replacementTimer: number | undefined
-let replacementRecording: { selection: TimelineSelection; durationMs: number } | null = null
 let playbackPositionFrame = 0
 const owtEditor = $<HTMLTextAreaElement>('owt-editor')
 const owtHighlight = $<HTMLElement>('owt-highlight')
@@ -360,6 +217,28 @@ let owtSyntaxIndex = buildOwtSyntaxIndex('')
 let owtModalView: ModalEditorViewState | undefined
 let owtValidationTimer = 0
 
+const initialWorkspaceState: WorkspaceState = {
+  owt: DEFAULT_OWT_SCORE,
+  documentVersion: 0,
+  selectedRanges: [],
+  midiLoaded: false,
+  recording: false,
+  transport: { kind: 'idle', positionSeconds: 0, loop: false },
+  improv: { kind: 'off' },
+  composition: { kind: 'idle', mode: 'sketch' },
+}
+const workspaceStore = new WorkspaceStore(initialWorkspaceState)
+const transportController = new TransportController(workspaceStore, {
+  pause: () => engine?.pause(),
+  stop: () => engine?.stop(),
+  panic: () => engine?.panic(),
+  clearPlaybackMapping: clearOwtPlaybackContext,
+})
+const improvController = new ImprovController(workspaceStore, {
+  abortRequest: () => improvAbortController?.abort(),
+  stopPlayback: () => engine?.stop(),
+})
+
 function scheduleOwtValidation(): void {
   window.clearTimeout(owtValidationTimer)
   owtValidationTimer = window.setTimeout(() => {
@@ -373,6 +252,7 @@ function scheduleOwtValidation(): void {
   }, 180)
 }
 let owtDiagnostics: Array<{ line: number; column: number }> = []
+let owtHasErrors = false
 let selectionPlaybackTimer: number | undefined
 type ScoreViewId = 'owt' | 'timeline' | 'staff' | 'jianpu'
 const SCORE_VIEW_ORDER: readonly ScoreViewId[] = ['owt', 'timeline', 'staff', 'jianpu']
@@ -435,7 +315,7 @@ function renderNotationViews(): void {
     const token = owtPlaybackTokens.find((item) => item.playbackId === element.dataset.owtEvent)
     if (token) {
       const raw = owtEditor.value.slice(token.start, token.end)
-      attachSourceHover(element, raw, () => describeOwtSourceToken(raw))
+      attachSourceHover(element, raw, () => describeOwtSourceToken(raw, t))
     }
   }
 }
@@ -460,55 +340,41 @@ function updateNotationCursorHighlight(): void {
 function updateTimelineCursorHighlight(): void {
   const root = $('timeline-cursors')
   root.replaceChildren()
-  if (!loadedMidi || !loadedInspection) return
-  const ppq = loadedMidi.timeDivision || 480
-  const tempoMap = createMidiTempoMap(loadedMidi)
-  for (const track of loadedInspection.tracks.filter((item) => item.noteCount > 0)) {
-    const notes = getArrangementNotes(loadedMidi, track.index)
-    const note = notes.find((item) => tempoMap.tickToSeconds(item.startTick) <= scoreCursorSeconds && tempoMap.tickToSeconds(item.endTick) > scoreCursorSeconds)
-      ?? notes.find((item) => tempoMap.tickToSeconds(item.startTick) >= scoreCursorSeconds)
-      ?? notes.at(-1)
-    if (!note) continue
+  document.querySelectorAll<HTMLElement>('#timeline-tracks [data-owt-event]').forEach((element) => element.classList.remove('is-selected'))
+  if (!timelineModel) return
+  for (const token of scoreCursorTokens) {
+    const trackIndex = Number(token.playbackId.split(':', 1)[0])
+    const event = document.querySelector<HTMLElement>(`#timeline-tracks [data-owt-event="${CSS.escape(token.playbackId)}"]`)
+    if (!event || !Number.isInteger(trackIndex)) continue
+    event.classList.add('is-selected')
     const cursor = document.createElement('span')
     cursor.className = 'timeline-track-cursor is-playing'
-    cursor.dataset.trackIndex = String(track.index)
-    cursor.style.left = `${(note.startTick / ppq) * timelineBeatWidth}px`
-    cursor.style.top = `${34 + track.index * 62}px`
+    cursor.dataset.trackIndex = String(trackIndex)
+    cursor.style.left = event.style.left
+    cursor.style.top = `${34 + trackIndex * 62}px`
     cursor.style.height = '62px'
-    cursor.addEventListener('click', () => setScoreCursor(tempoMap.tickToSeconds(note.startTick)))
     root.appendChild(cursor)
   }
 }
+
 function syncTimelineFromCurrentOwt(): boolean {
-  try {
-    const compiled = compileScoreText(owtEditor.value)
-    const fileName = `${(compiled.score.title || 'OWT Score').replace(/[^\p{L}\p{N}._-]+/gu, '-')}.mid`
-    loadedMidi = importMidi(compiled.midi, fileName)
-    loadedInspection = inspectMidi(compiled.midi, fileName)
-    mutedTracks.clear()
-    timelineSelection = null
-    if (scoreCursorTokens[0]) {
-      const owtTrackIndex = Number(scoreCursorTokens[0].playbackId.split(':')[0])
-      const trackIndex = loadedInspection.tracks.filter((track) => track.noteCount > 0)[owtTrackIndex]?.index
-      if (trackIndex !== undefined) {
-        const notes = getArrangementNotes(loadedMidi, trackIndex)
-        const tempoMap = createMidiTempoMap(loadedMidi)
-        const note = notes.find((item) => tempoMap.tickToSeconds(item.startTick) <= scoreCursorSeconds && tempoMap.tickToSeconds(item.endTick) > scoreCursorSeconds) ?? notes[0]
-        if (note) timelineSelection = { trackIndex, startTick: note.startTick, endTick: note.endTick }
-      }
-    }
-    updateTimelineCursorHighlight()
-    timelineOwtRevision = owtRevision
-    $<HTMLElement>('st-file').textContent = fileName
-    $<HTMLButtonElement>('btn-export-arrangement').disabled = false
-    renderArrangement()
-    setPlaybackUi(false)
-    setTranslatedStatus('midi-status', 'scoreViews.timelineSynced', {}, 'ok')
-    return true
-  } catch (error) {
-    setTranslatedStatus('midi-status', 'scoreViews.timelineInvalid', { error: error instanceof Error ? error.message : String(error) }, 'err')
+  const result = parseOwt(owtEditor.value)
+  if (!result.document) {
+    timelineModel = null
+    renderTimelineView()
+    setTranslatedStatus('timeline-status', 'scoreViews.timelineInvalid', {
+      error: result.diagnostics.find((item) => item.severity === 'error')?.message ?? t('scoreViews.invalid'),
+    }, 'err')
     return false
   }
+  timelineModel = buildScoreViewModel(result.document)
+  owtPlaybackTokens = buildOwtPlaybackMap(owtEditor.value, result.document)
+  scoreCursorTokens = cursorOwtPlaybackTokens(owtPlaybackTokens, scoreCursorSeconds)
+  scoreCursorRanges = scoreCursorTokens.map(({ start, end }) => ({ start, end }))
+  timelineOwtRevision = owtRevision
+  renderTimelineView()
+  setTranslatedStatus('timeline-status', 'scoreViews.timelineSynced', {}, 'ok')
+  return true
 }
 
 function showScoreView(view: ScoreViewId, persist = true): void {
@@ -558,9 +424,10 @@ $('btn-score-view-play').addEventListener('click', () => void Promise.resolve(ha
 
 $('btn-loop-playback').addEventListener('click', () => {
   loopPlayback = !loopPlayback
-  if (!replacementRecording && improvSession.state !== 'responding') engine?.setLooping(loopPlayback)
+  transportController.setLoop(loopPlayback)
+  if (improvSession.state !== 'responding') engine?.setLooping(loopPlayback)
   renderLoopPlaybackUi()
-  setTranslatedStatus('midi-status', loopPlayback ? 'playback.loopOn' : 'playback.loopOff', {}, 'ok')
+  setTranslatedStatus('owt-status', loopPlayback ? 'playback.loopOn' : 'playback.loopOff', {}, 'ok')
 })
 function syncOwtHighlightScroll(): void {
   owtHighlight.scrollTop = owtEditor.scrollTop
@@ -940,10 +807,10 @@ async function ensureEngine(): Promise<SpessaSynthEngine> {
   engine = new SpessaSynthEngine(undefined, new URL('./spessasynth_processor.min.js', document.baseURI).href, {
     onPlaybackTime: (time, duration) => renderPlaybackPosition(time, duration),
     onPlaybackEnded: () => {
+      transportController.finish()
       setPlaybackUi(false)
-      setTranslatedStatus('midi-status', 'playback.finished', {}, 'ok')
+      setTranslatedStatus('timeline-status', 'playback.finished', {}, 'ok')
       updateTimelinePlayhead(scoreCursorSeconds, engine?.getPlaybackPosition()?.duration ?? 0)
-      if (replacementRecording) window.setTimeout(finishReplacementRecording, 0)
       handleConversationalImprovPlaybackEnded()
     },
     onPlaybackState: (playing) => {
@@ -986,7 +853,9 @@ async function ensureEngine(): Promise<SpessaSynthEngine> {
   return engine
 }
 function renderPlaybackPosition(time: number, duration: number): void {
+  transportController.updatePosition(time)
   $<HTMLProgressElement>('progress').value = duration > 0 ? (time / duration) * 1000 : 0
+  $<HTMLProgressElement>('header-playback-progress').value = duration > 0 ? (time / duration) * 1000 : 0
   $<HTMLSpanElement>('playback-time').textContent = `${fmtTime(time)} / ${fmtTime(duration)}`
   updateTimelinePlayhead(time, duration)
   updateOwtPlaybackHighlight(time, duration)
@@ -1671,248 +1540,125 @@ $<HTMLInputElement>('master-volume').addEventListener('input', (ev) => {
   void ensureEngine().then((e) => e.setMasterVolume(v))
 })
 
-// ─── Arrangement timeline ───────────────────────────────────────────────────
+// ─── OWT score timeline ──────────────────────────────────────────────────────
 
-function arrangementTotalTicks(): number {
-  if (!loadedMidi || !loadedInspection) return 0
-  return Math.max(loadedMidi.lastVoiceEventTick, Math.round(loadedInspection.durationBeats * (loadedMidi.timeDivision || 480)))
-}
-
-function arrangementTrackName(trackIndex: number): string {
-  const track = loadedInspection?.tracks[trackIndex]
-  return track?.name || t('playback.track', { index: trackIndex })
-}
-
-function refreshArrangementInspection(): void {
-  if (!loadedMidi) return
-  const data = loadedMidi.writeMIDI()
-  loadedMidi = importMidi(data, loadedMidi.fileName)
-  loadedInspection = inspectMidi(data, loadedMidi.fileName)
-  timelineOwtRevision = owtRevision
-  $<HTMLButtonElement>('btn-export-arrangement').disabled = false
-  renderArrangement()
-  setPlaybackUi(false)
-}
-
-async function loadMidiData(buffer: ArrayBuffer, fileName: string): Promise<void> {
-  if (replacementRecording) finishReplacementRecording()
-  loadedMidi = importMidi(buffer, fileName)
-  loadedInspection = inspectMidi(buffer, fileName)
-  timelineOwtRevision = owtRevision
-  mutedTracks.clear()
-  timelineSelection = null
-  selectedTrackIndex = loadedInspection.tracks.find((track) => track.noteCount > 0)?.index ?? 0
-  $<HTMLSpanElement>('st-file').textContent = fileName
-  $<HTMLButtonElement>('btn-export-arrangement').disabled = false
-  const tempo = loadedInspection.tempos[0]?.bpm ?? 120
-  $<HTMLSpanElement>('playback-tempo').textContent = `♩ ${tempo} BPM`
-  renderArrangement()
-  setTranslatedStatus('midi-status', 'playback.loaded', {
-    file: fileName,
-    duration: fmtTime(loadedInspection.durationSeconds),
-  }, 'ok')
-  setPlaybackUi(false)
-}
-
-function renderArrangement(): void {
-  renderTrackList()
-  renderTimeline()
-  updateTimelineSelection()
-  updateTimelineCursorHighlight()
-  $('arranger-grid').classList.toggle('has-midi', Boolean(loadedMidi))
-}
-
-function renderTrackList(): void {
-  const list = $<HTMLDivElement>('track-list')
-  list.innerHTML = ''
-  if (!loadedInspection) return
-  for (const track of loadedInspection.tracks) {
-    const row = document.createElement('div')
-    row.className = `track-header${track.index === selectedTrackIndex ? ' selected' : ''}${mutedTracks.has(track.index) ? ' muted' : ''}`
-    row.dataset.trackIndex = String(track.index)
-    row.addEventListener('click', () => selectArrangementTrack(track.index))
-
-    const muteBtn = document.createElement('button')
-    muteBtn.className = 'mute-btn'
-    muteBtn.textContent = 'M'
-    muteBtn.title = t(mutedTracks.has(track.index) ? 'playback.unmute' : 'playback.mute')
-    muteBtn.addEventListener('click', (event) => {
-      event.stopPropagation()
-      if (mutedTracks.has(track.index)) mutedTracks.delete(track.index)
-      else mutedTracks.add(track.index)
-      renderTrackList()
-    })
-
-    const copy = document.createElement('div')
-    copy.className = 'track-header-copy'
-    const name = document.createElement('strong')
-    name.textContent = arrangementTrackName(track.index)
-    const meta = document.createElement('span')
-    meta.textContent = `${track.noteCount} notes · ch ${track.channels.join(',') || '—'}`
-    copy.append(name, meta)
-    row.append(muteBtn, copy)
-    list.appendChild(row)
+function timelineMeasureStarts(model: ScoreViewModel): number[] {
+  const starts: number[] = []
+  let beat = 0
+  for (const measure of model.tracks[0]?.measures ?? []) {
+    starts.push(beat)
+    beat += measure.quarterLength
   }
+  return starts
 }
 
-function renderTimeline(): void {
+function renderTimelineView(): void {
+  const list = $<HTMLDivElement>('track-list')
   const content = $<HTMLDivElement>('timeline-content')
   const ruler = $<HTMLDivElement>('timeline-ruler')
   const tracks = $<HTMLDivElement>('timeline-tracks')
-  ruler.innerHTML = ''
-  tracks.innerHTML = ''
-  if (!loadedMidi || !loadedInspection) {
+  list.replaceChildren()
+  ruler.replaceChildren()
+  tracks.replaceChildren()
+  $('arranger-grid').classList.toggle('has-score', Boolean(timelineModel))
+  if (!timelineModel) {
     content.style.width = '100%'
+    updateTimelineCursorHighlight()
     return
   }
 
-  const ppq = loadedMidi.timeDivision || 480
-  const totalBeats = Math.max(16, Math.ceil(arrangementTotalTicks() / ppq) + 1)
-  const width = totalBeats * timelineBeatWidth
-  content.style.width = `${width}px`
+  const measureStarts = timelineMeasureStarts(timelineModel)
+  const measures = timelineModel.tracks[0]?.measures ?? []
+  const totalBeats = Math.max(16, (measureStarts.at(-1) ?? 0) + (measures.at(-1)?.quarterLength ?? 0))
+  content.style.width = `${totalBeats * timelineBeatWidth}px`
   content.style.setProperty('--beat-width', `${timelineBeatWidth}px`)
 
-  for (let beat = 0; beat <= totalBeats; beat++) {
-    const marker = document.createElement('div')
-    marker.className = `ruler-beat${beat % 4 === 0 ? ' bar' : ''}`
-    marker.style.left = `${beat * timelineBeatWidth}px`
-    if (beat % 4 === 0) {
-      const label = document.createElement('span')
-      label.textContent = String(beat / 4 + 1)
-      marker.appendChild(label)
+  for (let index = 0; index < measures.length; index++) {
+    const measure = measures[index]!
+    const start = measureStarts[index] ?? 0
+    const bar = document.createElement('div')
+    bar.className = 'ruler-beat bar'
+    bar.style.left = `${start * timelineBeatWidth}px`
+    const label = document.createElement('span')
+    label.textContent = String(measure.number)
+    bar.appendChild(label)
+    ruler.appendChild(bar)
+    for (let beat = 1; beat < measure.quarterLength; beat++) {
+      const marker = document.createElement('div')
+      marker.className = 'ruler-beat'
+      marker.style.left = `${(start + beat) * timelineBeatWidth}px`
+      ruler.appendChild(marker)
     }
-    ruler.appendChild(marker)
   }
 
-  for (const track of loadedInspection.tracks) {
+  for (let trackIndex = 0; trackIndex < timelineModel.tracks.length; trackIndex++) {
+    const track = timelineModel.tracks[trackIndex]!
+    const events = track.measures.flatMap((measure) => measure.events)
+    const notes = events.filter((event) => event.kind === 'note')
+    const rests = events.length - notes.length
+    const header = document.createElement('div')
+    header.className = 'track-header'
+    const copy = document.createElement('div')
+    copy.className = 'track-header-copy'
+    const name = document.createElement('strong')
+    name.textContent = track.name
+    const meta = document.createElement('span')
+    meta.textContent = t('arranger.eventSummary', { notes: notes.length, rests })
+    copy.append(name, meta)
+    header.appendChild(copy)
+    list.appendChild(header)
+
     const lane = document.createElement('div')
-    lane.className = `timeline-track${track.index === selectedTrackIndex ? ' selected' : ''}`
-    lane.dataset.trackIndex = String(track.index)
-    const notes = getArrangementNotes(loadedMidi, track.index)
-    const minNote = track.minNote ?? 0
-    const pitchSpan = Math.max(1, (track.maxNote ?? minNote) - minNote)
-    for (const note of notes) {
-      const block = document.createElement('span')
-      block.className = 'timeline-note'
-      block.dataset.trackIndex = String(track.index)
-      block.dataset.startTick = String(note.startTick)
-      block.dataset.endTick = String(note.endTick)
-      block.tabIndex = 0
-      block.setAttribute('role', 'button')
-      const pitch = noteName(note.note)
-      const startBeat = note.startTick / ppq
-      const endBeat = note.endTick / ppq
-      const durationBeats = (note.endTick - note.startTick) / ppq
-      const raw = [
-        `note=${pitch}`,
-        `channel=${note.channel + 1}`,
-        `velocity=${note.velocity}`,
-        `start=${startBeat}`,
-        `end=${endBeat}`,
-      ].join('\n')
-      attachSourceHover(block, raw, () => [
-        { label: t('sourceHover.pitch'), description: t('sourceHover.pitch.description', { value: `${pitch} (MIDI ${note.note})` }) },
-        { label: t('sourceHover.channel'), description: t('sourceHover.channel.description', { value: note.channel + 1 }) },
-        { label: t('sourceHover.velocity'), description: t('sourceHover.velocity.description', { value: note.velocity }) },
-        { label: t('sourceHover.start'), description: t('sourceHover.start.description', { value: startBeat }) },
-        { label: t('sourceHover.end'), description: t('sourceHover.end.description', { value: endBeat }) },
-        { label: t('sourceHover.duration'), description: t('sourceHover.duration.description', { value: durationBeats }) },
-      ])
-      block.addEventListener('click', (event) => {
-        event.stopPropagation()
-        selectedTrackIndex = track.index
-        timelineSelection = { trackIndex: track.index, startTick: note.startTick, endTick: note.endTick }
-        setScoreCursor(createMidiTempoMap(loadedMidi!).tickToSeconds(note.startTick))
-        renderArrangement()
-      })
-      block.style.left = `${(note.startTick / ppq) * timelineBeatWidth}px`
-      block.style.width = `${Math.max(3, ((note.endTick - note.startTick) / ppq) * timelineBeatWidth)}px`
-      block.style.top = `${7 + (1 - (note.note - minNote) / pitchSpan) * 40}px`
-      const selected = timelineSelection?.trackIndex === track.index && timelineSelection.startTick < note.endTick && timelineSelection.endTick > note.startTick
-      block.classList.toggle('is-selected', selected)
-      lane.appendChild(block)
+    lane.className = 'timeline-track'
+    lane.dataset.trackIndex = String(trackIndex)
+    const pitches = notes.flatMap((event) => event.pitches)
+    const minPitch = pitches.length > 0 ? Math.min(...pitches) : 60
+    const maxPitch = pitches.length > 0 ? Math.max(...pitches) : 72
+    const pitchSpan = Math.max(1, maxPitch - minPitch)
+    for (const measure of track.measures) {
+      const measureStart = measureStarts[measure.number - 1] ?? 0
+      for (const event of measure.events) {
+        const block = document.createElement('span')
+        block.className = event.kind === 'rest' ? 'timeline-note timeline-rest' : 'timeline-note'
+        block.dataset.owtEvent = event.playbackId
+        block.tabIndex = 0
+        block.setAttribute('role', 'button')
+        const token = owtPlaybackTokens.find((item) => item.playbackId === event.playbackId)
+        const raw = token ? owtEditor.value.slice(token.start, token.end) : event.kind === 'rest' ? 'R' : event.pitches.map(noteName).join(' ')
+        block.setAttribute('aria-label', raw)
+        block.style.left = `${(measureStart + event.beat) * timelineBeatWidth}px`
+        block.style.width = `${Math.max(3, event.duration * timelineBeatWidth)}px`
+        block.style.top = event.kind === 'rest'
+          ? '26px'
+          : `${7 + (1 - (Math.max(...event.pitches) - minPitch) / pitchSpan) * 40}px`
+        if (token) {
+          block.addEventListener('click', () => {
+            modalEditor.selectRange(token.start, token.end, true)
+            setScoreCursor(token.startSeconds, true)
+          })
+          attachSourceHover(block, raw, () => describeOwtSourceToken(raw, t))
+        }
+        lane.appendChild(block)
+      }
     }
     tracks.appendChild(lane)
   }
+  updateTimelineCursorHighlight()
 }
 
-function selectArrangementTrack(trackIndex: number): void {
-  selectedTrackIndex = trackIndex
-  if (timelineSelection) timelineSelection = { ...timelineSelection, trackIndex }
-  renderArrangement()
-}
-
-function tickFromTimelinePointer(clientX: number): number {
-  if (!loadedMidi) return 0
-  const rect = $<HTMLDivElement>('timeline-content').getBoundingClientRect()
-  const beat = Math.max(0, (clientX - rect.left) / timelineBeatWidth)
-  const snappedBeat = Math.round(beat * 4) / 4
-  return Math.min(arrangementTotalTicks(), Math.round(snappedBeat * (loadedMidi.timeDivision || 480)))
-}
-
-let selectionDrag: { trackIndex: number; anchorTick: number } | null = null
-$<HTMLDivElement>('timeline-tracks').addEventListener('pointerdown', (event) => {
-  if (!loadedMidi || event.button !== 0 || replacementRecording) return
-  const lane = (event.target as HTMLElement).closest<HTMLElement>('.timeline-track')
-  if (!lane) return
-  const trackIndex = Number(lane.dataset.trackIndex)
-  selectedTrackIndex = trackIndex
-  const anchorTick = tickFromTimelinePointer(event.clientX)
-  selectionDrag = { trackIndex, anchorTick }
-  lane.setPointerCapture(event.pointerId)
-  timelineSelection = { trackIndex, startTick: anchorTick, endTick: anchorTick + Math.max(1, Math.round((loadedMidi.timeDivision || 480) / 4)) }
-  setScoreCursor(createMidiTempoMap(loadedMidi).tickToSeconds(anchorTick))
-  renderTrackList()
-  for (const track of document.querySelectorAll<HTMLElement>('.timeline-track')) {
-    track.classList.toggle('selected', Number(track.dataset.trackIndex) === trackIndex)
-  }
-  updateTimelineSelection()
-})
-$<HTMLDivElement>('timeline-tracks').addEventListener('pointermove', (event) => {
-  if (!selectionDrag || !loadedMidi) return
-  const tick = tickFromTimelinePointer(event.clientX)
-  const step = Math.max(1, Math.round((loadedMidi.timeDivision || 480) / 4))
-  timelineSelection = tick < selectionDrag.anchorTick
-    ? { trackIndex: selectionDrag.trackIndex, startTick: tick, endTick: selectionDrag.anchorTick }
-    : { trackIndex: selectionDrag.trackIndex, startTick: selectionDrag.anchorTick, endTick: Math.max(selectionDrag.anchorTick + step, tick) }
-  updateTimelineSelection()
-})
-window.addEventListener('pointerup', () => { selectionDrag = null })
 $<HTMLDivElement>('timeline-viewport').addEventListener('scroll', (event) => {
   const viewport = event.currentTarget as HTMLDivElement
   $<HTMLDivElement>('track-list').style.transform = `translateY(${-viewport.scrollTop}px)`
 })
 
-function updateTimelineSelection(): void {
-  const overlay = $<HTMLDivElement>('timeline-selection')
-  const clearButton = $<HTMLButtonElement>('btn-clear-range')
-  const replaceButton = $<HTMLButtonElement>('btn-replace-range')
-  if (!timelineSelection || !loadedMidi) {
-    overlay.hidden = true
-    clearButton.disabled = true
-    replaceButton.disabled = true
-    setTranslatedText('arranger-selection-status', 'arranger.selectHint')
-    return
-  }
-  const ppq = loadedMidi.timeDivision || 480
-  overlay.hidden = false
-  overlay.style.left = `${(timelineSelection.startTick / ppq) * timelineBeatWidth}px`
-  overlay.style.top = `${34 + timelineSelection.trackIndex * 62}px`
-  overlay.style.width = `${Math.max(2, ((timelineSelection.endTick - timelineSelection.startTick) / ppq) * timelineBeatWidth)}px`
-  overlay.style.height = '62px'
-  overlay.classList.toggle('recording', Boolean(replacementRecording))
-  clearButton.disabled = Boolean(replacementRecording)
-  replaceButton.disabled = Boolean(replacementRecording)
-  setTranslatedText('arranger-selection-status', replacementRecording ? 'arranger.recording' : 'arranger.range', {
-    track: arrangementTrackName(timelineSelection.trackIndex),
-    start: (timelineSelection.startTick / ppq).toFixed(2),
-    end: (timelineSelection.endTick / ppq).toFixed(2),
-  })
-}
+$<HTMLInputElement>('arranger-zoom').addEventListener('input', (event) => {
+  timelineBeatWidth = Number((event.target as HTMLInputElement).value)
+  renderTimelineView()
+})
 
 function updateTimelinePlayhead(time: number, duration: number): void {
   const playhead = $<HTMLDivElement>('timeline-playhead')
-  if (!loadedMidi || duration <= 0 || time <= 0) {
+  if (!timelineModel || duration <= 0 || time <= 0) {
     playhead.hidden = true
     return
   }
@@ -1921,104 +1667,24 @@ function updateTimelinePlayhead(time: number, duration: number): void {
   playhead.style.left = `${Math.max(0, Math.min(width, (time / duration) * width))}px`
 }
 
-$<HTMLInputElement>('arranger-zoom').addEventListener('input', (event) => {
-  timelineBeatWidth = Number((event.target as HTMLInputElement).value)
-  renderTimeline()
-  updateTimelineSelection()
-})
-$('btn-clear-range').addEventListener('click', () => {
-  timelineSelection = null
-  updateTimelineSelection()
-})
-
-async function playArrangement(startSeconds = 0, source = loadedMidi): Promise<void> {
-  if (!source) return
-  clearOwtPlaybackContext()
-  const e = await ensureEngine()
-  let playbackSource = source
-  if (mutedTracks.size > 0) playbackSource = applyTrackMutes(source, mutedTracks)
-  e.setLooping(loopPlayback && !replacementRecording)
-  await e.playMidi(playbackSource.writeMIDI(), source.fileName ?? 'song.mid', startSeconds)
-  setPlaybackUi(true)
-}
-
 function returnToBeginning(): void {
-  engine?.stop()
-  clearOwtPlaybackContext()
-  if (replacementRecording) finishReplacementRecording()
+  transportController.returnToBeginning()
   setScoreCursor(0)
   $<HTMLProgressElement>('progress').value = 0
-  $<HTMLSpanElement>('playback-time').textContent = `0:00 / ${fmtTime(engine?.getPlaybackPosition().duration ?? loadedInspection?.durationSeconds ?? 0)}`
-  updateTimelinePlayhead(0, engine?.getPlaybackPosition().duration ?? loadedInspection?.durationSeconds ?? 0)
+  $<HTMLProgressElement>('header-playback-progress').value = 0
+  $<HTMLSpanElement>('playback-time').textContent = `0:00 / ${fmtTime(engine?.getPlaybackPosition().duration ?? 0)}`
+  updateTimelinePlayhead(0, engine?.getPlaybackPosition().duration ?? 0)
   $<HTMLButtonElement>('btn-return-to-start').disabled = true
 }
 
 $('btn-return-to-start').addEventListener('click', returnToBeginning)
-$('btn-export-arrangement').addEventListener('click', () => {
-  if (!loadedMidi) return
-  const baseName = (loadedMidi.fileName ?? 'opusweave').replace(/\.(mid|midi)$/i, '')
-  downloadBuffer(loadedMidi.writeMIDI(), `${baseName}-edited.mid`, 'audio/midi')
-  setTranslatedStatus('midi-status', 'arranger.exported', {}, 'ok')
-})
-
-async function startReplacementRecording(): Promise<void> {
-  if (!loadedMidi || !timelineSelection || replacementRecording || recorder.isRecording) return
-  const selection = { ...timelineSelection }
-  const tempoMap = createMidiTempoMap(loadedMidi)
-  const startSeconds = tempoMap.tickToSeconds(selection.startTick)
-  const durationMs = Math.max(50, (tempoMap.tickToSeconds(selection.endTick) - startSeconds) * 1000)
-  const preview = replaceArrangementRange(loadedMidi, selection)
-  replacementRecording = { selection, durationMs }
-  recorder.start(performance.now())
-  $<HTMLButtonElement>('btn-stop-replace').disabled = false
-  $<HTMLButtonElement>('btn-replace-range').disabled = true
-  updateTimelineSelection()
-  try {
-    await playArrangement(startSeconds, preview)
-    replacementTimer = window.setTimeout(finishReplacementRecording, durationMs)
-  } catch (err) {
-    replacementRecording = null
-    recorder.stop(performance.now())
-    updateTimelineSelection()
-    throw err
-  }
-}
-
-function finishReplacementRecording(): void {
-  if (!loadedMidi || !replacementRecording) return
-  const context = replacementRecording
-  replacementRecording = null
-  if (replacementTimer !== undefined) window.clearTimeout(replacementTimer)
-  replacementTimer = undefined
-  const replacementTake = recorder.stop(performance.now())
-  engine?.stop()
-  loadedMidi = replaceArrangementRange(loadedMidi, {
-    ...context.selection,
-    take: replacementTake,
-    selectionDurationMs: context.durationMs,
-  })
-  refreshArrangementInspection()
-  timelineSelection = context.selection
-  $<HTMLButtonElement>('btn-stop-replace').disabled = true
-  updateTimelineSelection()
-  const ppq = loadedMidi.timeDivision || 480
-  setTranslatedStatus('midi-status', 'arranger.replaced', {
-    track: arrangementTrackName(context.selection.trackIndex),
-    start: (context.selection.startTick / ppq).toFixed(2),
-    end: (context.selection.endTick / ppq).toFixed(2),
-    events: replacementTake.events.length,
-  }, 'ok')
-}
-
-$('btn-replace-range').addEventListener('click', () => void startReplacementRecording().catch((err) => {
-  setTranslatedStatus('midi-status', 'playback.playError', { error: err instanceof Error ? err.message : String(err) }, 'err')
-}))
-$('btn-stop-replace').addEventListener('click', finishReplacementRecording)
 
 // ─── OpusWeave Text workspace ────────────────────────────────────────────────
 
 function renderOwtDiagnostics(diagnostics: Array<{ line: number; column: number; severity: string; code: string; message: string }>): void {
   owtDiagnostics = diagnostics.map(({ line, column }) => ({ line, column }))
+  owtHasErrors = diagnostics.some((diagnostic) => diagnostic.severity === 'error')
+  $<HTMLButtonElement>('btn-owt-repair').hidden = !owtHasErrors || !document.querySelector<HTMLElement>('[data-workspace-page="studio"]')?.classList.contains('active')
   owtSyntaxIndex = buildOwtSyntaxIndex(owtEditor.value, owtDiagnostics)
   const box = $('owt-diagnostics')
   box.innerHTML = ''
@@ -2079,12 +1745,12 @@ function showExtractedMelody(result: MelodyExtractionResult, sourceKey: 'owt.mid
 }
 
 async function playOwtRange(sourceRange?: { start: number; end?: number }, allowLoop = true): Promise<void> {
+  transportController.beginLoading(sourceRange ? 'selection' : 'owt')
   const document = parseEditorOwt()
   if (!document) return
   const compiled = compileScoreText(owtEditor.value)
   const fileName = owtFileName(document, 'mid')
-  await loadMidiData(compiled.midi, fileName)
-  timelineOwtRevision = owtRevision
+  if (activeScoreView === 'timeline' && timelineOwtRevision !== owtRevision) syncTimelineFromCurrentOwt()
   owtPlaybackTokens = buildOwtPlaybackMap(owtEditor.value, compiled.score)
   owtPlaybackRanges = []
   owtActiveRangeKey = ''
@@ -2109,16 +1775,16 @@ async function playOwtRange(sourceRange?: { start: number; end?: number }, allow
       else player.stop()
     }, (endSeconds - startSeconds) * 1000)
   }
+  transportController.markPlaying(sourceRange ? 'selection' : 'owt', startSeconds)
   setTranslatedStatus('owt-status', 'owt.playing', {}, 'ok')
-  setTranslatedStatus('midi-status', 'playback.playing')
+  setTranslatedStatus('timeline-status', 'playback.playing')
 }
 
 function handleModalCommand(command: string, args = ''): void | Promise<void> {
   const normalized = command === 'w' ? 'save' : command
   switch (normalized) {
     case 'play': case 'play-pause':
-      if (playbackActive) engine?.pause()
-      else if (activeScoreView === 'timeline' && loadedMidi) return playArrangement(scoreCursorSeconds)
+      if (playbackActive) transportController.pause()
       else return playOwtRange({ start: scoreCursorRanges[0]?.start ?? modalEditor.primaryRange().start })
       return
     case 'loop': $('btn-loop-playback').click(); return
@@ -2130,7 +1796,6 @@ function handleModalCommand(command: string, args = ''): void | Promise<void> {
       const range = modalEditor.primaryRange()
       return playOwtRange(range)
     }
-    case 'pause': engine?.pause(); return
     case 'return-to-start': case 'stop': returnToBeginning(); return
     case 'save': $('btn-owt-save').click(); return
     case 'open': $<HTMLInputElement>('owt-file').click(); return
@@ -2138,7 +1803,7 @@ function handleModalCommand(command: string, args = ''): void | Promise<void> {
     case 'validate': validateCurrentOwt(); return
     case 'format': formatEditorOwt(); return
     case 'export-midi': $('btn-owt-export-midi').click(); return
-    case 'import-midi': case 'extract-midi': $<HTMLInputElement>('owt-file').click(); return
+    case 'pause': transportController.pause(); return
     case 'perform': $('btn-owt-practice').click(); return
     case 'mode-score': setHelixEditingMode('normal'); return
     case 'mode-raw': setHelixEditingMode('raw'); return
@@ -2150,10 +1815,6 @@ function handleModalCommand(command: string, args = ''): void | Promise<void> {
     case 'replace-by-playing': $('btn-owt-replace-play').click(); return
     case 'play-example': void loadBuiltinExample(BUILTIN_OWT_EXAMPLES[0]?.id, true); return
     case 'timeline-restart': returnToBeginning(); return
-    case 'timeline-export': $('btn-export-arrangement').click(); return
-    case 'timeline-clear': $('btn-clear-range').click(); return
-    case 'timeline-replace': $('btn-replace-range').click(); return
-    case 'timeline-finish': $('btn-stop-replace').click(); return
     case 'ai-settings': showWorkspacePage('settings'); return
     case 'ai-test': showWorkspacePage('settings'); $('btn-ai-test').click(); return
     case 'ai-reset-templates': showWorkspacePage('settings'); $('btn-ai-reset-templates').click(); return
@@ -2210,6 +1871,17 @@ function formatEditorOwt(showStatus = true): void {
   if (showStatus) setTranslatedStatus('owt-status', 'owt.formatted', {}, 'ok')
   else clearStatus('owt-status')
 }
+
+$('btn-owt-repair').addEventListener('click', () => {
+  const result = repairCommonOwtErrors(owtEditor.value)
+  if (result.changes.length === 0) {
+    setTranslatedStatus('owt-status', 'owt.repairNoChange', {}, 'warn')
+    return
+  }
+  setOwtEditorText(result.text, true)
+  validateCurrentOwt()
+  setTranslatedStatus('owt-status', result.valid ? 'owt.repaired' : 'owt.repairPartial', { count: result.changes.length }, result.valid ? 'ok' : 'warn')
+})
 
 $('btn-owt-practice').addEventListener('click', () => {
   if (practiceSession) stopPractice()
@@ -2315,15 +1987,17 @@ $<HTMLSelectElement>('computer-layout').addEventListener('change', (event) => {
 const AI_CONFIG_KEY = 'opusweave.ai.config'
 
 function storedAiConfig(): OwtAiConfig {
+  const defaults = defaultOwtAiPromptTemplates(getLocale())
   try {
     const stored = JSON.parse(window.localStorage.getItem(AI_CONFIG_KEY) ?? '{}') as Partial<OwtAiConfig>
     return {
       ...DEFAULT_OWT_AI_CONFIG,
       ...stored,
-      promptTemplates: { ...DEFAULT_OWT_AI_PROMPT_TEMPLATES, ...stored.promptTemplates },
+      locale: getLocale(),
+      promptTemplates: { ...defaults, ...stored.promptTemplates },
     }
   } catch {
-    return { ...DEFAULT_OWT_AI_CONFIG, promptTemplates: { ...DEFAULT_OWT_AI_PROMPT_TEMPLATES } }
+    return { ...DEFAULT_OWT_AI_CONFIG, locale: getLocale(), promptTemplates: defaults }
   }
 }
 
@@ -2332,7 +2006,9 @@ function renderAiConfig(config: OwtAiConfig): void {
   $<HTMLInputElement>('ai-model').value = config.model
   $<HTMLInputElement>('ai-api-key').value = config.apiKey ?? ''
   $<HTMLSelectElement>('ai-protocol').value = config.protocol ?? 'auto'
-  const templates = { ...DEFAULT_OWT_AI_PROMPT_TEMPLATES, ...config.promptTemplates }
+  $<HTMLInputElement>('ai-retry-count').value = String(config.retryCount ?? DEFAULT_OWT_AI_CONFIG.retryCount)
+  $<HTMLInputElement>('ai-auto-repair').checked = config.autoRepair !== false
+  const templates = { ...defaultOwtAiPromptTemplates(config.locale ?? getLocale()), ...config.promptTemplates }
   $<HTMLTextAreaElement>('ai-template-system').value = templates.system
   $<HTMLTextAreaElement>('ai-template-prompt').value = templates.prompt
   $<HTMLTextAreaElement>('ai-template-media').value = templates.scoreMedia
@@ -2354,6 +2030,9 @@ function currentAiConfig(): OwtAiConfig {
     model: $<HTMLInputElement>('ai-model').value.trim(),
     apiKey: $<HTMLInputElement>('ai-api-key').value || undefined,
     protocol: $<HTMLSelectElement>('ai-protocol').value as AiProtocol,
+    locale: getLocale(),
+    retryCount: Math.max(0, Math.min(10, Math.trunc($<HTMLInputElement>('ai-retry-count').valueAsNumber || 0))),
+    autoRepair: $<HTMLInputElement>('ai-auto-repair').checked,
     temperature: DEFAULT_OWT_AI_CONFIG.temperature,
     maxTokens: DEFAULT_OWT_AI_CONFIG.maxTokens,
     promptTemplates: currentAiPromptTemplates(),
@@ -2444,7 +2123,34 @@ function setAiBusy(busy: boolean): void {
   const composeButton = $<HTMLButtonElement>('btn-ai-compose')
   composeButton.disabled = busy
   composeButton.setAttribute('aria-busy', String(busy))
+  $<HTMLButtonElement>('btn-ai-test-templates').disabled = busy
   updateConversationalImprovUi()
+}
+
+function createAiEditorStream(): { update: (text: string) => void; finish: (text: string) => void } {
+  let frame = 0
+  let pending = ''
+  let recordInitialState = true
+  const render = (): void => {
+    frame = 0
+    const scrollTop = owtEditor.scrollTop
+    const scrollLeft = owtEditor.scrollLeft
+    modalEditor.setText(pending, recordInitialState)
+    recordInitialState = false
+    owtEditor.scrollTop = scrollTop
+    owtEditor.scrollLeft = scrollLeft
+  }
+  return {
+    update: (text) => {
+      pending = text
+      if (!frame) frame = requestAnimationFrame(render)
+    },
+    finish: (text) => {
+      if (frame) cancelAnimationFrame(frame)
+      pending = text
+      render()
+    },
+  }
 }
 
 async function applyAiRequest(request: OwtAiRequest, statusKey: string, statusValues: TranslationValues = {}): Promise<boolean> {
@@ -2453,9 +2159,11 @@ async function applyAiRequest(request: OwtAiRequest, statusKey: string, statusVa
   setAiComposeState('working')
   setAiBusy(true)
   setTranslatedStatus('ai-status', statusKey, statusValues, 'warn')
+  const stream = createAiEditorStream()
+  clearOwtPlaybackContext()
   try {
-    const text = await createOwtWithAi(currentAiConfig(), request, aiTransport())
-    setOwtEditorText(text, true)
+    const text = await createOwtWithAi(currentAiConfig(), request, { ...aiTransport(), onUpdate: stream.update })
+    stream.finish(text)
     renderOwtDiagnostics([])
     if (!validateEditorOwt()) throw new Error('AI OWT validation failed')
     setTranslatedStatus('ai-status', 'ai.applied', {}, 'ok')
@@ -2485,6 +2193,7 @@ function updateConversationalImprovUi(): void {
   const configured = hasConfiguredAiApi(currentAiConfig())
   const unavailable = !active && !configured
   const actionKey = active ? 'ai.improviseStop' : 'ai.improviseStart'
+  workspaceStore.update({ improv: improvSession.state === 'off' ? { kind: 'off' } : { kind: improvSession.state } })
   const accessibleCopy = unavailable ? t('ai.improviseNeedsModel') : t(actionKey)
   button.disabled = unavailable || (aiBusy && !active)
   button.dataset.aiAvailable = String(configured)
@@ -2605,7 +2314,7 @@ function handleConversationalImprovPlaybackEnded(): void {
 renderAiConfig(storedAiConfig())
 updateConversationalImprovUi()
 renderAiComposeButton()
-for (const id of ['ai-model', 'ai-protocol']) {
+for (const id of ['ai-model', 'ai-protocol', 'ai-retry-count', 'ai-auto-repair']) {
   $(id).addEventListener('change', () => { persistAiConfig(); updateConversationalImprovUi() })
 }
 $('ai-model').addEventListener('input', () => { persistAiConfig(); updateConversationalImprovUi() })
@@ -2616,10 +2325,92 @@ for (const id of ['ai-template-system', 'ai-template-prompt', 'ai-template-media
   $(id).addEventListener('input', persistAiConfig)
 }
 $('btn-ai-reset-templates').addEventListener('click', () => {
-  renderAiConfig({ ...currentAiConfig(), promptTemplates: { ...DEFAULT_OWT_AI_PROMPT_TEMPLATES } })
+  renderAiConfig({ ...currentAiConfig(), promptTemplates: defaultOwtAiPromptTemplates(getLocale()) })
   persistAiConfig()
   setTranslatedStatus('ai-status', 'ai.promptTemplatesReset', {}, 'ok')
 })
+const promptTestCases = [
+  { id: 'compose', instructionKey: 'ai.promptTest.composeInstruction', currentOwt: DEFAULT_OWT_SCORE },
+  { id: 'edit', instructionKey: 'ai.promptTest.editInstruction', currentOwt: BUILTIN_OWT_EXAMPLES[0]!.text },
+  { id: 'continue', instructionKey: 'ai.promptTest.continueInstruction', currentOwt: BUILTIN_OWT_EXAMPLES[1]!.text },
+] as const
+const aiPromptTestDialog = $<HTMLDialogElement>('ai-prompt-test-dialog')
+
+function promptTestResultCard(id: string, instruction: string): HTMLElement {
+  const card = document.createElement('article')
+  card.className = 'ai-prompt-test-result running'
+  card.dataset.testId = id
+  const heading = document.createElement('div')
+  heading.className = 'ai-prompt-test-result-head'
+  const title = document.createElement('strong')
+  title.textContent = t(`ai.promptTest.${id}Title`)
+  const state = document.createElement('span')
+  state.textContent = t('ai.promptTest.running')
+  heading.append(title, state)
+  const request = document.createElement('p')
+  request.textContent = instruction
+  const output = document.createElement('pre')
+  card.append(heading, request, output)
+  return card
+}
+
+function summarizePromptTestOwt(text: string): string {
+  const parsed = parseOwt(text)
+  if (!parsed.document) throw new Error(parsed.diagnostics.map((item) => `${item.line}:${item.column} ${item.message}`).join('; '))
+  const notes = parsed.document.tracks.reduce((count, track) => count + track.events.filter((event) => event.kind === 'note').length, 0)
+  if (parsed.document.tracks.length === 0 || notes === 0) throw new Error(t('ai.promptTest.noNotes'))
+  return t('ai.promptTest.summary', { tracks: parsed.document.tracks.length, notes })
+}
+
+async function runPromptTemplateExamples(): Promise<void> {
+  const config = currentAiConfig()
+  const issues = validateOwtAiPromptTemplates(currentAiPromptTemplates())
+  if (issues.length > 0) {
+    const issue = issues[0]!
+    throw new Error(issue.kind === 'empty'
+      ? t('ai.promptTemplateEmpty', { field: issue.field })
+      : t('ai.promptUnknownVariable', { field: issue.field, variable: issue.variable ?? '' }))
+  }
+  if (!hasConfiguredAiApi(config)) throw new Error(t('ai.promptTest.modelRequired'))
+  persistAiConfig()
+  const results = $('ai-prompt-test-results')
+  results.replaceChildren()
+  aiPromptTestDialog.showModal()
+  setAiBusy(true)
+  let passed = 0
+  for (const testCase of promptTestCases) {
+    const instruction = t(testCase.instructionKey)
+    const card = promptTestResultCard(testCase.id, instruction)
+    results.appendChild(card)
+    const state = card.querySelector<HTMLElement>('.ai-prompt-test-result-head span')!
+    const output = card.querySelector<HTMLPreElement>('pre')!
+    try {
+      const text = await createOwtWithAi(config, { task: 'prompt', instruction, currentOwt: testCase.currentOwt }, aiTransport())
+      const summary = summarizePromptTestOwt(text)
+      card.classList.replace('running', 'passed')
+      state.textContent = t('ai.promptTest.passed')
+      output.textContent = `${summary}\n\n${text}`
+      passed++
+    } catch (error) {
+      card.classList.replace('running', 'failed')
+      state.textContent = t('ai.promptTest.failed')
+      output.textContent = error instanceof Error ? error.message : String(error)
+    }
+  }
+  setAiBusy(false)
+  setTranslatedStatus('ai-status', passed === promptTestCases.length ? 'ai.promptTest.complete' : 'ai.promptTest.incomplete', {
+    passed,
+    total: promptTestCases.length,
+  }, passed === promptTestCases.length ? 'ok' : 'err')
+}
+
+$('btn-ai-test-templates').addEventListener('click', () => {
+  void runPromptTemplateExamples().catch((error) => {
+    setAiBusy(false)
+    setTranslatedStatus('ai-status', 'ai.promptTemplatesInvalid', { error: error instanceof Error ? error.message : String(error) }, 'err')
+  })
+})
+$('btn-ai-prompt-test-close').addEventListener('click', () => aiPromptTestDialog.close())
 $('btn-ai-refresh-models').addEventListener('click', () => void refreshAiModels())
 $('btn-ai-test').addEventListener('click', () => {
   const config = currentAiConfig()
@@ -2653,6 +2444,57 @@ function chooseAiPromptExample(): string {
 const aiComposeDialog = $<HTMLDialogElement>('ai-compose-dialog')
 const aiComposeForm = $<HTMLFormElement>('ai-compose-form')
 const aiPrompt = $<HTMLTextAreaElement>('ai-prompt')
+let fullCompositionWorkflow: ReturnType<typeof createFullCompositionWorkflow> | undefined
+
+function applyFullCompositionResult(owt: string, updateEditor = true): void {
+  if (updateEditor) setOwtEditorText(owt, true)
+  validateCurrentOwt()
+  aiComposeDialog.close()
+  setAiComposeState('success')
+}
+
+function renderFullCompositionStage(stage: FullCompositionStage): void {
+  workspaceStore.update({ composition: stage })
+  const panel = $('ai-full-progress')
+  panel.hidden = false
+  const stageKey = stage.kind === 'composing' || stage.kind === 'repairing'
+    ? `ai.full.${stage.kind}`
+    : stage.kind === 'error' ? 'ai.failed' : `ai.full.${stage.kind}`
+  $('ai-full-stage').textContent = t(stageKey, 'sectionId' in stage && stage.sectionId ? { section: stage.sectionId } : {})
+  const plan = fullCompositionWorkflow?.plan
+  if (!plan) return
+  const completed = new Set('completed' in stage ? stage.completed : fullCompositionWorkflow?.composedSections.map((section) => section.id))
+  const current = 'sectionId' in stage ? stage.sectionId : undefined
+  const list = $<HTMLOListElement>('ai-full-sections')
+  list.replaceChildren(...plan.sections.map((section) => {
+    const item = document.createElement('li')
+    const marker = completed.has(section.id) ? '✓' : current === section.id ? (stage.kind === 'error' ? '!' : '…') : '○'
+    item.textContent = `${marker} ${section.name} · ${section.bars} bars · ${section.tempoStart}${section.tempoEnd ? `→${section.tempoEnd}` : ''} BPM`
+    if (stage.kind === 'error' && current === section.id) {
+      const retry = document.createElement('button')
+      retry.type = 'button'
+      retry.className = 'quiet'
+      retry.textContent = t('sound.retry')
+      retry.addEventListener('click', () => {
+        retry.disabled = true
+        void fullCompositionWorkflow!.composeSection(section.id).then(() => {
+          applyFullCompositionResult(fullCompositionWorkflow!.finalize().owt)
+        }).catch((error: unknown) => {
+          setStatus('ai-status', error instanceof Error ? error.message : String(error), 'err')
+          retry.disabled = false
+        })
+      })
+      item.append(' ', retry)
+    }
+    return item
+  }))
+}
+
+function renderFullCompositionStream(update: FullCompositionStreamUpdate): void {
+  if (update.phase !== 'plan') activeFullCompositionStream?.update(update.text)
+}
+
+let activeFullCompositionStream: ReturnType<typeof createAiEditorStream> | undefined
 const aiManualDialog = $<HTMLDialogElement>('ai-manual-dialog')
 const aiManualForm = $<HTMLFormElement>('ai-manual-form')
 const aiManualPrompt = $<HTMLTextAreaElement>('ai-manual-prompt')
@@ -2730,11 +2572,13 @@ $('btn-ai-compose').addEventListener('click', () => {
     showManualAiDialog()
     return
   }
+  $('ai-full-progress').hidden = true
   aiComposeDialog.showModal()
   requestAnimationFrame(() => aiPrompt.focus())
 })
 
 $('btn-ai-cancel').addEventListener('click', () => aiComposeDialog.close())
+$('btn-ai-full-cancel').addEventListener('click', () => fullCompositionWorkflow?.cancel())
 $('btn-ai-manual-close').addEventListener('click', () => aiManualDialog.close())
 
 aiManualForm.addEventListener('submit', (event) => {
@@ -2752,8 +2596,32 @@ aiComposeForm.addEventListener('submit', (event) => {
   event.preventDefault()
   const instruction = aiPrompt.value.trim() || aiPrompt.placeholder.trim()
   aiPrompt.setCustomValidity('')
+  const mode = new FormData(aiComposeForm).get('ai-compose-mode')
+  if (mode !== 'full') {
+    aiComposeDialog.close()
+    void applyAiRequest({ task: 'prompt', instruction, currentOwt: owtEditor.value }, 'ai.working')
+    return
+  }
+  persistAiConfig()
   aiComposeDialog.close()
-  void applyAiRequest({ task: 'prompt', instruction, currentOwt: owtEditor.value }, 'ai.working')
+  setAiComposeState('working')
+  setAiBusy(true)
+  setTranslatedStatus('ai-status', 'ai.working', {}, 'warn')
+  activeFullCompositionStream = createAiEditorStream()
+  clearOwtPlaybackContext()
+  fullCompositionWorkflow = createFullCompositionWorkflow(currentAiConfig(), aiTransport(), renderFullCompositionStage, renderFullCompositionStream)
+  void fullCompositionWorkflow.run(instruction).then(({ owt }) => {
+    activeFullCompositionStream?.finish(owt)
+    applyFullCompositionResult(owt, false)
+    setTranslatedStatus('ai-status', 'ai.applied', {}, 'ok')
+  }).catch((error: unknown) => {
+    if (error instanceof DOMException && error.name === 'AbortError') return
+    setStatus('ai-status', error instanceof Error ? error.message : String(error), 'err')
+    setAiComposeState('error')
+  }).finally(() => {
+    activeFullCompositionStream = undefined
+    setAiBusy(false)
+  })
 })
 
 aiPrompt.addEventListener('input', () => aiPrompt.setCustomValidity(''))
@@ -2773,7 +2641,6 @@ async function importOwtFile(file: File): Promise<void> {
 async function performMidiImport(file: File): Promise<void> {
   setTranslatedStatus('owt-status', 'owt.importingMidi', { file: file.name }, 'warn')
   const buffer = await file.arrayBuffer()
-  await loadMidiData(buffer, file.name)
   showExtractedMelody(extractMelodyFromMidi(buffer, {
     title: file.name.replace(/\.(?:mid|midi)$/i, ''),
     grid: parseExtractionGrid(),
@@ -2930,98 +2797,6 @@ const activeComputerNotes = new Map<string, Uint8Array[]>()
 const pointerComputerKeys = new Set<string>()
 const computerKeycaps = new Map<string, HTMLElement>()
 
-interface ComputerKeyboardSectionSpec {
-  id: string
-  rows: readonly (readonly (string | null)[])[]
-}
-
-const STANDARD_QWERTY_ROWS = [
-  ['`', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '='],
-  ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']', '\\'],
-  ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', "'"],
-  ['z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '/'],
-] as const
-
-const WORD_MELODY_ROWS = [
-  ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p'],
-  ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';'],
-  ['z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.'],
-  [' '],
-] as const
-
-const FREEPIANO_KEYBOARD_SECTIONS: readonly ComputerKeyboardSectionSpec[] = [
-  {
-    id: 'main',
-    rows: [
-      ['`', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', 'back'],
-      ['tab', 'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']', '\\'],
-      ['caps', 'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', "'", 'enter'],
-      ['shift', 'z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '/', 'rshift'],
-    ],
-  },
-  {
-    id: 'navigation',
-    rows: [
-      ['insert', 'home', 'pgup'],
-      ['delete', 'end', 'pgdn'],
-      [null, 'up', null],
-      ['left', 'down', 'right'],
-    ],
-  },
-  {
-    id: 'numpad',
-    rows: [
-      ['numlock', 'num/', 'num*', 'num-'],
-      ['num7', 'num8', 'num9', 'num+'],
-      ['num4', 'num5', 'num6', null],
-      ['num1', 'num2', 'num3', 'numenter'],
-      ['num0', 'num.', null],
-    ],
-  },
-] as const
-
-const COMPUTER_KEY_LABELS: Readonly<Record<string, string>> = {
-  ' ': 'Space', back: '⌫', tab: 'Tab', caps: 'Caps', enter: 'Enter', shift: 'Shift', rshift: 'Shift',
-  left: '←', right: '→', up: '↑', down: '↓', insert: 'Ins', delete: 'Del', home: 'Home', end: 'End', pgup: 'PgUp', pgdn: 'PgDn',
-  numlock: 'Num', 'num/': '/', 'num*': '×', 'num-': '−', 'num+': '+', 'num.': '.', numenter: 'Enter',
-}
-
-const COMPUTER_KEY_WIDTHS: Readonly<Record<string, number>> = {
-  ' ': 6, back: 2, tab: 1.5, caps: 1.75, enter: 2.25, shift: 2.25, rshift: 2.75, num0: 2,
-}
-
-const COMPUTER_CODE_KEYS: Readonly<Record<string, string>> = {
-  Backquote: '`', Digit1: '1', Digit2: '2', Digit3: '3', Digit4: '4', Digit5: '5', Digit6: '6', Digit7: '7', Digit8: '8', Digit9: '9', Digit0: '0', Minus: '-', Equal: '=',
-  KeyQ: 'q', KeyW: 'w', KeyE: 'e', KeyR: 'r', KeyT: 't', KeyY: 'y', KeyU: 'u', KeyI: 'i', KeyO: 'o', KeyP: 'p', BracketLeft: '[', BracketRight: ']', Backslash: '\\',
-  KeyA: 'a', KeyS: 's', KeyD: 'd', KeyF: 'f', KeyG: 'g', KeyH: 'h', KeyJ: 'j', KeyK: 'k', KeyL: 'l', Semicolon: ';', Quote: "'",
-  KeyZ: 'z', KeyX: 'x', KeyC: 'c', KeyV: 'v', KeyB: 'b', KeyN: 'n', KeyM: 'm', Comma: ',', Period: '.', Slash: '/', Space: ' ',
-  Backspace: 'back', Tab: 'tab', CapsLock: 'caps', Enter: 'enter', ShiftLeft: 'shift', ShiftRight: 'rshift',
-  ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down', Insert: 'insert', Delete: 'delete', Home: 'home', End: 'end', PageUp: 'pgup', PageDown: 'pgdn',
-  NumLock: 'numlock', NumpadDivide: 'num/', NumpadMultiply: 'num*', NumpadSubtract: 'num-', NumpadAdd: 'num+', NumpadDecimal: 'num.', NumpadEnter: 'numenter',
-  Numpad0: 'num0', Numpad1: 'num1', Numpad2: 'num2', Numpad3: 'num3', Numpad4: 'num4', Numpad5: 'num5', Numpad6: 'num6', Numpad7: 'num7', Numpad8: 'num8', Numpad9: 'num9',
-}
-
-function keyboardSectionsForLayout(layout: BuiltinComputerLayoutId): readonly ComputerKeyboardSectionSpec[] {
-  if (layout === 'freepiano') return FREEPIANO_KEYBOARD_SECTIONS
-  if (layout === 'english') return [{ id: 'main', rows: WORD_MELODY_ROWS }]
-  if (layout === 'pinyin') return [{ id: 'main', rows: WORD_MELODY_ROWS }]
-  return [{ id: 'main', rows: STANDARD_QWERTY_ROWS }]
-}
-
-function computerKeyLabel(key: string): string {
-  if (COMPUTER_KEY_LABELS[key]) return COMPUTER_KEY_LABELS[key]!
-  if (key.startsWith('num') && /^num\d$/.test(key)) return key.slice(3)
-  return key.toUpperCase()
-}
-
-function computerKeyWidth(key: string): number {
-  const units = COMPUTER_KEY_WIDTHS[key] ?? 1
-  return 44 * units + 5 * (units - 1)
-}
-
-function computerInputKey(event: KeyboardEvent): string {
-  return COMPUTER_CODE_KEYS[event.code] ?? event.key.toLowerCase()
-}
 
 let keyboardMapInitialized = false
 let keyboardLinkFrame = 0
@@ -3397,14 +3172,14 @@ function renderLearnBindings(): void {
 midiManager.subscribe((state) => {
   if (state.inputs.length === 0) {
     // device disconnected: release everything
-    recorder.stopHeldNotes()
+    recorder.stopHeldNotes(performance.now())
     engine?.panic()
     keyboard.clearAll()
   }
 })
 
 window.addEventListener('beforeunload', () => {
-  recorder.stopHeldNotes()
+  recorder.stopHeldNotes(performance.now())
   engine?.panic()
 })
 
@@ -3429,7 +3204,7 @@ const initialScoreView: ScoreViewId = ['owt', 'timeline', 'staff', 'jianpu'].inc
 showScoreView(initialScoreView, false)
 renderMidiState(midiManager.getState())
 showWorkspacePage('studio')
-renderArrangement()
+renderTimelineView()
 if (initialOwtHashPresent && initialOwtFromHash === null) {
   setTranslatedStatus('owt-status', 'owt.shareInvalid', {}, 'err')
 } else if (initialOwtFromHash !== null) {
@@ -3453,15 +3228,15 @@ builtInSoundFontPromise = loadBuiltInSoundFont()
 void builtInSoundFontPromise.then(() => refreshAudioOutputs(true))
 
 if (initialOwtFromHash === null) {
-  void fetch('/api/startup-midi').then(async (response) => {
+  void fetch('/api/startup-owt').then(async (response) => {
     if (response.status === 204 || !response.ok) return
-    const encodedTitle = response.headers.get('x-opusweave-title') ?? 'OWT Score'
-    const title = decodeURIComponent(encodedTitle)
-    await loadMidiData(await response.arrayBuffer(), `${title}.mid`)
-    setTranslatedStatus('midi-status', 'playback.clickToStart', {}, 'warn')
+    setOwtEditorText(await response.text(), true)
+    validateEditorOwt()
+    showScoreView('owt')
+    setTranslatedStatus('owt-status', 'playback.clickToStart', {}, 'warn')
     window.addEventListener('pointerdown', () => $<HTMLButtonElement>('btn-score-view-play').click(), { once: true, capture: true })
   }).catch((err: unknown) => {
-    setTranslatedStatus('midi-status', 'playback.error', { error: err instanceof Error ? err.message : String(err) }, 'err')
+    setTranslatedStatus('owt-status', 'playback.error', { error: err instanceof Error ? err.message : String(err) }, 'err')
   })
 }
 

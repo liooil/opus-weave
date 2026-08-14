@@ -469,7 +469,7 @@ export class ModalOwtEditor {
       this.clearPending(); return true
     }
     if (prefix === 'space-action') {
-      const map: Record<string, string> = { p: 'replace-by-playing' }
+      const map: Record<string, string> = { p: 'replace-by-playing', b: 'insert-before', f: 'insert-after' }
       if (map[key]) void this.callbacks.onCommand(map[key]!)
       this.clearPending(); return true
     }
@@ -478,7 +478,7 @@ export class ModalOwtEditor {
       this.clearPending(); return true
     }
     if (prefix === 'space-timeline') {
-      const map: Record<string, string> = { r: 'timeline-restart', l: 'loop', e: 'timeline-export', c: 'timeline-clear', p: 'timeline-replace', f: 'timeline-finish' }
+      const map: Record<string, string> = { r: 'timeline-restart', l: 'loop' }
       if (map[key]) void this.callbacks.onCommand(map[key]!)
       this.clearPending(); return true
     }

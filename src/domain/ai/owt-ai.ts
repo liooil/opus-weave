@@ -1,6 +1,6 @@
 import { parseOwt } from '../owt/parser.ts'
 import { buildOwt01Reference } from '../owt/reference.ts'
-import { aiRequestEndpoint, aiRequestHeaders, readAiTextResponse, resolvedAiProtocol, sendAiProviderRequest, type AiProtocol } from './providers.ts'
+import { aiProviderHint, aiRequestEndpoint, aiRequestHeaders, aiThinkingParameters, readAiTextResponse, resolvedAiProtocol, sendAiProviderRequest, type AiProtocol } from './providers.ts'
 
 export interface OwtAiPromptTemplates {
   system: string
@@ -29,6 +29,73 @@ export interface OwtAiConfig {
   autoRepair?: boolean
 }
 
+/**
+ * Apply the generation controls supported by the selected protocol. Keep this
+ * shared between the ordinary OWT request and the multi-step composition
+ * workflow so a workflow cannot silently drop the user's reasoning settings.
+ */
+export function applyOwtAiReasoningParameters(
+  body: Record<string, unknown>,
+  config: OwtAiConfig,
+  protocol: Exclude<AiProtocol, 'auto'>,
+): Record<string, unknown> {
+  const openAiEffort = config.reasoningEffort === 'max'
+    ? undefined
+    : config.reasoningEffort ?? (config.thinkingMode === 'disabled' ? 'none' : undefined)
+  const anthropicEffort = config.reasoningEffort && !['none', 'minimal'].includes(config.reasoningEffort)
+    ? config.reasoningEffort
+    : undefined
+  let requestBody = { ...body }
+
+  if (protocol === 'openai-responses' && openAiEffort) {
+    requestBody = { ...requestBody, reasoning: { effort: openAiEffort } }
+  } else if (protocol === 'openai-chat-completions' && openAiEffort) {
+    requestBody = { ...requestBody, reasoning_effort: openAiEffort }
+  } else if (protocol === 'anthropic-messages') {
+    const maxTokens = typeof body.max_tokens === 'number' ? body.max_tokens : config.maxTokens ?? 4096
+    if (config.thinkingMode === 'enabled' && maxTokens <= 1024) {
+      throw new Error('Anthropic manual thinking requires maxTokens to be greater than 1024')
+    }
+    const thinking = config.thinkingMode === 'adaptive'
+      ? { type: 'adaptive' }
+      : config.thinkingMode === 'enabled'
+        ? {
+            type: 'enabled',
+            budget_tokens: Math.max(1024, Math.min(config.thinkingBudgetTokens ?? 2048, maxTokens - 1)),
+          }
+        : config.thinkingMode === 'disabled'
+          ? { type: 'disabled' }
+          : undefined
+    requestBody = {
+      ...requestBody,
+      ...(thinking ? { thinking } : {}),
+      ...(anthropicEffort ? { output_config: { effort: anthropicEffort } } : {}),
+    }
+  } else if (protocol === 'ollama-native') {
+    const ollamaEffort = config.reasoningEffort === 'none'
+      ? false
+      : config.reasoningEffort === 'minimal'
+        ? 'low'
+        : config.reasoningEffort === 'xhigh'
+          ? 'max'
+          : config.reasoningEffort
+    const think = config.thinkingMode === 'disabled'
+      ? false
+      : ollamaEffort ?? (config.thinkingMode === 'enabled' || config.thinkingMode === 'adaptive' ? true : undefined)
+    requestBody = { ...requestBody, ...(think === undefined ? {} : { think }) }
+  }
+
+  // DeepSeek uses an extension rather than the generic OpenAI field for the
+  // thinking toggle. An explicit effort of `none` must also turn thinking off
+  // when the separate thinking-mode control is left at provider default.
+  if (aiProviderHint(config.baseUrl) === 'deepseek' && protocol === 'openai-chat-completions') {
+    const thinkingMode = config.thinkingMode
+      ?? (config.reasoningEffort === 'none' ? 'disabled' : config.reasoningEffort ? 'enabled' : undefined)
+    requestBody = { ...requestBody, ...aiThinkingParameters(config.baseUrl, thinkingMode) }
+  }
+  return requestBody
+}
+
 export interface OwtAiAttachment {
   mimeType: string
   dataUrl: string
@@ -46,9 +113,9 @@ export interface OwtAiRequest {
 
 export interface OwtAiTransportOptions {
   fetcher?: typeof fetch
-  proxyUrl?: string
   signal?: AbortSignal
   onUpdate?: (text: string) => void
+  onReasoningUpdate?: (text: string) => void
 }
 
 interface ChatMessage {
@@ -187,8 +254,8 @@ export const DEFAULT_OWT_AI_CONFIG: OwtAiConfig = {
   model: '',
   maxTokens: 4096,
   thinkingBudgetTokens: 2048,
-  retryCount: 3,
-  autoRepair: true,
+  retryCount: 0,
+  autoRepair: false,
 }
 
 export function hasConfiguredAiApi(config: Pick<OwtAiConfig, 'baseUrl' | 'model'>): boolean {
@@ -280,20 +347,11 @@ async function postChat(config: OwtAiConfig, body: ChatBody, options: OwtAiTrans
   const system = messages.find((message) => message.role === 'system')
   const conversation = messages.filter((message) => message.role !== 'system')
   const userPrompt = conversation.map((message) => typeof message.content === 'string' ? message.content : message.content.map((part) => part.type === 'text' ? part.text : `[image: ${part.image_url.url}]`).join('\n')).join('\n\n')
-  const openAiEffort = config.reasoningEffort === 'max'
-    ? undefined
-    : config.reasoningEffort ?? (config.thinkingMode === 'disabled' ? 'none' : undefined)
-  const anthropicEffort = config.reasoningEffort && !['none', 'minimal'].includes(config.reasoningEffort)
-    ? config.reasoningEffort
-    : undefined
   const sampling = {
     ...(body.temperature === undefined ? {} : { temperature: body.temperature }),
     ...(body.top_p === undefined ? {} : { top_p: body.top_p }),
   }
-  let requestBody: unknown = {
-    ...body,
-    ...(openAiEffort ? { reasoning_effort: openAiEffort } : {}),
-  }
+  let requestBody: unknown = { ...body }
   if (protocol === 'openai-responses') {
     requestBody = {
       model: body.model,
@@ -308,25 +366,11 @@ async function postChat(config: OwtAiConfig, body: ChatBody, options: OwtAiTrans
       })),
       ...sampling,
       max_output_tokens: body.max_tokens,
-      ...(openAiEffort ? { reasoning: { effort: openAiEffort } } : {}),
       stream: true,
     }
   } else if (protocol === 'openai-completions') {
     requestBody = { model: body.model, prompt: `${typeof system?.content === 'string' ? `${system.content}\n\n` : ''}${userPrompt}`, ...sampling, max_tokens: body.max_tokens, stream: true }
   } else if (protocol === 'anthropic-messages') {
-    if (config.thinkingMode === 'enabled' && body.max_tokens <= 1024) {
-      throw new Error('Anthropic manual thinking requires maxTokens to be greater than 1024')
-    }
-    const thinking = config.thinkingMode === 'adaptive'
-      ? { type: 'adaptive' }
-      : config.thinkingMode === 'enabled'
-        ? {
-            type: 'enabled',
-            budget_tokens: Math.max(1024, Math.min(config.thinkingBudgetTokens ?? 2048, body.max_tokens - 1)),
-          }
-        : config.thinkingMode === 'disabled'
-          ? { type: 'disabled' }
-          : undefined
     requestBody = {
       model: body.model,
       system: typeof system?.content === 'string' ? system.content : undefined,
@@ -340,21 +384,9 @@ async function postChat(config: OwtAiConfig, body: ChatBody, options: OwtAiTrans
       })),
       ...sampling,
       max_tokens: body.max_tokens,
-      ...(thinking ? { thinking } : {}),
-      ...(anthropicEffort ? { output_config: { effort: anthropicEffort } } : {}),
       stream: true,
     }
   } else if (protocol === 'ollama-native') {
-    const ollamaEffort = config.reasoningEffort === 'none'
-      ? false
-      : config.reasoningEffort === 'minimal'
-        ? 'low'
-        : config.reasoningEffort === 'xhigh'
-          ? 'max'
-          : config.reasoningEffort
-    const think = config.thinkingMode === 'disabled'
-      ? false
-      : ollamaEffort ?? (config.thinkingMode === 'enabled' || config.thinkingMode === 'adaptive' ? true : undefined)
     requestBody = {
       model: body.model,
       messages: messages.map((message) => ({
@@ -363,17 +395,19 @@ async function postChat(config: OwtAiConfig, body: ChatBody, options: OwtAiTrans
         images: typeof message.content === 'string' ? undefined : message.content.filter((part) => part.type === 'image_url').map((part) => 'image_url' in part ? part.image_url.url.replace(/^data:[^;]+;base64,/, '') : ''),
       })),
       options: { ...sampling, num_predict: body.max_tokens },
-      ...(think === undefined ? {} : { think }),
       stream: true,
     }
   }
-  const response = await sendAiProviderRequest({
-    endpoint,
-    headers: aiRequestHeaders(config, protocol),
-    body: requestBody,
-    apiKey: config.apiKey,
-  }, options)
-  return readAiTextResponse(response, protocol, options.onUpdate)
+  requestBody = applyOwtAiReasoningParameters(requestBody as Record<string, unknown>, config, protocol)
+  const read = async (bodyToSend: unknown): Promise<string> => {
+    const response = await sendAiProviderRequest({
+      endpoint,
+      headers: aiRequestHeaders(config, protocol),
+      body: bodyToSend,
+    }, options)
+    return readAiTextResponse(response, protocol, options.onUpdate, options.onReasoningUpdate)
+  }
+  return read(requestBody)
 }
 
 
@@ -390,7 +424,7 @@ export async function createOwtWithAi(config: OwtAiConfig, request: OwtAiRequest
   if (!body.model) throw new Error('AI model is required')
   let content = await postChat(config, body, options)
   let validationError: unknown
-  const retryCount = config.autoRepair === false ? 0 : Math.max(0, Math.min(10, Math.trunc(config.retryCount ?? 3)))
+  const retryCount = config.autoRepair === false ? 0 : Math.max(0, Math.min(10, Math.trunc(config.retryCount ?? 0)))
   for (let attempt = 0; attempt <= retryCount; attempt++) {
     try {
       return extractOwtFromAiResponse(content)

@@ -1,5 +1,5 @@
 import { resolve } from 'node:path'
-import { analyzeFullComposition, assembleFullComposition, parseCompositionPlan, type ComposedSection } from '../domain/ai/full-composition.ts'
+import type { ComposedSection } from '../domain/ai/full-composition.ts'
 import { OpusWeaveService } from '../domain/services/opusweave-service.ts'
 
 function parse(args: string[]): { command?: string; positional: string[]; output?: string } {
@@ -27,7 +27,7 @@ export async function runCompositionCli(args: string[], service = new OpusWeaveS
   if (command === 'plan') {
     const file = positional[0]
     if (!file) throw new Error('composition plan requires plan.json')
-    await emit(`${JSON.stringify(parseCompositionPlan(await Bun.file(resolve(file)).json()), null, 2)}\n`, output)
+    await emit(`${JSON.stringify(service.parseCompositionPlan(await Bun.file(resolve(file)).json()), null, 2)}\n`, output)
     return
   }
   if (command === 'section') {
@@ -38,16 +38,16 @@ export async function runCompositionCli(args: string[], service = new OpusWeaveS
   }
   const [planFile, sectionsFile] = positional
   if (!planFile) throw new Error(`composition ${command} requires plan.json`)
-  const plan = parseCompositionPlan(await Bun.file(resolve(planFile)).json())
+  const plan = service.parseCompositionPlan(await Bun.file(resolve(planFile)).json())
   if (command === 'analyze') {
     if (!sectionsFile) throw new Error('composition analyze requires <plan.json> <score.owt>')
-    await emit(`${JSON.stringify(analyzeFullComposition(plan, await Bun.file(resolve(sectionsFile)).text()), null, 2)}\n`, output)
+    await emit(`${JSON.stringify(service.analyzeFullComposition(plan, await Bun.file(resolve(sectionsFile)).text()), null, 2)}\n`, output)
     return
   }
   if (!sectionsFile) throw new Error(`composition ${command} requires <plan.json> <sections.json>`)
   const sections = await Bun.file(resolve(sectionsFile)).json() as ComposedSection[]
   if (command === 'assemble') {
-    await emit(assembleFullComposition(plan, sections), output)
+    await emit(service.assembleComposition(plan, sections), output)
     return
   }
   if (command === 'revise') {

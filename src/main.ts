@@ -20,7 +20,6 @@ import { OpusWeaveError } from './shared/errors.ts'
 import { optionalNumber, optionalString, printJson, requireString, type ActionArgs } from './cli/cli.ts'
 import { runOwtCli, type OwtCliResult } from './cli/owt-cli.ts'
 import { runCompositionCli } from './cli/composition-cli.ts'
-import { proxyAiChat } from './ai/llama-proxy.ts'
 import page from './web/index.html'
 import { readFileSync } from 'node:fs'
 import workletPath from '../node_modules/spessasynth_lib/dist/spessasynth_processor.min.js' with { type: 'file' }
@@ -71,7 +70,6 @@ async function runDesktopApp(startupPlayback?: Extract<OwtCliResult, { kind: 'pl
           headers: { 'content-type': 'application/javascript; charset=utf-8' },
         }),
         '/api/health': Response.json({ ok: true, version: VERSION }),
-        '/api/ai/chat': { POST: proxyAiChat },
         '/api/startup-owt': startupPlayback
           ? new Response(startupPlayback.owt, {
               headers: { 'content-type': 'text/plain; charset=utf-8' },

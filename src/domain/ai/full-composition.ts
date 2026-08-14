@@ -3,6 +3,11 @@ import { parseOwtOrThrow } from '../owt/parser.ts'
 import { addRational, compareRational, rational, rationalToNumber } from '../owt/rational.ts'
 import { serializeScore } from '../owt/serializer.ts'
 
+/** An abort signal the domain layer can throw without depending on DOM globals. */
+function abortedError(): Error {
+  return Object.assign(new Error('Aborted'), { name: 'AbortError' })
+}
+
 export type CompositionDensity = 'sparse' | 'medium' | 'dense'
 
 export interface CompositionSectionPlan {
@@ -45,6 +50,7 @@ export interface FullCompositionStreamUpdate {
   phase: 'plan' | 'section' | 'repair' | 'revise'
   sectionId?: string
   text: string
+  kind?: 'content' | 'reasoning'
 }
 
 export interface FullCompositionAnalysis {
@@ -66,6 +72,7 @@ export type FullCompositionTransport = (
   prompt: string,
   signal?: AbortSignal,
   onUpdate?: (text: string) => void,
+  onReasoningUpdate?: (text: string) => void,
 ) => Promise<string>
 
 function record(value: unknown, label: string): Record<string, unknown> {
@@ -240,7 +247,7 @@ export class FullCompositionWorkflow {
     private readonly transport: FullCompositionTransport,
     private readonly onStage: (stage: FullCompositionStage) => void = () => {},
     private readonly onStream: (update: FullCompositionStreamUpdate) => void = () => {},
-    private readonly repairRetries = 2,
+    private readonly repairRetries = 0,
   ) {}
   get plan(): CompositionPlan | undefined { return this.planValue }
   get composedSections(): readonly ComposedSection[] { return [...this.sections.values()] }
@@ -258,7 +265,13 @@ meter: numerator/denominator
 key: C major
 section: stable-id | Name | bars | start-tempo or start-tempo->end-tempo | mood | instrument, instrument | sparse or medium or dense | role
 Return at least two section lines and no prose.`
-    this.planValue = parseCompositionPlan(await this.transport('plan', prompt, this.controller.signal, (text) => this.onStream({ phase: 'plan', text })))
+    this.planValue = parseCompositionPlan(await this.transport(
+      'plan',
+      prompt,
+      this.controller.signal,
+      (text) => this.onStream({ phase: 'plan', text }),
+      (text) => this.onStream({ phase: 'plan', text, kind: 'reasoning' }),
+    ))
     return this.planValue
   }
 
@@ -275,6 +288,7 @@ Return at least two section lines and no prose.`
       sectionPrompt(this.planValue, section, this.sections.get(this.planValue.sections[this.planValue.sections.indexOf(section) - 1]?.id ?? ''), revision),
       this.controller?.signal,
       (text) => this.onStream({ phase, sectionId: id, text }),
+      (text) => this.onStream({ phase, sectionId: id, text, kind: 'reasoning' }),
     )
     for (let attempt = 1; attempt <= this.repairRetries + 1; attempt++) {
       try {
@@ -293,6 +307,7 @@ Return at least two section lines and no prose.`
           `${sectionPrompt(this.planValue, section)}\nRepair validation error: ${error instanceof Error ? error.message : String(error)}\nReturn the corrected section OWT only.`,
           this.controller?.signal,
           (text) => this.onStream({ phase: 'repair', sectionId: id, text }),
+          (text) => this.onStream({ phase: 'repair', sectionId: id, text, kind: 'reasoning' }),
         )
       }
     }
@@ -313,10 +328,10 @@ Return at least two section lines and no prose.`
   async run(instruction: string): Promise<{ plan: CompositionPlan; owt: string; analysis: FullCompositionAnalysis }> {
     try {
       const plan = await this.createPlan(instruction)
-      for (const section of plan.sections) { if (this.controller?.signal.aborted) throw new DOMException('Aborted', 'AbortError'); await this.composeSection(section.id) }
+      for (const section of plan.sections) { if (this.controller?.signal.aborted) throw abortedError(); await this.composeSection(section.id) }
       return this.finalize()
     } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') this.onStage({ kind: 'cancelled' })
+      if (error instanceof Error && error.name === 'AbortError') this.onStage({ kind: 'cancelled' })
       else this.onStage({ kind: 'error', message: error instanceof Error ? error.message : String(error), sectionId: this.currentSectionId })
       throw error
     }

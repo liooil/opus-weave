@@ -67,7 +67,7 @@ describe('musical typing', () => {
 
 describe('OWT AI client', () => {
   test('keeps API configuration optional and builds a complete manual collaboration prompt', () => {
-    expect(DEFAULT_OWT_AI_CONFIG).toMatchObject({ baseUrl: '', model: '' })
+    expect(DEFAULT_OWT_AI_CONFIG).toMatchObject({ baseUrl: '', model: '', retryCount: 0 })
     expect(hasConfiguredAiApi(DEFAULT_OWT_AI_CONFIG)).toBe(false)
     expect(hasConfiguredAiApi({ baseUrl: 'http://model.test', model: 'local-model' })).toBe(true)
     expect(hasConfiguredAiApi({ baseUrl: 'http://model.test', model: '' })).toBe(false)
@@ -170,12 +170,24 @@ describe('OWT AI client', () => {
       const content = requests.length === 1 ? 'not an owt document' : validAiOwt
       return Response.json({ choices: [{ message: { content } }] })
     }) as typeof fetch
-    const result = await createOwtWithAi({ baseUrl: 'http://model.test', model: 'test' }, {
+    const result = await createOwtWithAi({ baseUrl: 'http://model.test', model: 'test', retryCount: 1 }, {
       task: 'prompt', instruction: 'make it brighter', currentOwt: validAiOwt,
     }, { fetcher })
     expect(result).toBe(validAiOwt)
     expect(requests).toHaveLength(2)
     expect(requests[1]!.messages).toHaveLength(4)
+  })
+
+  test('does not retry invalid OWT by default', async () => {
+    let calls = 0
+    const fetcher = (async (_input: URL | RequestInfo, _init?: RequestInit) => {
+      calls++
+      return Response.json({ choices: [{ message: { content: 'still invalid' } }] })
+    }) as typeof fetch
+    await expect(createOwtWithAi({ baseUrl: 'http://model.test', model: 'test' }, {
+      task: 'prompt', instruction: 'do not retry', currentOwt: validAiOwt,
+    }, { fetcher })).rejects.toThrow('AI response did not contain an OWT score')
+    expect(calls).toBe(1)
   })
 
   test('never falls back to JSON when streamed OWT repairs remain invalid', async () => {
@@ -187,7 +199,7 @@ describe('OWT AI client', () => {
       expect(body.response_format).toBeUndefined()
       return Response.json({ choices: [{ message: { content: 'still invalid' } }] })
     }) as typeof fetch
-    await expect(createOwtWithAi({ baseUrl: 'http://model.test', model: 'test' }, {
+    await expect(createOwtWithAi({ baseUrl: 'http://model.test', model: 'test', retryCount: 3 }, {
       task: 'improvise', instruction: 'answer it', currentOwt: validAiOwt,
     }, { fetcher })).rejects.toThrow('AI response did not contain an OWT score')
     expect(calls).toBe(4)

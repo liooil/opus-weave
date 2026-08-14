@@ -5,7 +5,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import { OpusWeaveService } from '../domain/services/opusweave-service.ts'
-import { analyzeFullComposition, assembleFullComposition, parseCompositionPlan } from '../domain/ai/full-composition.ts'
 import { parseOwtOrThrow } from '../domain/owt/parser.ts'
 
 const TextContent = (text: string) => ({ content: [{ type: 'text' as const, text }] })
@@ -183,7 +182,7 @@ export function registerTools(server: McpServer, service: OpusWeaveService): voi
     'create_composition_plan',
     'Validate and normalize a section-based full-composition plan created by an agent. This does not generate notes.',
     { plan: z.unknown().describe('CompositionPlan with title, duration target, meter, key, and ordered sections') },
-    async ({ plan }) => TextContent(JSON.stringify(parseCompositionPlan(plan))),
+    async ({ plan }) => TextContent(JSON.stringify(service.parseCompositionPlan(plan))),
   )
 
   server.tool(
@@ -200,14 +199,14 @@ export function registerTools(server: McpServer, service: OpusWeaveService): voi
     'assemble_composition',
     'Assemble validated section OWT scores according to a CompositionPlan. The program owns measure offsets, tempo map, and track alignment.',
     { plan: z.unknown(), sections: z.array(z.object({ id: z.string(), owt: z.string(), attempts: z.number().int().positive().default(1) })) },
-    async ({ plan, sections }) => TextContent(assembleFullComposition(parseCompositionPlan(plan), sections)),
+    async ({ plan, sections }) => TextContent(service.assembleComposition(service.parseCompositionPlan(plan), sections)),
   )
 
   server.tool(
     'validate_full_composition',
     'Analyze structural full-score metrics: duration, bars, ranges, density, repetition, silence, channel conflicts, sections and tempo conformance. It does not judge musical quality.',
     { plan: z.unknown(), owt: z.string() },
-    async ({ plan, owt }) => TextContent(JSON.stringify(analyzeFullComposition(parseCompositionPlan(plan), owt))),
+    async ({ plan, owt }) => TextContent(JSON.stringify(service.analyzeFullComposition(service.parseCompositionPlan(plan), owt))),
   )
 
   server.tool(

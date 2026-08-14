@@ -53,12 +53,22 @@ export function importMidi(data: ArrayBuffer, fileName?: string): BasicMIDI {
 
 export function createMidiTempoMap(midi: BasicMIDI): TempoMap {
   const ppq = midi.timeDivision || 480
+  // Read the real set-tempo meta events directly. spessasynth's `tempoChanges`
+  // always prepends a synthesized `{tick: 0, tempo: 120}` entry, so deriving the
+  // map from it would report 120 for any file whose actual first tempo differs.
+  const tempos: Array<{ tick: number; bpm: number }> = []
+  for (const track of midi.tracks) {
+    for (const event of track.events) {
+      if (event.statusByte !== 0x51 || event.data.length < 3) continue
+      const microseconds = (event.data[0]! << 16) | (event.data[1]! << 8) | event.data[2]!
+      tempos.push({ tick: event.ticks, bpm: 60_000_000 / microseconds })
+    }
+  }
+  tempos.sort((a, b) => a.tick - b.tick)
   return new TempoMap({
     ppq,
-    tempos: midi.tempoChanges
-      .filter((tempo) => tempo.ticks > 0)
-      .map((tempo) => ({ beat: tempo.ticks / ppq, bpm: tempo.tempo })),
-    defaultTempo: midi.tempoChanges.length > 0 ? midi.tempoChanges[midi.tempoChanges.length - 1]!.tempo : 120,
+    tempos: tempos.map((tempo) => ({ beat: tempo.tick / ppq, bpm: tempo.bpm })),
+    defaultTempo: 120,
   })
 }
 

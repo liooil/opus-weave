@@ -13,8 +13,8 @@ simplifies a melody instead of preserving performance events.
 
 ## Milestone 2: MusicXML and interactive scores
 
+- Basic five-line staff display is already available (the Staff score view).
 - MusicXML / MXL import and export.
-- Staff display (five-line notation rendering).
 - Part selection and part muting.
 - Current-measure highlighting.
 - Track ↔ score-part mapping.
@@ -40,9 +40,9 @@ simplifies a melody instead of preserving performance events.
 
 ## Milestone 5: Jianpu (numbered notation)
 
+- Basic numbered-notation (Jianpu) rendering is already available (the Jianpu score view).
 - Printed Jianpu recognition.
 - MusicXML Jianpu representation.
-- Jianpu rendering.
 - Lyrics, chords and multi-part support.
 
 ## Milestone 6: FreePiano compatibility

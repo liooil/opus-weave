@@ -15,11 +15,13 @@ The phase-1 spec mandates five separations, and the code follows them:
 2. **The domain model is separated from the UI.** All music logic lives in
    `src/domain/` and is framework-free: no DOM, no AudioContext, no BunDesk.
    The GUI is a thin orchestration layer in `src/web/`.
-3. **CLI, MCP and GUI share one service.** `OpusWeaveService`
-   (`src/domain/services/opusweave-service.ts`) is the single entry point for
-   creating, inspecting, validating and rendering. CLI actions (`src/main.ts`)
-   and MCP tools (`src/mcp/tools.ts`) are thin adapters over it — neither
-   re-implements MIDI processing.
+3. **CLI and MCP share one service; the GUI composes domain modules directly.**
+   `OpusWeaveService` (`src/domain/services/opusweave-service.ts`) is the single
+   Node-side entry point for creating, inspecting, validating and rendering.
+   CLI actions (`src/main.ts`) and MCP tools (`src/mcp/tools.ts`) are thin
+   adapters over it — neither re-implements MIDI processing. The browser GUI
+   cannot import the service (it uses `Bun.file`/`node:fs`), so it calls the
+   same framework-free domain modules in `src/domain/` directly.
 4. **The browser playback backend and the FluidSynth render backend are
    separate.** `SynthEngine` (implemented by `SpessaSynthEngine` and
    `MockSynthEngine`) is real-time browser synthesis; `FluidSynthRenderer` is
@@ -39,6 +41,7 @@ src/main.ts        BunDesk app: HTTP server (127.0.0.1 only), window (Chromium
 src/build.ts       Single-file binary via bundesk; the AudioWorklet processor
                    is embedded with a `with { type: 'file' }` import and
                    served at /spessasynth_processor.min.js.
+src/build-web.ts   Static browser build emitted to dist/pages for GitHub Pages.
 src/domain/
   ai/              Multi-protocol streaming adapters, live Sketch generation,
                    plain-text sectional Full Composition and AI improvisation.
@@ -50,15 +53,20 @@ src/domain/
   devices/         DeviceProfile model + matching, MappingEngine,
                    MIDIPLUS TINY+ profile.
   midi-learn.ts    MIDI Learn: arm parameter → bind control → persist.
-  services/        OpusWeaveService shared by JSON, OWT, CLI, MCP and GUI.
+  services/        OpusWeaveService shared by JSON, OWT, CLI and MCP (Node).
 src/audio/         SynthEngine contract, spessasynth engine, mock, renderers.
 src/midi/          WebMidiManager (browser) + pure port-selection logic.
 src/mcp/           MCP server (stdio) + tool definitions.
+src/cli/           CLI argument helpers + `owt`/`composition` command runners.
+src/shared/        typed errors (OpusWeaveError).
 src/web/           GUI composition root plus explicit WorkspaceStore,
   controllers/     transport, improv and full-composition state transitions.
   state/           serializable workspace state; no DOM nodes.
   views/           focused DOM rendering/binding modules.
   editor/          Helix-style modal OWT editor and semantic selections.
+  components/      virtual keyboard, score views, syntax highlighting.
+  keyboard/        layout view models for the computer keyboard maps.
+  assets/          icons, bundled SoundFonts (SF2/SF3).
 src/tests/         Deterministic Bun test suite.
 ```
 

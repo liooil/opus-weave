@@ -1,6 +1,6 @@
 export type AiProtocol = 'auto' | 'openai-responses' | 'openai-chat-completions' | 'openai-completions' | 'anthropic-messages' | 'ollama-native'
 
-export type AiProviderHint = 'openai' | 'anthropic' | 'ollama' | 'llama.cpp' | 'openrouter' | 'compatible'
+export type AiProviderHint = 'openai' | 'anthropic' | 'ollama' | 'llama.cpp' | 'openrouter' | 'deepseek' | 'compatible'
 
 export interface AiConnectionConfig {
   baseUrl: string
@@ -24,16 +24,16 @@ export interface AiModelDiscovery {
 
 export interface AiProviderTransportOptions {
   fetcher?: typeof fetch
-  proxyUrl?: string
   signal?: AbortSignal
 }
+
+export type AiThinkingModeHint = 'adaptive' | 'enabled' | 'disabled'
 
 export interface AiProviderRequest {
   endpoint: string
   method?: 'GET' | 'POST'
   headers: Record<string, string>
   body?: unknown
-  apiKey?: string
 }
 
 const REQUEST_SUFFIXES = [
@@ -57,6 +57,7 @@ export function aiProviderHint(baseUrl: string): AiProviderHint {
   const host = url.hostname.toLowerCase()
   if (host === 'api.openai.com') return 'openai'
   if (host === 'api.anthropic.com') return 'anthropic'
+  if (host === 'api.deepseek.com') return 'deepseek'
   if (host === 'openrouter.ai' || host.endsWith('.openrouter.ai')) return 'openrouter'
   if (url.port === '8080') return 'llama.cpp'
   if (host === 'localhost' || host === '127.0.0.1' || host === '::1') {
@@ -77,6 +78,8 @@ function apiRoot(baseUrl: string, provider = aiProviderHint(baseUrl)): URL {
   if (provider === 'openrouter') {
     if (url.pathname === '' || url.pathname === '/') url.pathname = '/api/v1'
     else if (!url.pathname.endsWith('/api/v1')) url.pathname = url.pathname.replace(/\/v1$/, '/api/v1')
+  } else if (provider === 'deepseek') {
+    url.pathname = url.pathname.replace(/\/v1$/, '')
   } else if (provider !== 'ollama' && !url.pathname.endsWith('/v1')) {
     url.pathname = `${url.pathname}/v1`.replace(/\/+/g, '/')
   }
@@ -97,6 +100,7 @@ export function resolvedAiProtocol(config: AiConnectionConfig): Exclude<AiProtoc
     case 'anthropic': return 'anthropic-messages'
     case 'ollama': return 'ollama-native'
     case 'openrouter':
+    case 'deepseek':
     case 'llama.cpp':
     case 'compatible': return 'openai-chat-completions'
   }
@@ -130,17 +134,18 @@ export function aiRequestHeaders(config: AiConnectionConfig, protocol = resolved
   return headers
 }
 
+/**
+ * DeepSeek exposes its thinking toggle as an OpenAI-compatible extension.
+ * Other OpenAI-compatible providers should not receive this provider-specific
+ * field, so keep the mapping here instead of leaking it into generic bodies.
+ */
+export function aiThinkingParameters(baseUrl: string, thinkingMode?: AiThinkingModeHint): Record<string, unknown> {
+  if (aiProviderHint(baseUrl) !== 'deepseek' || !thinkingMode) return {}
+  return { thinking: { type: thinkingMode === 'disabled' ? 'disabled' : 'enabled' } }
+}
+
 export async function sendAiProviderRequest(request: AiProviderRequest, options: AiProviderTransportOptions = {}): Promise<Response> {
   const fetcher = options.fetcher ?? fetch
-  if (options.proxyUrl) {
-    const headers = Object.fromEntries(Object.entries(request.headers).filter(([name]) => !['authorization', 'x-api-key'].includes(name.toLowerCase())))
-    return fetcher(options.proxyUrl, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ ...request, headers, apiKey: request.apiKey }),
-      signal: options.signal,
-    })
-  }
   return fetcher(request.endpoint, {
     method: request.method ?? 'POST',
     headers: request.headers,
@@ -185,10 +190,23 @@ function extractAiStreamDelta(protocol: Exclude<AiProtocol, 'auto'>, payload: Re
   return typeof choice?.delta?.content === 'string' ? choice.delta.content : typeof choice?.text === 'string' ? choice.text : ''
 }
 
+function extractAiStreamReasoningDelta(protocol: Exclude<AiProtocol, 'auto'>, payload: Record<string, unknown>): string {
+  if (protocol !== 'openai-chat-completions') return ''
+  const choice = (payload.choices as Array<{ delta?: { reasoning_content?: unknown } }> | undefined)?.[0]
+  return typeof choice?.delta?.reasoning_content === 'string' ? choice.delta.reasoning_content : ''
+}
+
+function extractAiResponseReasoning(protocol: Exclude<AiProtocol, 'auto'>, payload: Record<string, unknown>): string {
+  if (protocol !== 'openai-chat-completions') return ''
+  const reasoning = (payload.choices as Array<{ message?: { reasoning_content?: unknown } }> | undefined)?.[0]?.message?.reasoning_content
+  return typeof reasoning === 'string' ? reasoning : ''
+}
+
 export async function readAiTextResponse(
   response: Response,
   protocol: Exclude<AiProtocol, 'auto'>,
   onUpdate?: (text: string) => void,
+  onReasoningUpdate?: (text: string) => void,
 ): Promise<string> {
   if (!response.ok) {
     const detail = await response.text()
@@ -199,6 +217,8 @@ export async function readAiTextResponse(
     const raw = await response.text()
     let payload: Record<string, unknown>
     try { payload = JSON.parse(raw) as Record<string, unknown> } catch { throw new Error('AI endpoint returned a non-streaming, non-JSON response') }
+    const reasoning = extractAiResponseReasoning(protocol, payload)
+    if (reasoning) onReasoningUpdate?.(reasoning)
     const text = extractAiResponseText(protocol, payload)
     onUpdate?.(text)
     return text
@@ -208,7 +228,9 @@ export async function readAiTextResponse(
   const decoder = new TextDecoder()
   let pending = ''
   let text = ''
+  let reasoning = ''
   let finalPayload: Record<string, unknown> | undefined
+  let sawReasoning = false
   const consume = (line: string): void => {
     const trimmed = line.trim()
     if (!trimmed || trimmed.startsWith('event:') || trimmed.startsWith(':')) return
@@ -216,6 +238,12 @@ export async function readAiTextResponse(
     if (!data || data === '[DONE]') return
     let payload: Record<string, unknown>
     try { payload = JSON.parse(data) as Record<string, unknown> } catch { return }
+    const reasoningDelta = extractAiStreamReasoningDelta(protocol, payload)
+    if (reasoningDelta) {
+      sawReasoning = true
+      reasoning += reasoningDelta
+      onReasoningUpdate?.(reasoning)
+    }
     const delta = extractAiStreamDelta(protocol, payload)
     if (delta) {
       text += delta
@@ -234,10 +262,19 @@ export async function readAiTextResponse(
   }
   if (pending.trim()) consume(pending)
   if (!text && finalPayload) {
-    text = extractAiResponseText(protocol, finalPayload)
-    onUpdate?.(text)
+    try {
+      text = extractAiResponseText(protocol, finalPayload)
+      onUpdate?.(text)
+    } catch {
+      // Streaming providers commonly end with a metadata-only chunk. Keep
+      // the more useful stream-level error below instead of treating that
+      // chunk as a non-streaming response.
+    }
   }
-  if (!text) throw new Error('AI stream returned no message content')
+  if (!text) {
+    if (sawReasoning) throw new Error('AI stream returned reasoning but no final message content')
+    throw new Error('AI stream returned no message content')
+  }
   return text
 }
 
@@ -279,7 +316,7 @@ function parseOllamaModels(value: unknown): AiModelInfo[] {
 async function discoverAt(config: AiConnectionConfig, endpoint: string, protocol: Exclude<AiProtocol, 'auto'>, provider: AiProviderHint, parser: (value: unknown) => AiModelInfo[], options: AiProviderTransportOptions): Promise<AiModelDiscovery | null> {
   const headers = aiRequestHeaders(config, protocol)
   delete headers['content-type']
-  const response = await sendAiProviderRequest({ endpoint, method: 'GET', headers, apiKey: config.apiKey }, options)
+  const response = await sendAiProviderRequest({ endpoint, method: 'GET', headers }, options)
   if (!response.ok) return null
   let value: unknown
   try { value = await response.json() } catch { return null }

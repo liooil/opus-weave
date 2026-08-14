@@ -20,6 +20,7 @@ describe('AI provider resolution', () => {
   test('recognizes official, proxy and local service URLs', () => {
     expect(aiProviderHint('https://api.openai.com')).toBe('openai')
     expect(aiProviderHint('https://api.anthropic.com')).toBe('anthropic')
+    expect(aiProviderHint('https://api.deepseek.com')).toBe('deepseek')
     expect(aiProviderHint('https://openrouter.ai')).toBe('openrouter')
     expect(aiProviderHint('http://localhost:11434')).toBe('ollama')
     expect(aiProviderHint('http://127.0.0.1:8080')).toBe('llama.cpp')
@@ -28,6 +29,8 @@ describe('AI provider resolution', () => {
 
   test('normalizes request endpoints without duplicating API paths', () => {
     expect(aiRequestEndpoint({ baseUrl: 'https://api.openai.com/v1', protocol: 'openai-responses' })).toBe('https://api.openai.com/v1/responses')
+    expect(aiRequestEndpoint({ baseUrl: 'https://api.deepseek.com', protocol: 'openai-chat-completions' })).toBe('https://api.deepseek.com/chat/completions')
+    expect(aiRequestEndpoint({ baseUrl: 'https://api.deepseek.com/v1', protocol: 'openai-chat-completions' })).toBe('https://api.deepseek.com/chat/completions')
     expect(aiRequestEndpoint({ baseUrl: 'https://openrouter.ai', protocol: 'openai-chat-completions' })).toBe('https://openrouter.ai/api/v1/chat/completions')
     expect(aiRequestEndpoint({ baseUrl: 'http://localhost:11434/v1/chat/completions', protocol: 'openai-chat-completions' })).toBe('http://localhost:11434/v1/chat/completions')
     expect(aiRequestEndpoint({ baseUrl: 'http://localhost:11434', protocol: 'ollama-native' })).toBe('http://localhost:11434/api/chat')
@@ -36,6 +39,7 @@ describe('AI provider resolution', () => {
   test('chooses safe defaults and Anthropic authentication headers', () => {
     expect(resolvedAiProtocol({ baseUrl: 'https://api.openai.com' })).toBe('openai-responses')
     expect(resolvedAiProtocol({ baseUrl: 'https://api.anthropic.com' })).toBe('anthropic-messages')
+    expect(resolvedAiProtocol({ baseUrl: 'https://api.deepseek.com' })).toBe('openai-chat-completions')
     expect(resolvedAiProtocol({ baseUrl: 'https://openrouter.ai' })).toBe('openai-chat-completions')
     expect(aiRequestHeaders({ baseUrl: 'https://api.anthropic.com', apiKey: 'secret' }, 'anthropic-messages')).toMatchObject({ 'x-api-key': 'secret', 'anthropic-version': '2023-06-01' })
   })
@@ -76,16 +80,14 @@ describe('AI model discovery', () => {
     expect(result.models[0]?.id).toBe('qwen3:8b')
   })
 
-  test('routes discovery through the desktop proxy without embedding credentials in forwarded headers', async () => {
+  test('discovers models directly from the configured provider endpoint', async () => {
     const fetcher = (async (input: URL | RequestInfo, init?: RequestInit) => {
-      expect(String(input)).toBe('/api/ai/chat')
-      const body = JSON.parse(String(init?.body)) as { endpoint: string; method: string; headers: Record<string, string>; apiKey: string }
-      expect(body).toMatchObject({ endpoint: 'https://api.anthropic.com/v1/models', method: 'GET', apiKey: 'secret' })
-      expect(body.headers.authorization).toBeUndefined()
-      expect(body.headers['x-api-key']).toBeUndefined()
+      expect(String(input)).toBe('https://api.anthropic.com/v1/models')
+      expect(init?.method).toBe('GET')
+      expect(new Headers(init?.headers).get('x-api-key')).toBe('secret')
       return Response.json({ data: [{ id: 'claude-test', display_name: 'Claude Test' }] })
     }) as typeof fetch
-    const result = await discoverAiModels({ baseUrl: 'https://api.anthropic.com', apiKey: 'secret' }, { fetcher, proxyUrl: '/api/ai/chat' })
+    const result = await discoverAiModels({ baseUrl: 'https://api.anthropic.com', apiKey: 'secret' }, { fetcher })
     expect(result.models[0]).toMatchObject({ id: 'claude-test', name: 'Claude Test' })
   })
 })
@@ -171,5 +173,27 @@ describe('AI protocol adapters', () => {
     expect(updates).toHaveLength(3)
     expect(updates[0]!.length).toBeLessThan(result.length)
     expect(updates.at(-1)).toBe(validOwt)
+  })
+
+  test('streams DeepSeek V4 reasoning separately while preserving thinking', async () => {
+    const encoder = new TextEncoder()
+    const streamResponse = (events: string[]): Response => new Response(new ReadableStream({
+      start(controller) {
+        for (const event of events) controller.enqueue(encoder.encode(`data: ${event}\n\n`))
+        controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+        controller.close()
+      },
+    }), { headers: { 'content-type': 'text/event-stream' } })
+    const fetcher = (async (_input: URL | RequestInfo, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+      expect(body).toHaveProperty('thinking.type', 'enabled')
+      return streamResponse([
+        JSON.stringify({ choices: [{ delta: { reasoning_content: 'Thinking through the score...' } }] }),
+        JSON.stringify({ choices: [{ delta: { content: validOwt } }] }),
+      ])
+    }) as typeof fetch
+    const reasoning: string[] = []
+    await expect(createOwtWithAi({ baseUrl: 'https://api.deepseek.com', model: 'deepseek-v4-flash', thinkingMode: 'enabled' }, request, { fetcher, onReasoningUpdate: (text) => reasoning.push(text) })).resolves.toBe(validOwt)
+    expect(reasoning).toEqual(['Thinking through the score...'])
   })
 })

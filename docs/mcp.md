@@ -102,8 +102,9 @@ OWT is the primary persistent format documented in `docs/owt.md`:
 
 `import_midi_to_owt` is intentionally lossy. `grid` accepts `1/8`, `1/16` or
 `1/32`; `voice` accepts `continuous`, `highest` or `lowest`. Optional `track`
-and `channel` select the source. Accompaniment, drums, controls and performance
-microtiming are not copied into OWT.
+and `channel` select the source, and `preserveVelocity` (boolean, default
+false) keeps per-note velocity overrides. Accompaniment, drums, controls and
+performance microtiming are not copied into OWT.
 
 ## Example session
 

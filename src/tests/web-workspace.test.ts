@@ -23,7 +23,10 @@ describe('web workspace structure', () => {
     expect(app).toContain("control.hidden = pageId !== 'studio'")
     expect(css).toContain('.topbar .control-label { display: none; }')
     expect(html).toContain('<div class="topbar-scroll">')
-    expect(css).toContain('.topbar-scroll { gap: 5px; overflow-x: auto; overflow-y: hidden;')
+    expect(html).toContain('<div class="topbar-scroll-content">')
+    expect(css).toContain('.topbar-scroll-content { min-width: 100%; width: max-content; flex: 0 0 auto;')
+    expect(css).toContain('.topbar-scroll { overflow-x: auto; overflow-y: hidden;')
+    expect(css).toContain('.topbar-actions { margin-left: 0; }')
     expect(css).not.toContain('.topbar::-webkit-scrollbar')
     expect(css).not.toContain('grid-template-rows: auto auto auto')
   })
@@ -196,6 +199,11 @@ describe('web workspace structure', () => {
     expect(app).toContain("setAiComposeState('working')")
     expect(app).toContain("setAiComposeState('success')")
     expect(app).toContain("setAiComposeState('error')")
+    expect(html).toContain('id="ai-reasoning-panel"')
+    expect(html).toContain('id="ai-reasoning-last-line"')
+    expect(html).toContain('class="ai-reasoning-stream"')
+    expect(app).toContain('onReasoningUpdate')
+    expect(aiClient).toContain('onReasoningUpdate')
     expect(app).toContain("const unavailable = !active && !configured")
     expect(app).toContain("button.disabled = unavailable || (aiBusy && !active)")
     expect(css).toContain(".ai-improv-button:disabled")
@@ -307,6 +315,7 @@ describe('web workspace structure', () => {
 
   test('uses provider-first AI configuration with progressive generation parameters', () => {
     expect(html).toContain('id="ai-provider"')
+    expect(html).toContain('<option value="deepseek">DeepSeek</option>')
     expect(html).toContain('id="ai-model" type="text"')
     expect(html).toContain('class="settings-more-parameters"')
     for (const id of ['ai-thinking-mode', 'ai-reasoning-effort', 'ai-temperature', 'ai-top-p', 'ai-max-tokens', 'ai-thinking-budget']) {
@@ -314,6 +323,8 @@ describe('web workspace structure', () => {
     }
     expect(app).toContain("thinkingMode: thinkingMode ? thinkingMode as NonNullable<OwtAiConfig['thinkingMode']> : undefined")
     expect(app).toContain("reasoningEffort: reasoningEffort ? reasoningEffort as NonNullable<OwtAiConfig['reasoningEffort']> : undefined")
+    expect(app).toContain("deepseek: { baseUrl: 'https://api.deepseek.com', protocol: 'openai-chat-completions' }")
+    expect(app).not.toContain("'/api/ai/chat'")
     expect(aiClient).toContain("reasoning: { effort: openAiEffort }")
     expect(aiClient).toContain("output_config: { effort: anthropicEffort }")
     expect(aiClient).toContain("{ think }")
@@ -370,8 +381,10 @@ describe('web workspace structure', () => {
   })
 
   test('uses F5 as a global play and pause shortcut', () => {
-    expect(html).toContain('data-shortcut="F5 · Ctrl+Space · Space p"')
-    expect(html).toContain('aria-keyshortcuts="F5 Control+Space"')
+    expect(html).toContain('data-shortcut="F5 · Space p"')
+    expect(html).toContain('aria-keyshortcuts="F5"')
+    expect(app).toContain('if (ev.ctrlKey || ev.metaKey || ev.altKey) return')
+    expect(app).not.toContain("ev.code === 'Space'")
     expect(app).toContain("ev.key === 'F5'")
     expect(app).toContain("handleModalCommand('play-pause')")
   })
@@ -469,12 +482,17 @@ describe('web workspace structure', () => {
   test('shows OWT repair only for validation errors and exposes AI repair settings', () => {
     expect(html).toContain('id="btn-owt-repair"')
     expect(html.match(/<button id="btn-owt-repair"[^>]*>/)?.[0]).toContain('hidden')
+    expect(html).toContain('id="owt-repair-options"')
+    expect(html).toContain('id="owt-repair-split-events" type="checkbox"')
+    expect(html).not.toMatch(/id="owt-repair-split-events"[^>]*checked/)
     expect(app).toContain("diagnostics.some((diagnostic) => diagnostic.severity === 'error')")
     expect(app).toContain("control.id === 'btn-owt-repair' && !owtHasErrors")
+    expect(app).toContain('splitCrossBoundaryEvents')
     expect(html).toContain('id="ai-retry-count"')
+    expect(html).toContain('id="ai-retry-count" type="number" min="0" max="10" step="1" value="0"')
     expect(html).toContain('id="ai-auto-repair"')
     expect(html).toContain('id="btn-ai-test-templates"')
-    expect(app).toContain('repairCommonOwtErrors(owtEditor.value)')
+    expect(app).toContain('repairCommonOwtErrors(owtEditor.value, { splitCrossBoundaryEvents })')
   })
 
 })

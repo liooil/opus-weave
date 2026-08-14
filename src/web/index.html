@@ -34,7 +34,8 @@
         </div>
       </details>
       <div class="topbar-scroll">
-        <nav id="score-view-toolbar" class="score-view-toolbar" aria-label="Score and playback controls" data-i18n-aria-label="scoreViews.label">
+        <div class="topbar-scroll-content">
+          <nav id="score-view-toolbar" class="score-view-toolbar" aria-label="Score and playback controls" data-i18n-aria-label="scoreViews.label">
         <div class="score-view-tabs" role="tablist" data-studio-only>
           <button class="score-view-tab active" role="tab" aria-selected="true" data-score-view-target="owt" data-shortcut="Space g o" data-i18n-aria-label="scoreViews.owt" data-i18n-title="scoreViews.owt" aria-label="OWT" title="OWT"><span class="control-icon text-icon" aria-hidden="true">&lt;&gt;</span><span class="control-label" data-i18n="scoreViews.owt">OWT</span></button>
           <button class="score-view-tab" role="tab" aria-selected="false" data-score-view-target="timeline" data-shortcut="Space g t" data-i18n-aria-label="scoreViews.timeline" data-i18n-title="scoreViews.timeline" aria-label="Timeline" title="Timeline"><span class="control-icon" aria-hidden="true">▥</span><span class="control-label" data-i18n="scoreViews.timeline">Timeline</span></button>
@@ -42,15 +43,15 @@
           <button class="score-view-tab" role="tab" aria-selected="false" data-score-view-target="jianpu" data-shortcut="Space g j" data-i18n-aria-label="scoreViews.jianpu" data-i18n-title="scoreViews.jianpu" aria-label="Jianpu" title="Jianpu"><span class="control-icon text-icon" aria-hidden="true">1</span><span class="control-label" data-i18n="scoreViews.jianpu">Jianpu</span></button>
         </div>
         <button id="btn-score-view-cycle" class="score-view-cycle topbar-control" data-studio-only data-shortcut="Space g n" aria-label="OWT · Switch to Timeline" title="OWT · Switch to Timeline"><span id="score-view-cycle-icon" class="control-icon text-icon" aria-hidden="true">&lt;&gt;</span><span id="score-view-cycle-label" class="control-label">OWT</span></button>
-        <button id="btn-score-view-play" class="primary topbar-control" data-shortcut="F5 · Ctrl+Space · Space p" aria-keyshortcuts="F5 Control+Space" data-i18n-aria-label="playback.play" data-i18n-title="playback.play" aria-label="Play" title="Play"><span class="control-icon" aria-hidden="true">▶</span><span class="control-label" data-i18n="playback.play">Play</span></button>
+        <button id="btn-score-view-play" class="primary topbar-control" data-shortcut="F5 · Space p" aria-keyshortcuts="F5" data-i18n-aria-label="playback.play" data-i18n-title="playback.play" aria-label="Play" title="Play"><span class="control-icon" aria-hidden="true">▶</span><span class="control-label" data-i18n="playback.play">Play</span></button>
         <button id="btn-loop-playback" class="loop-playback-button topbar-control" data-shortcut="Space t l" aria-pressed="false" data-i18n-aria-label="playback.loop" data-i18n-title="playback.loop" aria-label="Loop playback" title="Loop playback"><span class="control-icon" aria-hidden="true">↻</span><span class="control-label" data-i18n="playback.loop">Loop</span></button>
         <button id="btn-return-to-start" class="topbar-control return-to-start-button" data-shortcut="Space s" data-i18n-aria-label="playback.returnToStart" data-i18n-title="playback.returnToStart" aria-label="Return to beginning" title="Return to beginning" disabled><span class="control-icon" aria-hidden="true">|←</span><span class="control-label" data-i18n="playback.returnToStart">Return to beginning</span></button>
         <button id="btn-owt-practice" class="topbar-control performance-button" data-studio-only data-shortcut="Space q" aria-keyshortcuts="Space Q" aria-pressed="false" data-i18n-aria-label="owt.practice" data-i18n-title="owt.practice" aria-label="Perform" title="Perform"><span class="control-icon" aria-hidden="true">♩</span><span class="control-label" data-i18n="owt.practice">Perform</span></button>
         <button id="btn-owt-repair" class="topbar-control repair-button" data-studio-only data-shortcut="Space f" data-i18n-aria-label="owt.repair" data-i18n-title="owt.repair" aria-label="Repair OWT" title="Repair OWT" hidden><span class="control-icon" aria-hidden="true">◇</span><span class="control-label" data-i18n="owt.repair">Repair OWT</span></button>
         <button id="btn-ai-compose" class="ai-compose-button topbar-control" data-studio-only data-ai-state="idle" data-shortcut="Space z c" data-i18n-aria-label="ai.compose" data-i18n-title="ai.compose" aria-label="AI composition" title="AI composition"><span class="control-icon" aria-hidden="true">✦</span><span class="control-label" data-i18n="ai.compose">AI composition</span></button>
         <button id="btn-ai-improvise" class="ai-improv-button topbar-control" data-studio-only data-improv-state="off" data-shortcut="Space z i" aria-pressed="false" data-i18n-aria-label="ai.improviseStart" data-i18n-title="ai.improviseStart" aria-label="Start improv mode" title="Start improv mode"><span class="control-icon" aria-hidden="true">∞</span><span class="control-label" data-i18n="simpleEdit.improvMode">Improv</span></button>
-        </nav>
-        <div class="topbar-actions">
+          </nav>
+          <div class="topbar-actions">
           <button class="workspace-tab" data-page-target="settings" data-shortcut="Space b c" data-i18n-aria-label="nav.settings" data-i18n-title="nav.settings" aria-label="Settings" title="Settings"><span class="control-icon" aria-hidden="true">⚙</span><span class="control-label" data-i18n="nav.settings">Settings</span></button>
           <button id="language-toggle" class="language-toggle" type="button" data-shortcut="Space z l" title="Switch to Chinese" aria-label="Switch to Chinese">
             <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -63,6 +64,7 @@
             <svg data-theme-icon="dark" viewBox="0 0 24 24" aria-hidden="true"><path d="M19.7 15.5A8.2 8.2 0 0 1 8.5 4.3 8.7 8.7 0 1 0 19.7 15.5Z"></path></svg>
             <svg data-theme-icon="system" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"></rect><path d="M8 21h8M12 17v4M12 6.5a4 4 0 0 0 0 8Z"></path></svg>
           </button>
+          </div>
         </div>
       </div>
       <progress id="header-playback-progress" class="header-playback-progress" value="0" max="1000" data-i18n-aria-label="playback.position" aria-label="Playback position"></progress>
@@ -78,6 +80,8 @@
             <div class="owt-editor-overlay">
               <div id="owt-motion-destinations" class="owt-motion-destinations" aria-hidden="true"></div>
               <div class="owt-context-actions">
+                <button id="btn-owt-insert-before" class="primary" data-shortcut="Space a b" data-i18n="simpleEdit.insertBefore">Insert before</button>
+                <button id="btn-owt-insert-after" class="primary" data-shortcut="Space a f" data-i18n="simpleEdit.insertAfter">Insert after</button>
                 <button id="btn-owt-delete-object" class="danger-quiet" data-shortcut="d" data-i18n="simpleEdit.delete">Delete</button>
                 <button id="btn-owt-replace-play" class="primary" data-shortcut="Space a p" data-i18n="simpleEdit.replacePlay">Play to replace event</button>
               </div>
@@ -93,6 +97,14 @@
           <div id="owt-key-hints" class="owt-key-hints" hidden></div>
           <div id="owt-status" class="status" hidden aria-live="polite"></div>
           <div id="owt-diagnostics" class="owt-diagnostics" aria-live="polite"></div>
+          <label id="owt-repair-options" class="owt-repair-options" hidden>
+            <input id="owt-repair-split-events" type="checkbox" />
+            <span data-i18n="owt.repairSplitEvents">Split long events across bar lines</span>
+          </label>
+          <details id="ai-reasoning-panel" class="ai-reasoning-panel" hidden>
+            <summary><span class="ai-reasoning-title" data-i18n="ai.reasoningPanel">AI reasoning</span><span id="ai-reasoning-last-line" class="ai-reasoning-last-line" aria-live="polite"></span><span id="ai-reasoning-state" data-i18n="ai.reasoningStreaming">Streaming</span></summary>
+            <pre id="ai-reasoning-stream" class="ai-reasoning-stream" aria-live="polite"></pre>
+          </details>
         </section>
         <section class="panel arranger-panel" id="playback-panel" data-score-view="timeline" hidden>
           <div class="arranger-transport">
@@ -326,7 +338,7 @@
               <div class="settings-form-group" id="ai-settings-panel">
                 <h3 data-i18n="settings.provider">Service provider</h3>
                 <div id="ai-settings" class="ai-settings settings-ai-fields">
-                  <label class="ai-provider-field"><span data-i18n="settings.provider">Service provider</span><select id="ai-provider"><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="openrouter">OpenRouter</option><option value="ollama">Ollama</option><option value="llamacpp">llama.cpp</option><option value="custom" data-i18n="settings.customProvider">Custom</option></select></label>
+                  <label class="ai-provider-field"><span data-i18n="settings.provider">Service provider</span><select id="ai-provider"><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="deepseek">DeepSeek</option><option value="openrouter">OpenRouter</option><option value="ollama">Ollama</option><option value="llamacpp">llama.cpp</option><option value="custom" data-i18n="settings.customProvider">Custom</option></select></label>
                   <label class="ai-endpoint-field"><span data-i18n="ai.endpoint">Service URL</span><input id="ai-endpoint" type="url" spellcheck="false" data-i18n-placeholder="ai.endpointPlaceholder" placeholder="Provider service URL" /></label>
                   <label id="ai-api-key-field"><span data-i18n="ai.apiKey">API key (optional)</span><span class="password-field"><input id="ai-api-key" type="password" autocomplete="off" /><button id="btn-ai-key-visibility" type="button" class="field-button" data-i18n="settings.show">Show</button></span></label>
                   <label id="ai-protocol-field"><span data-i18n="ai.protocol">Protocol</span><select id="ai-protocol"><option value="auto" data-i18n="ai.protocolAuto">Auto detect</option><option value="openai-responses">OpenAI Responses</option><option value="openai-chat-completions">OpenAI Chat Completions</option><option value="openai-completions">OpenAI Completions</option><option value="anthropic-messages">Anthropic Messages</option><option value="ollama-native">Ollama Native</option></select></label>
@@ -341,8 +353,8 @@
                   <label><span data-i18n="ai.thinkingMode">Thinking mode</span><select id="ai-thinking-mode"><option value="" data-i18n="ai.providerDefault">Provider default</option><option value="adaptive" data-i18n="ai.thinkingAdaptive">Adaptive</option><option value="enabled" data-i18n="ai.thinkingEnabled">Enabled (manual)</option><option value="disabled" data-i18n="ai.thinkingDisabled">Disabled</option></select></label>
                   <label><span data-i18n="ai.reasoningEffort">Reasoning effort</span><select id="ai-reasoning-effort"><option value="" data-i18n="ai.providerDefault">Provider default</option><option value="none">none</option><option value="minimal">minimal</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option><option value="xhigh">xhigh</option><option value="max">max</option></select></label>
                   <label><span data-i18n="ai.maxTokens">Maximum output tokens</span><input id="ai-max-tokens" type="number" min="1" max="1000000" step="1" value="4096" /></label>
-                  <label class="ai-checkbox-field"><input id="ai-auto-repair" type="checkbox" checked /><span><strong data-i18n="ai.autoRepair">Automatically repair invalid AI OWT</strong><small data-i18n="settings.autoRepairHint">Ask the model to correct output that the OWT parser rejects.</small></span></label>
-                  <label><span data-i18n="ai.retryCount">Repair retries</span><input id="ai-retry-count" type="number" min="0" max="10" step="1" value="3" /></label>
+                  <label class="ai-checkbox-field"><input id="ai-auto-repair" type="checkbox" /><span><strong data-i18n="ai.autoRepair">Automatically repair invalid AI OWT</strong><small data-i18n="settings.autoRepairHint">Ask the model to correct output that the OWT parser rejects.</small></span></label>
+                  <label><span data-i18n="ai.retryCount">Repair retries</span><input id="ai-retry-count" type="number" min="0" max="10" step="1" value="0" /></label>
                 </div>
                 <details class="settings-more-parameters">
                   <summary data-i18n="settings.moreParameters">Show more parameters</summary>

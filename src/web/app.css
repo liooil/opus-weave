@@ -146,7 +146,8 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 .brand-mark { width: 34px; height: 34px; display: block; flex: 0 0 auto; }
 
 .topbar-center { flex: 0 0 auto; padding: 3px; display: flex; gap: 2px; border: 1px solid var(--line); border-radius: 11px; background: var(--subtle-fill); }
-.topbar-scroll { min-width: 0; flex: 1 1 auto; display: flex; align-items: center; gap: 12px; }
+.topbar-scroll { min-width: 0; flex: 1 1 auto; display: flex; align-items: stretch; }
+.topbar-scroll-content { min-width: 100%; width: max-content; flex: 0 0 auto; display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
 .topbar-actions { flex: 0 0 auto; margin-left: auto; display: flex; align-items: center; gap: 4px; }
 :is(.language-toggle, .theme-toggle) { width: 32px; height: 32px; min-height: 32px; padding: 0; display: grid; place-items: center; border-radius: 9px; border-color: var(--line); background: var(--surface); color: var(--muted); cursor: pointer; }
 :is(.language-toggle, .theme-toggle):hover { border-color: var(--accent); color: var(--text); background: var(--surface-soft); }
@@ -545,6 +546,9 @@ progress::-moz-progress-bar { background: var(--accent); }
 .owt-diagnostics { margin-top: 10px; display: grid; gap: 5px; }
 .owt-diagnostic { padding: 7px 9px; border-left: 2px solid var(--err); border-radius: 0 7px 7px 0; background: rgba(255,122,112,0.045); color: #dba09b; font: 9px/1.5 var(--mono); }
 .owt-diagnostic.warning { border-left-color: var(--warn); color: var(--warn); background: rgba(241,200,106,0.04); }
+.owt-repair-options { margin-top: 9px; display: flex; align-items: center; gap: 7px; color: var(--muted); font: 10px/1.4 var(--mono); }
+.owt-repair-options[hidden] { display: none; }
+.owt-repair-options input { width: 14px; height: 14px; margin: 0; accent-color: var(--accent); }
 
 .monitor-panel { padding-bottom: 16px; }
 .mono-label { color: var(--dim); font: 8px var(--mono); letter-spacing: 0.12em; }
@@ -556,6 +560,17 @@ progress::-moz-progress-bar { background: var(--accent); }
 
 .status { min-height: 17px; margin-top: 10px; color: var(--muted); font-size: 11px; }
 .status.ok { color: var(--ok); }.status.warn { color: var(--warn); }.status.err { color: var(--err); }
+.ai-reasoning-panel { min-width: 0; max-width: 100%; margin-top: 10px; overflow: hidden; border: 1px solid rgba(198,165,246,0.34); border-radius: 11px; background: rgba(198,165,246,0.06); color: var(--muted); }
+.ai-reasoning-panel[hidden] { display: none; }
+.ai-reasoning-panel > summary { min-width: 0; padding: 8px 10px; display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--text); cursor: pointer; font-size: 10px; font-weight: 700; list-style: none; }
+.ai-reasoning-panel > summary::-webkit-details-marker { display: none; }
+.ai-reasoning-panel > summary::before { width: 7px; height: 7px; margin-right: 1px; border-right: 1px solid currentColor; border-bottom: 1px solid currentColor; transform: rotate(-45deg); content: ''; }
+.ai-reasoning-panel[open] > summary::before { transform: rotate(45deg); }
+.ai-reasoning-title { flex: 0 0 auto; }
+.ai-reasoning-last-line { min-width: 0; flex: 1 1 auto; overflow: hidden; color: var(--muted); font: 9px var(--mono); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.ai-reasoning-panel[open] .ai-reasoning-last-line { display: none; }
+.ai-reasoning-panel > summary > span:last-of-type { color: var(--dim); font: 9px var(--mono); font-weight: 500; }
+.ai-reasoning-stream { min-width: 0; max-width: 100%; max-height: min(180px, 30vh); margin: 0; padding: 0 10px 10px 25px; box-sizing: border-box; overflow: auto; color: var(--muted); font: 10px/1.55 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
 .hint { color: var(--muted); font-size: 11px; }
 
 ::-webkit-scrollbar { width: 7px; height: 7px; }
@@ -791,8 +806,9 @@ progress::-moz-progress-bar { background: var(--accent); }
     gap: 5px;
     padding-inline: 8px;
   }
-  .topbar-scroll { gap: 5px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+  .topbar-scroll { overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
   .topbar-scroll::-webkit-scrollbar { display: none; }
+  .topbar-scroll-content { gap: 5px; }
   .brand h1, .brand p { display: none; }
   .brand-mark { width: 30px; height: 30px; }
   .score-view-toolbar { flex: 0 0 auto; }

@@ -42,6 +42,7 @@ standard. The persistent output of `create_midi` is always standard MIDI.
 | `ppq` | int > 0 | 480 | Ticks per quarter note |
 | `tempos` | `{beat, bpm}[]` | `[{beat:0, bpm:120}]` | Tempo map; `beat` ≥ 0, `bpm` > 0 |
 | `timeSignatures` | `{beat, numerator, denominator}[]` | `[]` | `denominator` must be a power of two |
+| `keySignatures` | `{beat, tonic, mode}[]` | `[]` | Key signature meta events; `tonic` such as `C`, `F#` or `Bb`, `mode` `major`/`minor` |
 | `tracks` | Track[] | required | At least one recommended (empty → conductor-only file, warning) |
 
 Each track:
@@ -56,6 +57,7 @@ Each track:
 | `notes` | Note[] | `[]` | See below |
 | `controlChanges` | `{beat, controller, value}[]` | `[]` | `controller` 0–127, `value` 0–127 |
 | `pitchBends` | `{beat, value}[]` | `[]` | `value` 0–16383, 8192 = center |
+| `programChanges` | `{beat, program}[]` | `[]` | GM program change at `beat` |
 
 Notes: `{ startBeat ≥ 0, durationBeats > 0, pitch 0–127, velocity 1–127 }`.
 
@@ -70,10 +72,12 @@ before anything is written:
 - Negative times are errors; `durationBeats` must be > 0; `bpm` must be > 0.
 - Integers are required where the MIDI format uses integers
   (pitch, velocity, controller, program, ppq, …).
-- Time-signature denominators must be powers of two.
+- Time-signature denominators must be powers of two; numerators must be 1–64.
+- A positive duration that rounds to zero ticks at the selected PPQ is an error.
 - Errors always name the exact location: `tracks[0].notes[2].pitch: must be
   in range 0–127, got 300`. Nothing is silently coerced.
-- Warnings (not errors): empty track list; unusually high tempo (> 400 BPM).
+- Warnings (not errors): empty track list; unusually high tempo (> 400 BPM);
+  tracks sharing a MIDI channel with conflicting program/volume/pan values.
 
 ## beat → tick
 
@@ -86,8 +90,9 @@ the recorder share it, so rounding is consistent across the app.
 `src/domain/midi/midi-export.ts`:
 
 - Track 0 is the conductor track (created by the builder): tempo map
-  (`setTempo` events, µs-per-quarter = 60_000_000 / bpm) and time signatures
-  (`FF 58 04 nn dd cc bb`, `dd = log2(denominator)`).
+  (`setTempo` events, µs-per-quarter = 60_000_000 / bpm), time signatures
+  (`FF 58 04 nn dd cc bb`, `dd = log2(denominator)`) and key signatures
+  (`FF 59 02 sf mi`, from `keySignatures`).
 - Each spec track becomes one MIDI track: track-name meta, optional program
   change at tick 0, optional CC7 (volume) and CC10 (pan) at tick 0, then
   control changes, pitch bends (14-bit, 8192 center) and note on/off pairs.

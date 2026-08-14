@@ -97,40 +97,43 @@ same event is highlighted in the staff and Jianpu views. The highlight follows
 tempo changes and supports simultaneous events on multiple tracks. Editing the
 text stops the stale playback mapping before rebuilding the lexical layer.
 Hovering or keyboard-focusing a note in the timeline, staff or Jianpu view
-opens a readable source card. OWT tokens preserve their source text, while
-timeline values are expanded to one field per line. Localized rows explain
-every available field: event type, pitch and MIDI number, duration, channel,
-velocity, and timeline position.
+opens a readable source card. OWT tokens preserve their source text. Localized
+rows explain the available fields: event type, pitch and MIDI number, duration,
+and velocity.
 
 ## Direct score editing
 
 The default Helix **NORMAL · Score edit** mode applies modal motions directly
 to complete musical objects instead of exposing a separate selection-level control:
 
-- **Event (CHAR)** — one note, rest, chord or control event, such as `C4:1`.
-- **Measure (WORD)** — the events between a pair of bar lines.
-- **Track (LINE)** — one complete musical track.
+- **Event** — one note, rest, chord or control event, such as `C4:1`.
+- **Measure** — the events between a pair of bar lines.
+- **Track** — one complete musical track.
 
-Use `h`/`l` to move between events, `b`/`w`/`e` between measures and `k`/`j`
-between tracks. Arrow keys mirror `h`/`l` and `k`/`j`. Search commands are not
-part of the OWT modal language. `Space` opens the button-command hierarchy,
+Use `h`/`l` (and `b`/`w`/`e`) to move between events; the arrow keys mirror
+`h`/`l`. `k`/`j` move by text line. Move between measures with `]b`/`[b`, between
+tracks with `]t`/`[t`, and select whole tracks with `x`/`X`. Search commands are
+not part of the OWT modal language. `Space` opens the button-command hierarchy,
 including play/pause, views, editing actions, import, examples and AI actions.
-`Ctrl+Space` toggles play/pause globally, including from the timeline, staff and
-Jianpu views. The adjacent **Loop playback** toggle repeats the active MIDI or
-OWT playback continuously; `Space t l` toggles it from the Helix command tree.
+`F5` toggles play/pause globally, including from the timeline, staff and Jianpu
+views. Computer-keyboard performance handles only unmodified keys, so Ctrl,
+Command and Alt combinations remain available to native copy/paste and editor
+shortcuts. The adjacent **Loop playback** toggle repeats the active MIDI or OWT
+playback continuously; `Space t l` toggles it from the Helix command tree.
 The transport remains visible on **Settings**, so SoundFont, preset, output and
 volume changes can be auditioned without returning to the score. Its single
 action label reads **Play** while paused and **Pause** while playing. The global
 **Return to beginning** action silences current playback, moves the persistent
 score cursor to beat zero and remains available in every score view; it is not
 a separate stopped state.
-Selected OWT ranges repeat their exact range, while AI-improv responses and
-timeline replacement previews remain one-shot.
-For events, enter a complete token and use **Insert before**, **Insert after**
-or **Replace**. **Delete** applies to the selected event, measure or track.
-**Play to replace event** waits for one Note On from MIDI, the computer
-keyboard or the virtual piano, then replaces the selected pitch while keeping
-its duration and event attributes.
+Selected OWT ranges repeat their exact range, while AI-improv responses remain
+one-shot.
+For events, **Insert before** and **Insert after** arm a performance edit: play
+one note on MIDI, the computer keyboard or the virtual piano, and it is inserted
+before or after the selected event while keeping its duration. **Play to replace
+event** does the same but replaces the selected pitch instead, also keeping its
+duration and event attributes. **Delete** applies to the selected event, measure
+or track.
 
 **RAW · Raw text** is a first-class Helix mode beside NORMAL, INSERT and
 SELECT. Click the mode indicator at the editor's lower-left corner to toggle
@@ -171,8 +174,9 @@ live keystrokes. The selected layout is saved locally.
   canonical `data/freepiano.map`: the full main section, navigation cluster,
   arrow keys and numeric keypad span B1 through A6.
 
-In the default layout, A/K change octave and F/4 change velocity. Those keys
-become ordinary notes in the word, Pinyin and FreePiano layouts.
+In the default layout, A/K change octave and F/4 change velocity. In the word
+and Pinyin layouts A/K/F become ordinary notes but the number keys are not notes;
+in the FreePiano layout every mapped key, including `4`, is a note.
 
 `ComputerKeyboardLayout` is a public domain contract accepted by
 `MappingEngine.setComputerLayout`, so a future layout editor can install user
@@ -206,9 +210,10 @@ panel.
 Entering a service URL discovers selectable models when the provider exposes a
 model-list API. llama.cpp servers are recognized on LAN port 8080 and both
 `/models` and `/v1/models` are supported. Manual model IDs remain available.
-Auto detection supports OpenAI Responses, OpenAI Chat/legacy Completions,
-Anthropic Messages, Ollama native, OpenRouter and llama.cpp/OpenAI-compatible
-servers. The source contains no default endpoint or model. When no
+Auto detection supports OpenAI Responses, OpenAI Chat, Anthropic Messages,
+Ollama native, OpenRouter and llama.cpp/OpenAI-compatible servers; legacy OpenAI
+Completions is available as a manual protocol choice. The source contains no
+default endpoint or model. When no
 endpoint/model is configured, the button instead opens a prepared, editable
 prompt containing the current score and OWT validity rules. It can be copied
 into any AI chat, and the returned OWT can always be pasted directly into the
@@ -222,11 +227,11 @@ editor.
   and sampled into up to eight JPEG frames before transcription.
 - **Improv mode** listens continuously to MIDI, computer-keyboard or virtual-keyboard input. The first Note On starts a user turn; once all notes are released and input is silent for 1.2 seconds, the phrase is converted to OWT and sent automatically. The AI response is validated and played, then the mode returns to listening. Playing during the AI response interrupts it immediately and begins the next user turn.
 
-Invalid model output is returned to the model with parser diagnostics for up to
-three repairs. If free-form OWT remains invalid, a JSON-schema-constrained note
-response is converted into measure-safe OWT. Desktop builds proxy AI requests
-through the loopback BunDesk server so a LAN llama.cpp server does not need
-browser CORS configuration; the static web build connects directly.
+AI requests are sent directly from the browser to the configured provider
+endpoint. Generation is one-shot by default: invalid model output fails the
+request instead of being silently rewritten. The optional **Automatically
+repair invalid AI OWT** setting can be enabled to return parser diagnostics to
+the model for a bounded number of repair attempts.
 
 ## Lossy MIDI import
 
@@ -235,8 +240,8 @@ stream. The conversion is intentionally lossy and deterministic:
 
 1. Ignore the percussion channel.
 2. Group notes by MIDI track and channel.
-3. Select the most melody-like source using track names, monophony, pitch range
-   and note density, unless the user selects a track or channel.
+3. Select the most melody-like source using track names, monophony, average
+   pitch and note count, unless the user selects a track or channel.
 4. Reduce simultaneous notes to one voice using `continuous`, `highest` or
    `lowest` selection.
 5. Quantize note starts and durations to `1/8`, `1/16` or `1/32`.
@@ -280,6 +285,16 @@ opusweave owt fmt examples/twinkle.owt --check
 opusweave owt play examples/twinkle.owt
 opusweave owt to-midi examples/twinkle.owt -o twinkle.mid
 opusweave owt from-midi twinkle.mid --grid 1/16 --voice continuous -o melody.owt
+```
+
+The section-based full composition workflow is exposed as `composition`:
+
+```bash
+opusweave composition plan plan.json
+opusweave composition section intro section.owt
+opusweave composition assemble plan.json sections.json
+opusweave composition analyze plan.json score.owt
+opusweave composition revise plan.json sections.json intro revised.owt
 ```
 
 `owt fmt` parses, validates, and emits canonical OWT. The current AST does not

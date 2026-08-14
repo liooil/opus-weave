@@ -18,6 +18,7 @@ import { compileScoreText, extractMelodyFromMidi, extractMelodyFromRecording, ty
 import { parseOwt } from '../domain/owt/parser.ts'
 import { parseRational, rational, rationalToNumber } from '../domain/owt/rational.ts'
 import { serializeOwt } from '../domain/owt/serializer.ts'
+import { appendOwtScores, completeOwtPrefix } from '../domain/owt/streaming.ts'
 import { buildOwt01Reference } from '../domain/owt/reference.ts'
 import type { OwtDocument } from '../domain/owt/ast.ts'
 import { activeOwtPlaybackIds, activeOwtSourceRanges, buildOwtPlaybackMap, cursorOwtPlaybackTokens, playbackStartForSourceRanges, type OwtPlaybackToken, type OwtSourceRange } from '../domain/owt/playback-map.ts'
@@ -717,7 +718,14 @@ const modalEditor = new ModalOwtEditor(
 
 owtEditor.addEventListener('scroll', syncOwtHighlightScroll)
 
-let semanticReplaceArmed = false
+type SemanticEditMode = 'replace' | 'insert-before' | 'insert-after'
+let semanticEditMode: SemanticEditMode | null = null
+
+const SEMANTIC_EDIT_BUTTONS = ['btn-owt-replace-play', 'btn-owt-insert-before', 'btn-owt-insert-after'] as const
+
+function semanticEditButton(mode: SemanticEditMode): string {
+  return mode === 'replace' ? 'btn-owt-replace-play' : mode === 'insert-before' ? 'btn-owt-insert-before' : 'btn-owt-insert-after'
+}
 
 type EditableOwtObjectKind = 'event' | 'measure' | 'track'
 
@@ -744,10 +752,12 @@ function selectSemanticAt(position: number): void {
 
 
 function cancelSemanticPerformanceReplacement(showStatus = false): void {
-  semanticReplaceArmed = false
-  const button = $<HTMLButtonElement>('btn-owt-replace-play')
-  button.classList.remove('active')
-  button.setAttribute('aria-pressed', 'false')
+  semanticEditMode = null
+  for (const id of SEMANTIC_EDIT_BUTTONS) {
+    const button = $<HTMLButtonElement>(id)
+    button.classList.remove('active')
+    button.setAttribute('aria-pressed', 'false')
+  }
   if (showStatus) setTranslatedStatus('owt-edit-status', 'simpleEdit.replaceCancelled')
 }
 
@@ -773,8 +783,8 @@ function deleteSelectedSemanticObject(): void {
   setTranslatedStatus('owt-edit-status', 'simpleEdit.deleted', {}, 'ok')
 }
 
-function toggleSemanticPerformanceReplacement(): void {
-  if (semanticReplaceArmed) {
+function armSemanticPerformanceEdit(mode: SemanticEditMode): void {
+  if (semanticEditMode === mode) {
     cancelSemanticPerformanceReplacement(true)
     return
   }
@@ -782,25 +792,40 @@ function toggleSemanticPerformanceReplacement(): void {
     setTranslatedStatus('owt-edit-status', 'simpleEdit.eventOnly', {}, 'warn')
     return
   }
-  semanticReplaceArmed = true
-  const button = $<HTMLButtonElement>('btn-owt-replace-play')
-  button.classList.add('active')
-  button.setAttribute('aria-pressed', 'true')
+  semanticEditMode = mode
+  for (const id of SEMANTIC_EDIT_BUTTONS) {
+    const button = $<HTMLButtonElement>(id)
+    const active = id === semanticEditButton(mode)
+    button.classList.toggle('active', active)
+    button.setAttribute('aria-pressed', String(active))
+  }
   setTranslatedStatus('owt-edit-status', 'simpleEdit.playNow', {}, 'warn')
   $('live-panel').scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
-function handleSemanticReplacementNote(data: Uint8Array): boolean {
-  if (!semanticReplaceArmed || (data[0]! & 0xf0) !== 0x90 || (data[2] ?? 0) === 0) return false
+function handleSemanticPerformanceNote(data: Uint8Array): boolean {
+  if (!semanticEditMode || (data[0]! & 0xf0) !== 0x90 || (data[2] ?? 0) === 0) return false
   const object = selectedSemanticObject('event')
   if (!object) { cancelSemanticPerformanceReplacement(); return false }
   const current = owtEditor.value.slice(object.start, object.end)
-  const replacement = replaceOwtEventPitch(current, noteName(data[1]!))
-  if (!replacement) { cancelSemanticPerformanceReplacement(); return false }
-  modalEditor.replaceTextRange(object.start, object.end, replacement)
+  const colon = current.lastIndexOf(':')
+  if (colon < 0) { cancelSemanticPerformanceReplacement(); return false }
+  const played = noteName(data[1]!)
+  const mode = semanticEditMode
+  if (mode === 'replace') {
+    const replacement = replaceOwtEventPitch(current, played)
+    if (!replacement) { cancelSemanticPerformanceReplacement(); return false }
+    modalEditor.replaceTextRange(object.start, object.end, replacement)
+    selectSemanticAt(object.start)
+    setTranslatedStatus('owt-edit-status', 'simpleEdit.playReplaced', { note: played }, 'ok')
+  } else {
+    const token = `${played}${current.slice(colon)}`
+    if (mode === 'insert-before') modalEditor.replaceTextRange(object.start, object.start, `${token} `)
+    else modalEditor.replaceTextRange(object.end, object.end, ` ${token}`)
+    selectSemanticAt(mode === 'insert-before' ? object.start : object.end)
+    setTranslatedStatus('owt-edit-status', 'simpleEdit.inserted', {}, 'ok')
+  }
   cancelSemanticPerformanceReplacement()
-  selectSemanticAt(object.start)
-  setTranslatedStatus('owt-edit-status', 'simpleEdit.playReplaced', { note: noteName(data[1]!) }, 'ok')
   return true
 }
 
@@ -809,13 +834,17 @@ $('btn-ai-improvise').addEventListener('click', () => {
   else startConversationalImprov()
 })
 $('btn-owt-delete-object').addEventListener('click', deleteSelectedSemanticObject)
-$('btn-owt-replace-play').addEventListener('click', toggleSemanticPerformanceReplacement)
+$('btn-owt-replace-play').addEventListener('click', () => armSemanticPerformanceEdit('replace'))
+$('btn-owt-insert-before').addEventListener('click', () => armSemanticPerformanceEdit('insert-before'))
+$('btn-owt-insert-after').addEventListener('click', () => armSemanticPerformanceEdit('insert-after'))
 
 const recorder = new MidiRecorder()
 const improvSession = new ConversationalImprovSession()
 let improvPhraseTimer: number | undefined
 let improvAbortController: AbortController | undefined
 let improvRequestSequence = 0
+let improvScoreText = ''
+let improvResponseStreaming = false
 const mapping = new MappingEngine()
 let practiceSession: PracticeSession | null = null
 let practiceExpectedNotes: number[] = []
@@ -1196,7 +1225,7 @@ function handleMidiMessage(data: Uint8Array, timestampMs: number): void {
 
   // Device profile remap (editable CC remaps).
   const remapped = applyProfileRemap(data)
-  if (!handleSemanticReplacementNote(remapped)) handleConversationalImprovInput(remapped, timestampMs)
+  if (!handleSemanticPerformanceNote(remapped)) handleConversationalImprovInput(remapped, timestampMs)
 
   handlePracticeNote(remapped)
   // Live play-through to the SoundFont synth.
@@ -1770,7 +1799,9 @@ $('btn-return-to-start').addEventListener('click', returnToBeginning)
 function renderOwtDiagnostics(diagnostics: Array<{ line: number; column: number; severity: string; code: string; message: string }>): void {
   owtDiagnostics = diagnostics.map(({ line, column }) => ({ line, column }))
   owtHasErrors = diagnostics.some((diagnostic) => diagnostic.severity === 'error')
-  $<HTMLButtonElement>('btn-owt-repair').hidden = !owtHasErrors || !document.querySelector<HTMLElement>('[data-workspace-page="studio"]')?.classList.contains('active')
+  const repairVisible = owtHasErrors && Boolean(document.querySelector<HTMLElement>('[data-workspace-page="studio"]')?.classList.contains('active'))
+  $<HTMLButtonElement>('btn-owt-repair').hidden = !repairVisible
+  $<HTMLLabelElement>('owt-repair-options').hidden = !repairVisible || !diagnostics.some((diagnostic) => diagnostic.code === 'score.bar.misaligned')
   owtSyntaxIndex = buildOwtSyntaxIndex(owtEditor.value, owtDiagnostics)
   const box = $('owt-diagnostics')
   box.innerHTML = ''
@@ -1830,19 +1861,25 @@ function showExtractedMelody(result: MelodyExtractionResult, sourceKey: 'owt.mid
   }, 'ok')
 }
 
-async function playOwtRange(sourceRange?: { start: number; end?: number }, allowLoop = true): Promise<void> {
+interface OwtPlaybackOptions {
+  text?: string
+  startSeconds?: number
+}
+
+async function playOwtRange(sourceRange?: { start: number; end?: number }, allowLoop = true, options: OwtPlaybackOptions = {}): Promise<void> {
   transportController.beginLoading(sourceRange ? 'selection' : 'owt')
-  const document = parseEditorOwt()
+  const sourceText = options.text ?? owtEditor.value
+  const document = options.text === undefined ? parseEditorOwt() : parseOwt(sourceText).document
   if (!document) return
-  const compiled = compileScoreText(owtEditor.value)
+  const compiled = compileScoreText(sourceText)
   const fileName = owtFileName(document, 'mid')
-  if (activeScoreView === 'timeline' && timelineOwtRevision !== owtRevision) syncTimelineFromCurrentOwt()
-  owtPlaybackTokens = buildOwtPlaybackMap(owtEditor.value, compiled.score)
+  if (options.text === undefined && activeScoreView === 'timeline' && timelineOwtRevision !== owtRevision) syncTimelineFromCurrentOwt()
+  owtPlaybackTokens = buildOwtPlaybackMap(sourceText, compiled.score)
   owtPlaybackRanges = []
   owtActiveRangeKey = ''
-  let startSeconds = 0
+  let startSeconds = Math.max(0, options.startSeconds ?? 0)
   let endSeconds: number | undefined
-  if (sourceRange) {
+  if (sourceRange && options.startSeconds === undefined) {
     const startToken = owtPlaybackTokens.find((token) => token.start <= sourceRange.start && token.end > sourceRange.start)
       ?? owtPlaybackTokens.find((token) => token.start >= sourceRange.start)
     startSeconds = startToken?.startSeconds ?? 0
@@ -1899,6 +1936,8 @@ function handleModalCommand(command: string, args = ''): void | Promise<void> {
     case 'view-next': cycleScoreView(); return
     case 'delete-object': $('btn-owt-delete-object').click(); return
     case 'replace-by-playing': $('btn-owt-replace-play').click(); return
+    case 'insert-before': $('btn-owt-insert-before').click(); return
+    case 'insert-after': $('btn-owt-insert-after').click(); return
     case 'play-example': void loadBuiltinExample(BUILTIN_OWT_EXAMPLES[0]?.id, true); return
     case 'timeline-restart': returnToBeginning(); return
     case 'ai-settings': showWorkspacePage('settings'); return
@@ -1943,7 +1982,8 @@ function formatEditorOwt(showStatus = true): void {
 }
 
 $('btn-owt-repair').addEventListener('click', () => {
-  const result = repairCommonOwtErrors(owtEditor.value)
+  const splitCrossBoundaryEvents = $<HTMLInputElement>('owt-repair-split-events').checked
+  const result = repairCommonOwtErrors(owtEditor.value, { splitCrossBoundaryEvents })
   if (result.changes.length === 0) {
     setTranslatedStatus('owt-status', 'owt.repairNoChange', {}, 'warn')
     return
@@ -2071,11 +2111,12 @@ function storedAiConfig(): OwtAiConfig {
   }
 }
 
-type AiProviderChoice = 'openai' | 'anthropic' | 'openrouter' | 'ollama' | 'llamacpp' | 'custom'
+type AiProviderChoice = 'openai' | 'anthropic' | 'deepseek' | 'openrouter' | 'ollama' | 'llamacpp' | 'custom'
 
 const AI_PROVIDER_DEFAULTS: Record<Exclude<AiProviderChoice, 'custom'>, { baseUrl: string; protocol: AiProtocol }> = {
   openai: { baseUrl: 'https://api.openai.com/v1', protocol: 'openai-responses' },
   anthropic: { baseUrl: 'https://api.anthropic.com/v1', protocol: 'anthropic-messages' },
+  deepseek: { baseUrl: 'https://api.deepseek.com', protocol: 'openai-chat-completions' },
   openrouter: { baseUrl: 'https://openrouter.ai/api/v1', protocol: 'openai-chat-completions' },
   ollama: { baseUrl: 'http://127.0.0.1:11434', protocol: 'ollama-native' },
   llamacpp: { baseUrl: 'http://127.0.0.1:8080', protocol: 'openai-chat-completions' },
@@ -2085,6 +2126,7 @@ function inferAiProvider(config: Pick<OwtAiConfig, 'baseUrl' | 'protocol'>): AiP
   const url = config.baseUrl.toLowerCase()
   if (url.includes('api.openai.com')) return 'openai'
   if (url.includes('api.anthropic.com')) return 'anthropic'
+  if (url.includes('api.deepseek.com')) return 'deepseek'
   if (url.includes('openrouter.ai')) return 'openrouter'
   if ((config.protocol ?? 'auto') === 'ollama-native' || url.includes(':11434')) return 'ollama'
   if (url.includes(':8080') || url.includes('llama.cpp')) return 'llamacpp'
@@ -2175,10 +2217,9 @@ function updateAiSettingsState(): void {
   aiState.classList.toggle('ok', Boolean(config.baseUrl && config.model))
 }
 
-function aiTransport(signal?: AbortSignal): { proxyUrl?: string; signal: AbortSignal } {
-  const localDesktop = location.hostname === '127.0.0.1' || location.hostname === 'localhost'
+function aiTransport(signal?: AbortSignal): { signal: AbortSignal } {
   const timeout = AbortSignal.timeout(180_000)
-  return { proxyUrl: localDesktop ? '/api/ai/chat' : undefined, signal: signal ? AbortSignal.any([signal, timeout]) : timeout }
+  return { signal: signal ? AbortSignal.any([signal, timeout]) : timeout }
 }
 
 let aiDiscoveryTimer: number | undefined
@@ -2285,6 +2326,216 @@ function createAiEditorStream(): { update: (text: string) => void; finish: (text
   }
 }
 
+type AiPlaybackStream = {
+  update: (text: string) => void
+  finish: (text: string) => Promise<boolean>
+  cancel: (stopPlayback?: boolean) => void
+}
+
+function createAiPlaybackStream(allowLoop: boolean, onStarted?: () => void): AiPlaybackStream {
+  let disposed = false
+  let started = false
+  let playbackStarted = false
+  let playbackFailed = false
+  let latestPlayableText = ''
+  let playedText = ''
+  let pendingRefreshText = ''
+  let startPromise: Promise<void> | undefined
+  let refreshPromise: Promise<void> | undefined
+
+  const start = (text: string, loop: boolean, startSeconds = 0): Promise<void> => {
+    playbackStarted = true
+    return playOwtRange(undefined, loop, { text, startSeconds }).then(() => {
+      playedText = text
+      onStarted?.()
+    })
+  }
+
+  const startInitial = (text: string): void => {
+    started = true
+    startPromise = start(text, false).catch(() => {
+      playbackFailed = true
+      started = false
+    })
+  }
+
+  const refresh = (): void => {
+    if (disposed || !started || refreshPromise || playbackFailed) return
+    refreshPromise = (async () => {
+      await startPromise
+      while (!disposed && pendingRefreshText) {
+        const text = pendingRefreshText
+        pendingRefreshText = ''
+        if (!text || text === playedText) continue
+        const position = engine?.getPlaybackPosition().seconds ?? 0
+        try {
+          await start(text, false, position)
+        } catch {
+          playbackFailed = true
+          break
+        }
+      }
+    })().finally(() => {
+      refreshPromise = undefined
+      if (!disposed && pendingRefreshText && !playbackFailed) refresh()
+    })
+  }
+
+  return {
+    update: (text) => {
+      if (disposed) return
+      const prefix = completeOwtPrefix(text)
+      if (!prefix || prefix.text === latestPlayableText) return
+      latestPlayableText = prefix.text
+      if (!started) startInitial(prefix.text)
+      else {
+        pendingRefreshText = prefix.text
+        refresh()
+      }
+    },
+    finish: async (text) => {
+      if (disposed) return false
+      const prefix = completeOwtPrefix(text)
+      if (!prefix || playbackFailed) return false
+      latestPlayableText = prefix.text
+      if (!started) startInitial(prefix.text)
+      else pendingRefreshText = prefix.text
+      refresh()
+      await startPromise
+      await refreshPromise
+      if (disposed || !prefix) return false
+      try {
+        // The stream previews use looping=false. Start the finalized score at
+        // the current position when possible, while restarting from zero if
+        // the preview has already reached its end.
+        const position = engine?.getPlaybackPosition().seconds ?? 0
+        const resumeAt = playbackActive || prefix.text !== playedText ? position : 0
+        await start(prefix.text, allowLoop, resumeAt)
+      } catch {
+        playbackFailed = true
+        return false
+      }
+      latestPlayableText = prefix.text
+      return true
+    },
+    cancel: (stopPlayback = false) => {
+      disposed = true
+      pendingRefreshText = ''
+      if (stopPlayback && playbackStarted && playbackActive) engine?.stop()
+    },
+  }
+}
+
+type AiReasoningStream = {
+  begin: () => void
+  update: (text: string) => void
+  finish: () => void
+  clear: () => void
+}
+
+const aiReasoningPanel = $<HTMLDetailsElement>('ai-reasoning-panel')
+const aiReasoningLastLine = $('ai-reasoning-last-line')
+const aiReasoningState = $('ai-reasoning-state')
+const aiReasoningOutput = $('ai-reasoning-stream')
+let activeAiReasoningStream: AiReasoningStream | undefined
+
+function createAiReasoningStream(): AiReasoningStream {
+  let pending = ''
+  let disposed = false
+  let hasRendered = false
+  const setState = (key: string): void => {
+    aiReasoningState.removeAttribute('data-i18n')
+    setTranslatedText('ai-reasoning-state', key)
+  }
+  const lastLine = (text: string): string => {
+    const lines = text.split(/\r?\n/)
+    return [...lines].reverse().find((line) => line.trim().length > 0)?.trim() ?? ''
+  }
+  const render = (): void => {
+    aiReasoningOutput.textContent = pending
+    aiReasoningLastLine.textContent = lastLine(pending)
+    aiReasoningOutput.scrollTop = aiReasoningOutput.scrollHeight
+  }
+  return {
+    begin: () => {
+      disposed = false
+      hasRendered = false
+      pending = ''
+      aiReasoningOutput.textContent = ''
+      aiReasoningLastLine.textContent = ''
+      aiReasoningPanel.hidden = true
+      aiReasoningPanel.open = false
+      setState('ai.reasoningStreaming')
+    },
+    update: (text) => {
+      if (disposed) return
+      if (text.startsWith(pending)) {
+        const delta = text.slice(pending.length)
+        if (delta) aiReasoningOutput.append(document.createTextNode(delta))
+      } else {
+        aiReasoningOutput.textContent = text
+      }
+      pending = text
+      aiReasoningLastLine.textContent = lastLine(pending)
+      aiReasoningOutput.scrollTop = aiReasoningOutput.scrollHeight
+      aiReasoningPanel.hidden = false
+      if (!hasRendered) {
+        aiReasoningPanel.open = true
+        hasRendered = true
+      }
+      setState('ai.reasoningStreaming')
+    },
+    finish: () => {
+      if (disposed) return
+      if (!pending.trim()) {
+        aiReasoningPanel.hidden = true
+        aiReasoningPanel.open = false
+        disposed = true
+        return
+      }
+      disposed = true
+      pending = pending.trim()
+      render()
+      setState('ai.reasoningComplete')
+    },
+    clear: () => {
+      disposed = true
+      hasRendered = false
+      pending = ''
+      aiReasoningOutput.textContent = ''
+      aiReasoningLastLine.textContent = ''
+      aiReasoningPanel.hidden = true
+      aiReasoningPanel.open = false
+      aiReasoningState.removeAttribute('data-text-key')
+      aiReasoningState.removeAttribute('data-text-values')
+      aiReasoningState.dataset.i18n = 'ai.reasoningStreaming'
+      aiReasoningState.textContent = t('ai.reasoningStreaming')
+    },
+  }
+}
+
+function beginAiReasoningStream(): AiReasoningStream {
+  activeAiReasoningStream?.clear()
+  const stream = createAiReasoningStream()
+  activeAiReasoningStream = stream
+  stream.begin()
+  return stream
+}
+
+function finishAiReasoningStream(stream: AiReasoningStream): void {
+  if (activeAiReasoningStream !== stream) {
+    stream.clear()
+    return
+  }
+  stream.finish()
+  activeAiReasoningStream = undefined
+}
+
+function clearAiReasoningStream(): void {
+  activeAiReasoningStream?.clear()
+  activeAiReasoningStream = undefined
+}
+
 async function applyAiRequest(request: OwtAiRequest, statusKey: string, statusValues: TranslationValues = {}): Promise<boolean> {
   if (improvSession.active) stopConversationalImprov(false)
   persistAiConfig()
@@ -2292,21 +2543,33 @@ async function applyAiRequest(request: OwtAiRequest, statusKey: string, statusVa
   setAiBusy(true)
   setTranslatedStatus('ai-status', statusKey, statusValues, 'warn')
   const stream = createAiEditorStream()
+  const reasoningStream = beginAiReasoningStream()
+  const playbackStream = createAiPlaybackStream(true)
   clearOwtPlaybackContext()
   try {
-    const text = await createOwtWithAi(currentAiConfig(), request, { ...aiTransport(), onUpdate: stream.update })
+    const text = await createOwtWithAi(currentAiConfig(), request, {
+      ...aiTransport(),
+      onUpdate: (value) => {
+        stream.update(value)
+        playbackStream.update(value)
+      },
+      onReasoningUpdate: reasoningStream.update,
+    })
     stream.finish(text)
     renderOwtDiagnostics([])
     if (!validateEditorOwt()) throw new Error('AI OWT validation failed')
     setTranslatedStatus('ai-status', 'ai.applied', {}, 'ok')
-    await playOwtRange()
+    if (!await playbackStream.finish(text)) await playOwtRange()
     setAiComposeState('success')
     return true
   } catch (error) {
     setTranslatedStatus('ai-status', 'ai.error', { error: error instanceof Error ? error.message : String(error) }, 'err')
     setAiComposeState('error')
+    playbackStream.cancel(true)
     return false
   } finally {
+    playbackStream.cancel()
+    finishAiReasoningStream(reasoningStream)
     setAiBusy(false)
   }
 }
@@ -2345,6 +2608,9 @@ function stopConversationalImprov(showStatus = true): void {
   improvAbortController?.abort()
   improvAbortController = undefined
   improvRequestSequence++
+  improvResponseStreaming = false
+  clearAiReasoningStream()
+  improvScoreText = ''
   if (improvSession.state === 'responding') {
     engine?.stop()
     clearOwtPlaybackContext()
@@ -2361,6 +2627,8 @@ function startConversationalImprov(): void {
     return
   }
   persistAiConfig()
+  improvScoreText = ''
+  improvResponseStreaming = false
   cancelSemanticPerformanceReplacement()
   engine?.stop()
   clearOwtPlaybackContext()
@@ -2385,6 +2653,7 @@ function handleConversationalImprovInput(data: Uint8Array, timestampMs: number):
     improvAbortController?.abort()
     improvAbortController = undefined
     improvRequestSequence++
+    improvResponseStreaming = false
     engine?.stop()
     clearOwtPlaybackContext()
     setTranslatedStatus('ai-status', 'ai.improvInterrupted', {}, 'warn')
@@ -2407,37 +2676,76 @@ async function requestConversationalImprovResponse(phrase: RecordedTake): Promis
   const requestSequence = ++improvRequestSequence
   const controller = new AbortController()
   improvAbortController = controller
+  improvResponseStreaming = true
+  const reasoningStream = beginAiReasoningStream()
+  const playbackStream = createAiPlaybackStream(false, () => {
+    if (requestSequence !== improvRequestSequence || (improvSession.state !== 'thinking' && improvSession.state !== 'responding')) return
+    improvSession.markResponding()
+    updateConversationalImprovUi()
+    setTranslatedStatus('ai-status', 'ai.improvResponding', {}, 'ok')
+  })
+  const responseStream = createAiEditorStream()
   try {
     const phraseOwt = extractMelodyFromRecording(phrase, {
       title: 'Human Call',
       grid: rational(1, 4),
       voiceStrategy: 'continuous',
     }).text
+    const phraseDocument = parseOwt(phraseOwt).document
+    if (!phraseDocument) throw new Error('Recorded phrase could not be converted to OWT')
+    const currentDocument = improvScoreText ? parseOwt(improvScoreText).document : undefined
+    const turnOwt = serializeOwt(appendOwtScores(currentDocument, phraseDocument))
+    improvScoreText = turnOwt
+    setOwtEditorText(turnOwt, true)
+    renderOwtDiagnostics([])
     const text = await createOwtWithAi(currentAiConfig(), {
       task: 'improvise',
       instruction: '',
-      currentOwt: phraseOwt,
-    }, aiTransport(controller.signal))
-    if (requestSequence !== improvRequestSequence || improvSession.state !== 'thinking') return
-    setOwtEditorText(text, true)
+      currentOwt: turnOwt,
+    }, {
+      ...aiTransport(controller.signal),
+      onUpdate: (value) => {
+        if (requestSequence !== improvRequestSequence) return
+        const prefix = completeOwtPrefix(value)
+        if (!prefix) return
+        const merged = serializeOwt(appendOwtScores(parseOwt(turnOwt).document, prefix.document))
+        responseStream.update(merged)
+        playbackStream.update(merged)
+      },
+      onReasoningUpdate: (value) => {
+        if (requestSequence === improvRequestSequence) reasoningStream.update(value)
+      },
+    })
+    if (requestSequence !== improvRequestSequence || (improvSession.state !== 'thinking' && improvSession.state !== 'responding')) return
+    const responseDocument = parseOwt(text).document
+    if (!responseDocument) throw new Error('AI returned invalid OWT')
+    const merged = serializeOwt(appendOwtScores(parseOwt(turnOwt).document, responseDocument))
+    responseStream.finish(merged)
+    improvScoreText = merged
     renderOwtDiagnostics([])
     if (!validateEditorOwt()) throw new Error('AI OWT validation failed')
-    improvSession.markResponding()
-    updateConversationalImprovUi()
-    setTranslatedStatus('ai-status', 'ai.improvResponding', {}, 'ok')
-    await playOwtRange(undefined, false)
+    if (!await playbackStream.finish(merged)) {
+      improvSession.markResponding()
+      updateConversationalImprovUi()
+      setTranslatedStatus('ai-status', 'ai.improvResponding', {}, 'ok')
+      await playOwtRange(undefined, false)
+    }
   } catch (error) {
+    playbackStream.cancel(true)
     if (requestSequence !== improvRequestSequence || !improvSession.active || improvSession.state === 'recording') return
     improvSession.markListening()
     updateConversationalImprovUi()
     setTranslatedStatus('ai-status', 'ai.error', { error: error instanceof Error ? error.message : String(error) }, 'err')
   } finally {
+    if (requestSequence === improvRequestSequence) improvResponseStreaming = false
+    playbackStream.cancel()
+    finishAiReasoningStream(reasoningStream)
     if (requestSequence === improvRequestSequence) improvAbortController = undefined
   }
 }
 
 function handleConversationalImprovPlaybackEnded(): void {
-  if (improvSession.state !== 'responding') return
+  if (improvResponseStreaming || improvSession.state !== 'responding') return
   improvSession.markListening()
   updateConversationalImprovUi()
   setTranslatedStatus('ai-status', 'ai.improvListening', {}, 'ok')
@@ -2652,11 +2960,14 @@ function renderFullCompositionStage(stage: FullCompositionStage): void {
       retry.textContent = t('sound.retry')
       retry.addEventListener('click', () => {
         retry.disabled = true
+        const reasoningStream = beginAiReasoningStream()
         void fullCompositionWorkflow!.composeSection(section.id).then(() => {
           applyFullCompositionResult(fullCompositionWorkflow!.finalize().owt)
         }).catch((error: unknown) => {
           setStatus('ai-status', error instanceof Error ? error.message : String(error), 'err')
           retry.disabled = false
+        }).finally(() => {
+          finishAiReasoningStream(reasoningStream)
         })
       })
       item.append(' ', retry)
@@ -2666,7 +2977,8 @@ function renderFullCompositionStage(stage: FullCompositionStage): void {
 }
 
 function renderFullCompositionStream(update: FullCompositionStreamUpdate): void {
-  if (update.phase !== 'plan') activeFullCompositionStream?.update(update.text)
+  if (update.kind === 'reasoning') activeAiReasoningStream?.update(update.text)
+  else if (update.phase !== 'plan') activeFullCompositionStream?.update(update.text)
 }
 
 let activeFullCompositionStream: ReturnType<typeof createAiEditorStream> | undefined
@@ -2783,8 +3095,9 @@ aiComposeForm.addEventListener('submit', (event) => {
   setAiBusy(true)
   setTranslatedStatus('ai-status', 'ai.working', {}, 'warn')
   activeFullCompositionStream = createAiEditorStream()
+  const reasoningStream = beginAiReasoningStream()
   clearOwtPlaybackContext()
-  fullCompositionWorkflow = createFullCompositionWorkflow(currentAiConfig(), aiTransport(), renderFullCompositionStage, renderFullCompositionStream)
+  fullCompositionWorkflow = createFullCompositionWorkflow(currentAiConfig(), { ...aiTransport(), onReasoningUpdate: (text) => activeAiReasoningStream?.update(text) }, renderFullCompositionStage, renderFullCompositionStream)
   void fullCompositionWorkflow.run(instruction).then(({ owt }) => {
     activeFullCompositionStream?.finish(owt)
     applyFullCompositionResult(owt, false)
@@ -2795,6 +3108,7 @@ aiComposeForm.addEventListener('submit', (event) => {
     setAiComposeState('error')
   }).finally(() => {
     activeFullCompositionStream = undefined
+    finishAiReasoningStream(reasoningStream)
     setAiBusy(false)
   })
 })
@@ -3235,15 +3549,10 @@ window.addEventListener('keydown', (ev) => {
     }
     return
   }
-  if ((ev.ctrlKey || ev.metaKey) && !ev.altKey && ev.code === 'Space') {
-    ev.preventDefault()
-    if (!ev.repeat) {
-      void Promise.resolve(handleModalCommand('play-pause')).catch((error) => {
-        console.error('Unable to toggle score playback from the global shortcut', error)
-      })
-    }
-    return
-  }
+  // Computer-keyboard performance only owns unmodified keys. Leave Ctrl,
+  // Command and Alt combinations to the browser, operating system, or the
+  // focused editor so copy/paste and native editing shortcuts keep working.
+  if (ev.ctrlKey || ev.metaKey || ev.altKey) return
   if (TEXT_INPUT[target.tagName]) return
 
   const plainShortcut = !ev.ctrlKey && !ev.metaKey && !ev.altKey

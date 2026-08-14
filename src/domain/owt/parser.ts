@@ -43,7 +43,7 @@ function warning(ctx: ParseContext, line: number, column: number, code: string, 
   ctx.diagnostics.push({ severity: 'warning', line, column, code, message })
 }
 
-function stripComment(line: string): string {
+export function stripComment(line: string): string {
   let quoted = false
   let escaped = false
   for (let i = 0; i < line.length; i++) {
@@ -187,7 +187,7 @@ function parseAttributes(text: string): ParsedAttributes {
   return { values, duplicates, malformed: consumed.length > 0 }
 }
 
-function scoreTokens(line: string): Array<{ text: string; column: number }> {
+export function scoreTokens(line: string): Array<{ text: string; column: number }> {
   const tokens: Array<{ text: string; column: number }> = []
   let index = 0
   while (index < line.length) {
@@ -225,6 +225,14 @@ function scoreTokens(line: string): Array<{ text: string; column: number }> {
     tokens.push({ text: line.slice(start, index), column: start + 1 })
   }
   return tokens
+}
+
+/** Return the advancing duration from a syntactically shaped note/rest token. */
+export function scoreTokenDuration(token: string): Rational | undefined {
+  const match = SCORE_NOTE_PATTERN.exec(token)
+  if (!match) return undefined
+  const duration = parseRational(match[2]!)
+  return duration && compareRational(duration, ZERO) > 0 ? duration : undefined
 }
 
 function parseVelocity(attrs: string | undefined, ctx: ParseContext, line: number, column: number): number | undefined {
@@ -464,7 +472,9 @@ export function parseOwt(text: string): OwtParseResult {
   if (match[1] !== '0.1') return { diagnostics: [{ severity: 'error', line: firstIndex + 1, column: 5, code: 'document.version.unsupported', message: `unsupported OWT version ${match[1]}; expected 0.1` }] }
   if (firstIndex !== 0) lines.splice(0, firstIndex)
   const document: OwtDocument = parseScore(ctx)
-  return diagnostics.some((item) => item.severity === 'error') ? { diagnostics } : { document, diagnostics }
+  return diagnostics.some((item) => item.severity === 'error')
+    ? { diagnostics, partialDocument: document }
+    : { document, diagnostics }
 }
 
 export function parseOwtOrThrow(text: string): OwtDocument {

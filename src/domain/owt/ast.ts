@@ -16,6 +16,8 @@ export interface OwtDiagnostic extends SourceLocation {
 
 export interface OwtParseResult {
   document?: OwtDocument
+  /** A best-effort score tree retained when validation diagnostics exist. */
+  partialDocument?: OwtDocument
   diagnostics: OwtDiagnostic[]
 }
 

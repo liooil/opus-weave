@@ -32,7 +32,7 @@ describe('Full Composition workflow', () => {
       return battleAttempts === 1 ? battle.replace('| C5:1/2', '| C5:1') : battle
     }
     const stages: string[] = []
-    const result = await new FullCompositionWorkflow(transport, (stage) => stages.push(stage.kind)).run('two minute anime BGM')
+    const result = await new FullCompositionWorkflow(transport, (stage) => stages.push(stage.kind), undefined, 1).run('two minute anime BGM')
     expect(calls.filter((call) => call.phase === 'section').map((call) => /section (\w+)/.exec(call.prompt)?.[1])).toEqual(['intro', 'battle'])
     expect(calls.some((call) => call.phase === 'repair')).toBe(true)
     expect(stages).toContain('repairing')
@@ -41,6 +41,17 @@ describe('Full Composition workflow', () => {
     expect(parsed.tracks[0]?.events.filter((event) => event.kind === 'note')).toHaveLength(24)
     expect(result.analysis.bars).toBe(4)
     expect(result.analysis.climaxDensityIncreased).toBe(true)
+  })
+
+  test('does not retry an invalid section by default', async () => {
+    const phases: string[] = []
+    const invalid = intro.replace('C4:1 D4:1 E4:1 G4:1', 'C4:1')
+    const transport: FullCompositionTransport = async (phase) => {
+      phases.push(phase)
+      return phase === 'plan' ? planText : invalid
+    }
+    await expect(new FullCompositionWorkflow(transport).run('no automatic repair')).rejects.toThrow()
+    expect(phases).toEqual(['plan', 'section'])
   })
 
   test('retries a failed section without regenerating completed sections', async () => {
@@ -140,6 +151,66 @@ describe('Full Composition workflow', () => {
     expect(bodies[1]!.messages[0]!.content).toContain('OWT 0.1 — COMPLETE FORMAT REFERENCE')
     expect(bodies[1]!.messages[0]!.content).toContain('OWT 0.1 duration values are measured in quarter-note units')
     expect(bodies[1]!.messages[0]!.content).not.toContain('CANONICAL SAFE SHAPE')
+  })
+
+  test('passes the configured reasoning effort to full composition requests', async () => {
+    let requestBody: Record<string, unknown> | undefined
+    const fetcher = (async (_input: URL | RequestInfo, init?: RequestInit) => {
+      requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+      return Response.json({ choices: [{ message: { content: planText } }] })
+    }) as typeof fetch
+    const workflow = createFullCompositionWorkflow({
+      baseUrl: 'http://model.test',
+      model: 'test',
+      protocol: 'openai-chat-completions',
+      reasoningEffort: 'high',
+      locale: 'en',
+    }, { fetcher }, () => {}, () => {})
+    await workflow.createPlan('test composition')
+    expect(requestBody).toHaveProperty('reasoning_effort', 'high')
+  })
+
+  test('turns off DeepSeek thinking when reasoning effort is explicitly none', async () => {
+    let requestBody: Record<string, unknown> | undefined
+    const fetcher = (async (_input: URL | RequestInfo, init?: RequestInit) => {
+      requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+      return Response.json({ choices: [{ message: { content: planText } }] })
+    }) as typeof fetch
+    const workflow = createFullCompositionWorkflow({
+      baseUrl: 'https://api.deepseek.com',
+      model: 'deepseek-v4-flash',
+      protocol: 'openai-chat-completions',
+      reasoningEffort: 'none',
+      locale: 'en',
+    }, { fetcher }, () => {}, () => {})
+    await workflow.createPlan('test composition')
+    expect(requestBody).toHaveProperty('reasoning_effort', 'none')
+    expect(requestBody).toHaveProperty('thinking.type', 'disabled')
+  })
+
+  test('streams DeepSeek V4 reasoning separately during composition', async () => {
+    const encoder = new TextEncoder()
+    const updates: Array<{ phase: string; text: string; kind?: string }> = []
+    const fetcher = (async (_input: URL | RequestInfo, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+      expect(body.thinking).toBeUndefined()
+      return new Response(new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: 'Thinking...' } }] })}\n\n`))
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: planText } }] })}\n\n`))
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+          controller.close()
+        },
+      }), { headers: { 'content-type': 'text/event-stream' } })
+    }) as typeof fetch
+    const workflow = createFullCompositionWorkflow({
+      baseUrl: 'https://api.deepseek.com',
+      model: 'deepseek-v4-flash',
+      protocol: 'openai-chat-completions',
+      locale: 'en',
+    }, { fetcher }, () => {}, (update) => updates.push(update))
+    await expect(workflow.createPlan('test composition')).resolves.toEqual(parseCompositionPlan(planText))
+    expect(updates).toEqual([{ phase: 'plan', text: 'Thinking...', kind: 'reasoning' }, { phase: 'plan', text: planText }])
   })
 
   test('reports structural metrics without claiming musical quality', () => {

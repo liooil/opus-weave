@@ -31,18 +31,18 @@ MIDI playback/export  →  SoundFont synthesis
 
 | # | Capability |
 |---|---|
-| 1 | Navigate and edit `.owt` with Helix modal score units—CHAR is an event, WORD a measure and LINE a track—or use raw text and live performance replacement |
+| 1 | Navigate and edit `.owt` with Helix modal motions across event, measure and track objects—or use raw text and live performance replacement |
 | 2 | Import MIDI through intentional lossy melody extraction with track selection, voice reduction and rhythm quantization |
 | 3 | Export OWT to Standard MIDI for playback and interchange |
 | 4 | Play with the FreePiano-style mda Piano default and the full FluidR3Mono GM bank, or load a custom `.sf2` / `.sf3` / `.sfogg` bank |
 | 5 | Connect a physical MIDI keyboard via WebMIDI for live performance, guided practice and AI improvisation |
-| 6 | Inspect and edit imported MIDI on a multi-track beat timeline before extracting or exporting |
+| 6 | Switch between OWT, a multi-track beat timeline, five-line staff and Jianpu (numbered) views, all synchronized from the current score |
 | 7 | Monitor Note On/Off, CC and Pitch Bend in real time |
 | 8 | Render MIDI + SoundFont to WAV via the optional system FluidSynth (`render-midi`) |
 | 9 | Stream a fast **Sketch** directly into the editor, or build a section-based **Full Composition** from a plain-text plan with live section updates, validation, assembly and local revision |
 | 10 | Drive OWT formatting, validation, playback, import/export and section-based composition through MCP |
 | 11 | Switch the live computer keyboard between OpusWeave chromatic, English-word, Pinyin-tone and FreePiano classic performance layouts |
-| 12 | Load public-domain piano examples including Ode to Joy, Für Elise, Canon in D, Minuet in G and Moonlight Sonata |
+| 12 | Load public-domain piano examples including Twinkle Twinkle Little Star, Ode to Joy, Für Elise, Canon in D, Minuet in G and Moonlight Sonata |
 | 13 | Open or drop OWT directly, convert MIDI deterministically, or send score images/MP4 to OpenAI, Anthropic, OpenRouter, Ollama, llama.cpp or a compatible multimodal endpoint through one unified import path |
 
 ## Quick start
@@ -76,6 +76,10 @@ bun run opusweave create-midi --spec examples/minimal-composition.json --output 
 bun run opusweave inspect-midi --file tmp/example.mid
 bun run opusweave render-midi --midi tmp/example.mid --soundfont /path/to/bank.sf2 --output tmp/example.wav
 bun run opusweave doctor [--soundfont /path/to/bank.sf2]
+bun run opusweave composition plan examples/minimal-composition.json
+bun run opusweave composition analyze <plan.json> <score.owt>
+bun run opusweave composition assemble <plan.json> <sections.json>
+bun run opusweave composition revise <plan.json> <sections.json> <section-id> <revised.owt>
 bun run opusweave mcp   # stdio MCP server
 ```
 
@@ -136,20 +140,24 @@ schema and validation rules.
 src/
 ├── main.ts                    # BunDesk desktop app, CLI actions, --smoke, MCP routing
 ├── build.ts                   # single-file binary build (bundesk)
+├── build-web.ts               # static browser build (GitHub Pages)
 ├── domain/                    # framework-free core: OWT, melody extraction,
 │   │                          #   composition IR, MIDI import/export, devices
-│   │                          #   quantization, device profiles, MIDI learn, service
+│   │                          #   quantization, device profiles, MIDI learn, AI, service
 ├── audio/                     # SynthEngine interface, spessasynth engine, mock,
 │   │                          #   FluidSynth renderer
 ├── midi/                      # WebMIDI manager, port selection
 ├── mcp/                       # MCP server + tool definitions
 ├── cli/                       # CLI argument helpers
+├── shared/                    # typed errors (OpusWeaveError)
 ├── web/                       # GUI: HTML/CSS/TS, no framework
+├── shims.d.ts                 # browser/asset module shims
 └── tests/                     # deterministic Bun test suite
 ```
 
-The GUI, CLI and MCP all call the same `OpusWeaveService` — domain logic is
-implemented once, never per-layer.
+The CLI and MCP call the same `OpusWeaveService`; the browser GUI composes the
+same framework-free domain modules directly. Domain logic is implemented once,
+never per-layer.
 
 ## Platform notes
 

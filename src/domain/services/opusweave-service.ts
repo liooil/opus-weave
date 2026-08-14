@@ -11,15 +11,14 @@ import { OpusWeaveError } from '../../shared/errors.ts'
 import { buildMidi } from '../midi/midi-export.ts'
 import { inspectMidi, type MidiInspection } from '../midi/midi-import.ts'
 import { validateCompositionSpec, type ValidationResult } from '../composition/validation.ts'
-import { DEFAULT_PPQ } from '../composition/composition-spec.ts'
 import type { CompositionSpec } from '../composition/composition-spec.ts'
-import { TempoMap } from '../composition/tempo-map.ts'
 import { FluidSynthRenderer, detectFluidSynth } from '../../audio/fluidsynth-renderer.ts'
 import type { RenderResult } from '../../audio/audio-renderer.ts'
 import { parseOwt } from '../owt/parser.ts'
 import { serializeScore } from '../owt/serializer.ts'
 import { compileScoreText, extractMelodyFromMidi, type MelodyExtractionOptions, type MelodyExtractionResult } from '../owt/integration.ts'
 import type { OwtDiagnostic } from '../owt/ast.ts'
+import { analyzeFullComposition, assembleFullComposition, parseCompositionPlan, type ComposedSection, type CompositionPlan, type FullCompositionAnalysis } from '../ai/full-composition.ts'
 
 export interface CreateMidiResult {
   bytes: number
@@ -87,6 +86,21 @@ export class OpusWeaveService {
   /** Validate a spec and return errors/warnings/stats (never throws). */
   validateComposition(spec: unknown): ValidationResult {
     return validateCompositionSpec(spec)
+  }
+
+  /** Normalize and validate a section-based full-composition plan. */
+  parseCompositionPlan(value: string | unknown): CompositionPlan {
+    return parseCompositionPlan(value)
+  }
+
+  /** Assemble validated section OWT scores into one score per the plan. */
+  assembleComposition(plan: CompositionPlan, sections: readonly ComposedSection[]): string {
+    return assembleFullComposition(plan, sections)
+  }
+
+  /** Analyze a full score's structural metrics against its plan. */
+  analyzeFullComposition(plan: CompositionPlan, owt: string): FullCompositionAnalysis {
+    return analyzeFullComposition(plan, owt)
   }
 
   validateOwt(text: string): OwtValidationResult {
@@ -232,13 +246,6 @@ export class OpusWeaveService {
 
   /** Round-trip check: build → parse. Returns the parsed file. */
   buildAndParse(spec: unknown): BasicMIDI {
-    const buf = buildMidi(spec as CompositionSpec)
-    const ppq = (spec as CompositionSpec).ppq ?? DEFAULT_PPQ
-    const durationBeats = validateCompositionSpec(spec).stats.durationBeats
-    const tempoMap = new TempoMap({ ppq, tempos: (spec as CompositionSpec).tempos, defaultTempo: 120 })
-    const midi = BasicMIDI.fromArrayBuffer(buf)
-    void tempoMap.durationSeconds(midi.lastVoiceEventTick)
-    void durationBeats
-    return midi
+    return BasicMIDI.fromArrayBuffer(buildMidi(spec as CompositionSpec))
   }
 }

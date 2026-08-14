@@ -43,15 +43,17 @@ describe('Full Composition workflow', () => {
     expect(result.analysis.climaxDensityIncreased).toBe(true)
   })
 
-  test('does not retry an invalid section by default', async () => {
+  test('repairs a slightly-off section deterministically without retrying', async () => {
     const phases: string[] = []
     const invalid = intro.replace('C4:1 D4:1 E4:1 G4:1', 'C4:1')
     const transport: FullCompositionTransport = async (phase) => {
       phases.push(phase)
       return phase === 'plan' ? planText : invalid
     }
-    await expect(new FullCompositionWorkflow(transport).run('no automatic repair')).rejects.toThrow()
-    expect(phases).toEqual(['plan', 'section'])
+    const result = await new FullCompositionWorkflow(transport).run('deterministic repair, no retry')
+    expect(phases).not.toContain('repair')
+    expect(result.owt).toContain('R:3')
+    expect(parseOwtOrThrow(result.owt).tracks[0]!.events.some((event) => event.kind === 'rest')).toBe(true)
   })
 
   test('retries a failed section without regenerating completed sections', async () => {

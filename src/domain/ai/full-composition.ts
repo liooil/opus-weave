@@ -1,5 +1,6 @@
 import type { OwtScore, OwtScoreTrack } from '../owt/ast.ts'
 import { parseOwtOrThrow } from '../owt/parser.ts'
+import { repairCommonOwtErrors } from '../owt/repair.ts'
 import { addRational, compareRational, rational, rationalToNumber } from '../owt/rational.ts'
 import { serializeScore } from '../owt/serializer.ts'
 
@@ -162,7 +163,10 @@ function sectionPrompt(plan: CompositionPlan, section: CompositionSectionPlan, p
 }
 
 function validateSection(plan: CompositionPlan, section: CompositionSectionPlan, owt: string): string {
-  const score = parseOwtOrThrow(owt)
+  // Deterministically repair the common AI-output OWT errors (typography,
+  // case, bar boundaries) before validating, so a slightly-off section does
+  // not consume an AI retry and does not leave the assembled score broken.
+  const score = parseOwtOrThrow(repairCommonOwtErrors(owt).text)
   const expected = sectionDurationBeats(plan, section)
   for (const track of score.tracks) {
     const end = track.events.reduce((maximum, event) => event.kind === 'note' || event.kind === 'rest' ? Math.max(maximum, rationalToNumber(event.at) + rationalToNumber(event.duration)) : maximum, 0)

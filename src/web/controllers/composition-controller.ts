@@ -29,5 +29,5 @@ export function createFullCompositionWorkflow(
       return readAiTextResponse(response, protocol, onUpdate, onReasoningUpdate)
     }
     return read(body)
-  }, onStage, onStream, config.autoRepair === false ? 0 : Math.max(0, Math.min(10, Math.trunc(config.retryCount ?? 0))))
+  }, onStage, onStream, config.autoRepair === false ? 0 : Math.max(0, Math.min(10, Math.trunc(config.retryCount ?? 0))), config.promptTemplates)
 }

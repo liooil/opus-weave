@@ -2160,6 +2160,8 @@ function renderAiConfig(config: OwtAiConfig): void {
   $<HTMLTextAreaElement>('ai-template-prompt').value = templates.prompt
   $<HTMLTextAreaElement>('ai-template-media').value = templates.scoreMedia
   $<HTMLTextAreaElement>('ai-template-improvise').value = templates.improvise
+  $<HTMLTextAreaElement>('ai-template-full-plan').value = templates.fullCompositionPlan
+  $<HTMLTextAreaElement>('ai-template-full-section').value = templates.fullCompositionSection
 }
 
 function optionalAiNumber(id: string, minimum: number, maximum: number): number | undefined {
@@ -2174,6 +2176,8 @@ function currentAiPromptTemplates(): OwtAiPromptTemplates {
     prompt: $<HTMLTextAreaElement>('ai-template-prompt').value,
     scoreMedia: $<HTMLTextAreaElement>('ai-template-media').value,
     improvise: $<HTMLTextAreaElement>('ai-template-improvise').value,
+    fullCompositionPlan: $<HTMLTextAreaElement>('ai-template-full-plan').value,
+    fullCompositionSection: $<HTMLTextAreaElement>('ai-template-full-section').value,
   }
 }
 
@@ -2766,7 +2770,7 @@ for (const id of ['ai-temperature', 'ai-top-p', 'ai-max-tokens', 'ai-thinking-bu
 for (const id of ['ai-endpoint', 'ai-api-key']) {
   $(id).addEventListener('input', () => { persistAiConfig(); updateConversationalImprovUi(); scheduleAiModelDiscovery() })
 }
-for (const id of ['ai-template-system', 'ai-template-prompt', 'ai-template-media', 'ai-template-improvise']) {
+for (const id of ['ai-template-system', 'ai-template-prompt', 'ai-template-media', 'ai-template-improvise', 'ai-template-full-plan', 'ai-template-full-section']) {
   $(id).addEventListener('input', persistAiConfig)
 }
 

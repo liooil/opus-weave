@@ -3,6 +3,7 @@ import { parseOwtOrThrow } from '../owt/parser.ts'
 import { repairCommonOwtErrors } from '../owt/repair.ts'
 import { addRational, compareRational, rational, rationalToNumber } from '../owt/rational.ts'
 import { serializeScore } from '../owt/serializer.ts'
+import { defaultOwtAiPromptTemplates, type OwtAiPromptTemplates } from './owt-ai.ts'
 
 /** An abort signal the domain layer can throw without depending on DOM globals. */
 function abortedError(): Error {
@@ -158,8 +159,18 @@ function sectionDurationBeats(plan: CompositionPlan, section: CompositionSection
   return section.bars * numerator * 4 / denominator
 }
 
-function sectionPrompt(plan: CompositionPlan, section: CompositionSectionPlan, previous?: ComposedSection, revision?: string): string {
-  return `Compose only section ${section.id} (${section.name}) as a complete independently valid OWT 0.1 score.\nExact bars: ${section.bars}; meter: ${plan.meter}; key: ${plan.key}; tempo: ${section.tempoStart}${section.tempoEnd ? `→${section.tempoEnd}` : ''}; mood: ${section.mood}; role: ${section.role}; density: ${section.density}; instrumentation: ${section.instrumentation.join(', ')}.\nUse multiple aligned tracks when requested. program is 0-127; velocity is 1-127. No pickup and every track must span exactly ${section.bars} complete measures, using rests where silent. Return OWT only.${previous ? `\nPrevious section ending context:\n${previous.owt.slice(-1800)}` : ''}${revision ? `\nRevision request: ${revision}` : ''}`
+function expandTemplate(template: string, variables: Record<string, string>): string {
+  return template.replace(/\{([A-Za-z][A-Za-z0-9]*)\}/g, (token, name: string) => variables[name] ?? token).trim()
+}
+
+function sectionSpec(plan: CompositionPlan, section: CompositionSectionPlan): string {
+  return `${section.id} (${section.name}) — ${section.bars} bars, ${plan.meter}, ${plan.key}, tempo ${section.tempoStart}${section.tempoEnd ? `→${section.tempoEnd}` : ''}, ${section.mood}, ${section.role}, ${section.density}, ${section.instrumentation.join(', ')}`
+}
+
+function sectionPrompt(templates: OwtAiPromptTemplates, plan: CompositionPlan, section: CompositionSectionPlan, previous?: ComposedSection, revision?: string): string {
+  const previousText = previous ? `\nPrevious section ending context:\n${previous.owt.slice(-1800)}` : ''
+  const revisionText = revision ? `\nRevision request: ${revision}` : ''
+  return expandTemplate(templates.fullCompositionSection, { section: sectionSpec(plan, section), previous: previousText, revision: revisionText })
 }
 
 function validateSection(plan: CompositionPlan, section: CompositionSectionPlan, owt: string): string {
@@ -247,12 +258,17 @@ export class FullCompositionWorkflow {
   private currentSectionId?: string
   private planValue?: CompositionPlan
 
+  private readonly templates: OwtAiPromptTemplates
+
   constructor(
     private readonly transport: FullCompositionTransport,
     private readonly onStage: (stage: FullCompositionStage) => void = () => {},
     private readonly onStream: (update: FullCompositionStreamUpdate) => void = () => {},
     private readonly repairRetries = 0,
-  ) {}
+    promptTemplates?: Partial<OwtAiPromptTemplates>,
+  ) {
+    this.templates = { ...defaultOwtAiPromptTemplates(), ...promptTemplates }
+  }
   get plan(): CompositionPlan | undefined { return this.planValue }
   get composedSections(): readonly ComposedSection[] { return [...this.sections.values()] }
 
@@ -260,15 +276,7 @@ export class FullCompositionWorkflow {
 
   async createPlan(instruction: string): Promise<CompositionPlan> {
     this.controller = new AbortController(); this.onStage({ kind: 'planning' })
-    const prompt = `Create a plain-text OpusWeave composition plan for: ${instruction}. Target a two-to-three-minute score. Do not return JSON or Markdown.
-Use exactly this line format:
-PLAN 0.1
-title: Title
-duration: seconds
-meter: numerator/denominator
-key: C major
-section: stable-id | Name | bars | start-tempo or start-tempo->end-tempo | mood | instrument, instrument | sparse or medium or dense | role
-Return at least two section lines and no prose.`
+    const prompt = expandTemplate(this.templates.fullCompositionPlan, { instruction })
     this.planValue = parseCompositionPlan(await this.transport(
       'plan',
       prompt,
@@ -289,7 +297,7 @@ Return at least two section lines and no prose.`
     const phase = revision ? 'revise' : 'section'
     let response = await this.transport(
       phase,
-      sectionPrompt(this.planValue, section, this.sections.get(this.planValue.sections[this.planValue.sections.indexOf(section) - 1]?.id ?? ''), revision),
+      sectionPrompt(this.templates, this.planValue, section, this.sections.get(this.planValue.sections[this.planValue.sections.indexOf(section) - 1]?.id ?? ''), revision),
       this.controller?.signal,
       (text) => this.onStream({ phase, sectionId: id, text }),
       (text) => this.onStream({ phase, sectionId: id, text, kind: 'reasoning' }),
@@ -308,7 +316,7 @@ Return at least two section lines and no prose.`
         this.onStage({ kind: 'repairing', sectionId: id, attempt })
         response = await this.transport(
           'repair',
-          `${sectionPrompt(this.planValue, section)}\nRepair validation error: ${error instanceof Error ? error.message : String(error)}\nReturn the corrected section OWT only.`,
+          `${sectionPrompt(this.templates, this.planValue, section)}\nRepair validation error: ${error instanceof Error ? error.message : String(error)}\nReturn the corrected section OWT only.`,
           this.controller?.signal,
           (text) => this.onStream({ phase: 'repair', sectionId: id, text }),
           (text) => this.onStream({ phase: 'repair', sectionId: id, text, kind: 'reasoning' }),

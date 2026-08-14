@@ -7,6 +7,8 @@ export interface OwtAiPromptTemplates {
   prompt: string
   scoreMedia: string
   improvise: string
+  fullCompositionPlan: string
+  fullCompositionSection: string
 }
 
 export type AiThinkingMode = 'adaptive' | 'enabled' | 'disabled'
@@ -178,6 +180,16 @@ export function defaultOwtAiPromptTemplates(locale: 'en' | 'zh-CN' = 'en'): OwtA
 {currentOwt}
 
 不得只输出新增片段。保持原有拍号；每个小节独立求和，严格补足所有轨道后才能写右侧小节线，并只输出最终的完整 OWT。`,
+      fullCompositionPlan: `为以下要求创建纯文本 OpusWeave 作品计划：{instruction}。目标为两到三分钟的乐谱。不要返回 JSON 或 Markdown。
+严格使用以下行格式：
+PLAN 0.1
+title: 标题
+duration: 秒数
+meter: 分子/分母
+key: C major
+section: 稳定ID | 名称 | 小节数 | 起始速度或起始速度->结束速度 | 情绪 | 乐器, 乐器 | sparse 或 medium 或 dense | 角色
+至少返回两行 section，不要输出任何多余文字。`,
+      fullCompositionSection: `只创作第 {section} 段，作为一份完整、可独立校验的 OWT 0.1 乐谱。需要时使用多条对齐的轨道。program 为 0-127；velocity 为 1-127。不使用弱起，每条轨道必须恰好横跨要求的小节数，静默处使用休止符。只输出 OWT。{previous}{revision}`,
     }
   }
   return {
@@ -225,6 +237,16 @@ CURRENT OWT:
 {currentOwt}
 
 Do not return only the new fragment. Preserve the meter. Sum each measure independently, fill every deficit with a rest, and write its closing bar line only after the exact measure length is reached. Output only the final complete OWT.`,
+    fullCompositionPlan: `Create a plain-text OpusWeave composition plan for: {instruction}. Target a two-to-three-minute score. Do not return JSON or Markdown.
+Use exactly this line format:
+PLAN 0.1
+title: Title
+duration: seconds
+meter: numerator/denominator
+key: C major
+section: stable-id | Name | bars | start-tempo or start-tempo->end-tempo | mood | instrument, instrument | sparse or medium or dense | role
+Return at least two section lines and no prose.`,
+    fullCompositionSection: `Compose only section {section} as a complete independently valid OWT 0.1 score. Use multiple aligned tracks when requested. program is 0-127; velocity is 1-127. No pickup and every track must span exactly the requested complete measures, using rests where silent. Return OWT only.{previous}{revision}`,
   }
 }
 
@@ -237,7 +259,7 @@ export interface OwtAiPromptTemplateIssue {
 }
 
 export function validateOwtAiPromptTemplates(templates: OwtAiPromptTemplates): OwtAiPromptTemplateIssue[] {
-  const supported = new Set(['instruction', 'currentOwt', 'owtReference'])
+  const supported = new Set(['instruction', 'currentOwt', 'owtReference', 'section', 'previous', 'revision'])
   const issues: OwtAiPromptTemplateIssue[] = []
   for (const [field, template] of Object.entries(templates) as Array<[keyof OwtAiPromptTemplates, string]>) {
     if (!template.trim()) issues.push({ field, kind: 'empty' })

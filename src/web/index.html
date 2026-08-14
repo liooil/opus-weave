@@ -379,12 +379,16 @@
                   <button type="button" role="tab" data-prompt-target="prompt" aria-selected="false" data-i18n="ai.composePromptTemplate">Composition</button>
                   <button type="button" role="tab" data-prompt-target="media" aria-selected="false" data-i18n="ai.mediaPromptTemplate">Media transcription</button>
                   <button type="button" role="tab" data-prompt-target="improvise" aria-selected="false" data-i18n="ai.improvPromptTemplate">AI improvisation</button>
+                  <button type="button" role="tab" data-prompt-target="fullPlan" aria-selected="false" data-i18n="ai.fullCompositionPlanPromptTemplate">Full composition plan</button>
+                  <button type="button" role="tab" data-prompt-target="fullSection" aria-selected="false" data-i18n="ai.fullCompositionSectionPromptTemplate">Full composition section</button>
                 </div>
                 <div class="prompt-editor-panel active" data-prompt-panel="system"><textarea id="ai-template-system" rows="22" spellcheck="false" aria-label="Shared system prompt"></textarea></div>
                 <div class="prompt-editor-panel" data-prompt-panel="prompt" hidden><textarea id="ai-template-prompt" rows="22" spellcheck="false" aria-label="Composition prompt"></textarea></div>
                 <div class="prompt-editor-panel" data-prompt-panel="media" hidden><textarea id="ai-template-media" rows="22" spellcheck="false" aria-label="Media transcription prompt"></textarea></div>
                 <div class="prompt-editor-panel" data-prompt-panel="improvise" hidden><textarea id="ai-template-improvise" rows="22" spellcheck="false" aria-label="AI improvisation prompt"></textarea></div>
-                <div class="prompt-variable-strip"><span data-i18n="settings.availableVariables">Available variables</span><code>{instruction}</code><code>{currentOwt}</code><code>{owtReference}</code></div>
+                <div class="prompt-editor-panel" data-prompt-panel="fullPlan" hidden><textarea id="ai-template-full-plan" rows="22" spellcheck="false" aria-label="Full composition plan prompt"></textarea></div>
+                <div class="prompt-editor-panel" data-prompt-panel="fullSection" hidden><textarea id="ai-template-full-section" rows="22" spellcheck="false" aria-label="Full composition section prompt"></textarea></div>
+                <div class="prompt-variable-strip"><span data-i18n="settings.availableVariables">Available variables</span><code>{instruction}</code><code>{currentOwt}</code><code>{owtReference}</code><code>{section}</code><code>{previous}</code><code>{revision}</code></div>
               </div>
               <div class="settings-row-actions split"><button id="btn-ai-reset-templates" type="button" class="quiet" data-i18n="ai.resetPromptTemplates">Restore defaults</button><button id="btn-ai-test-templates" type="button" class="primary" data-i18n="ai.testPromptTemplates">Test prompt templates</button></div>
               <dialog id="ai-prompt-test-dialog" class="ai-prompt-test-dialog" aria-labelledby="ai-prompt-test-title">

@@ -80,12 +80,16 @@ function renderThemePreference(): void {
     'content',
     effectiveTheme === 'dark' ? '#0b0c10' : '#f4f5ef',
   )
+  const settingsTheme = document.querySelector<HTMLSelectElement>('#settings-theme')
+  if (settingsTheme) settingsTheme.value = themePreference
 }
+
 
 themeButton.addEventListener('click', () => {
   themePreference = nextThemePreference(themePreference)
   window.localStorage.setItem('opusweave.theme', themePreference)
   renderThemePreference()
+  markSettingsSaved()
 })
 
 systemTheme.addEventListener('change', () => {
@@ -119,6 +123,10 @@ localeButton.addEventListener('click', () => {
   renderOwtReference()
   if (activeScoreView === 'staff' || activeScoreView === 'jianpu') renderNotationViews()
   updateLanguageToggleCopy()
+  const settingsLanguage = document.querySelector<HTMLSelectElement>('#settings-language')
+  if (settingsLanguage) settingsLanguage.value = locale
+  updateAiSettingsState()
+  markSettingsSaved()
   renderThemePreference()
 })
 
@@ -148,6 +156,61 @@ function showWorkspacePage(pageId: string): void {
 for (const tab of workspaceTabs) {
   tab.addEventListener('click', () => showWorkspacePage(tab.classList.contains('active') ? 'studio' : tab.dataset.pageTarget!))
 }
+
+const settingsNavItems = [...document.querySelectorAll<HTMLButtonElement>('[data-settings-target]')]
+const settingsPanels = [...document.querySelectorAll<HTMLElement>('[data-settings-panel]')]
+const settingsShell = document.querySelector<HTMLElement>('.settings-shell')!
+
+function showSettingsPanel(panelId: string): void {
+  for (const item of settingsNavItems) {
+    const active = item.dataset.settingsTarget === panelId
+    item.classList.toggle('active', active)
+    if (active) item.setAttribute('aria-current', 'page')
+    else item.removeAttribute('aria-current')
+  }
+  for (const panel of settingsPanels) {
+    const active = panel.dataset.settingsPanel === panelId
+    panel.hidden = !active
+    panel.classList.toggle('active', active)
+  }
+  settingsShell.classList.add('showing-panel')
+  if (matchMedia('(max-width: 700px)').matches) window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+for (const item of settingsNavItems) item.addEventListener('click', () => showSettingsPanel(item.dataset.settingsTarget!))
+$('settings-mobile-back').addEventListener('click', () => settingsShell.classList.remove('showing-panel'))
+
+let settingsSavedTimer: number | undefined
+
+function renderSettingsSaveState(key: 'settings.saved' | 'settings.saving' | 'settings.saveError', kind: 'is-saved' | 'is-saving' | 'is-error'): void {
+  const state = $('settings-save-state')
+  state.className = `settings-save-state ${kind}`
+  const copy = state.querySelector<HTMLElement>('span:last-child')
+  if (copy) copy.textContent = t(key)
+}
+
+function markSettingsSaving(): void {
+  window.clearTimeout(settingsSavedTimer)
+  renderSettingsSaveState('settings.saving', 'is-saving')
+  settingsSavedTimer = window.setTimeout(markSettingsSaved, 280)
+}
+
+function markSettingsSaved(): void {
+  window.clearTimeout(settingsSavedTimer)
+  renderSettingsSaveState('settings.saved', 'is-saved')
+}
+
+$<HTMLSelectElement>('settings-theme').value = themePreference
+$<HTMLSelectElement>('settings-language').value = getLocale()
+$<HTMLSelectElement>('settings-theme').addEventListener('change', (event) => {
+  themePreference = (event.target as HTMLSelectElement).value as ThemePreference
+  window.localStorage.setItem('opusweave.theme', themePreference)
+  renderThemePreference()
+  markSettingsSaved()
+})
+$<HTMLSelectElement>('settings-language').addEventListener('change', (event) => {
+  if ((event.target as HTMLSelectElement).value !== getLocale()) localeButton.click()
+})
 
 function fmtTime(secs: number): string {
   if (!Number.isFinite(secs) || secs < 0) secs = 0
@@ -910,6 +973,7 @@ async function applyAudioOutput(device: AudioOutputDevice, persist: boolean): Pr
     if (persist) {
       savedAudioOutput = { deviceId: device.deviceId, label: device.label }
       window.localStorage.setItem(AUDIO_OUTPUT_STORAGE_KEY, JSON.stringify(savedAudioOutput))
+      markSettingsSaved()
     }
     $<HTMLElement>('st-audio-output').textContent = label
     setTranslatedStatus('audio-output-status', 'sound.outputReady', { device: label }, 'ok')
@@ -1268,6 +1332,14 @@ function updateLiveNotes(data: Uint8Array): void {
 function renderMidiState(state: MidiManagerState): void {
   setTranslatedText('st-midi', state.supported ? 'status.supported' : 'status.notSupported')
   setTranslatedText('st-perm', state.permissionGranted ? 'status.granted' : state.error ? 'status.denied' : 'status.notRequested')
+  const permissionCard = $('midi-permission-card')
+  const configuredView = $('midi-configured-view')
+  permissionCard.hidden = state.permissionGranted
+  configuredView.hidden = !state.permissionGranted
+  $<HTMLButtonElement>('btn-request-midi').disabled = !state.supported
+  const midiNavState = $('settings-midi-state')
+  midiNavState.textContent = t(state.permissionGranted ? 'status.connected' : 'settings.notEnabled')
+  midiNavState.classList.toggle('ok', state.permissionGranted)
   if (state.error) showError(state.error)
 
   // Input dropdown
@@ -1309,6 +1381,12 @@ function renderMidiState(state: MidiManagerState): void {
 midiManager.subscribe(renderMidiState)
 
 $('btn-request-midi').addEventListener('click', () => {
+  void midiManager.requestPermission().catch(() => {
+    // denial/error is surfaced via the state subscription
+  })
+})
+
+$('btn-refresh-midi').addEventListener('click', () => {
   void midiManager.requestPermission().catch(() => {
     // denial/error is surfaced via the state subscription
   })
@@ -1536,8 +1614,16 @@ $<HTMLSelectElement>('preset-select').addEventListener('change', (ev) => {
 })
 
 $<HTMLInputElement>('master-volume').addEventListener('input', (ev) => {
-  const v = Number((ev.target as HTMLInputElement).value) / 100
-  void ensureEngine().then((e) => e.setMasterVolume(v))
+  const value = Number((ev.target as HTMLInputElement).value)
+  $<HTMLOutputElement>('master-volume-value').value = `${value}%`
+  markSettingsSaving()
+  void ensureEngine().then((e) => e.setMasterVolume(value / 100))
+})
+
+$('btn-test-audio').addEventListener('click', async () => {
+  const e = await ensureEngine()
+  e.send(new Uint8Array([0x90, 60, 96]))
+  window.setTimeout(() => e.send(new Uint8Array([0x80, 60, 0])), 480)
 })
 
 // ─── OWT score timeline ──────────────────────────────────────────────────────
@@ -1985,11 +2071,40 @@ function storedAiConfig(): OwtAiConfig {
   }
 }
 
+type AiProviderChoice = 'openai' | 'anthropic' | 'openrouter' | 'ollama' | 'llamacpp' | 'custom'
+
+const AI_PROVIDER_DEFAULTS: Record<Exclude<AiProviderChoice, 'custom'>, { baseUrl: string; protocol: AiProtocol }> = {
+  openai: { baseUrl: 'https://api.openai.com/v1', protocol: 'openai-responses' },
+  anthropic: { baseUrl: 'https://api.anthropic.com/v1', protocol: 'anthropic-messages' },
+  openrouter: { baseUrl: 'https://openrouter.ai/api/v1', protocol: 'openai-chat-completions' },
+  ollama: { baseUrl: 'http://127.0.0.1:11434', protocol: 'ollama-native' },
+  llamacpp: { baseUrl: 'http://127.0.0.1:8080', protocol: 'openai-chat-completions' },
+}
+
+function inferAiProvider(config: Pick<OwtAiConfig, 'baseUrl' | 'protocol'>): AiProviderChoice {
+  const url = config.baseUrl.toLowerCase()
+  if (url.includes('api.openai.com')) return 'openai'
+  if (url.includes('api.anthropic.com')) return 'anthropic'
+  if (url.includes('openrouter.ai')) return 'openrouter'
+  if ((config.protocol ?? 'auto') === 'ollama-native' || url.includes(':11434')) return 'ollama'
+  if (url.includes(':8080') || url.includes('llama.cpp')) return 'llamacpp'
+  return config.baseUrl ? 'custom' : 'openai'
+}
+
+function renderAiProviderUi(provider: AiProviderChoice): void {
+  const local = provider === 'ollama' || provider === 'llamacpp'
+  $('ai-api-key-field').hidden = local
+  $('ai-protocol-field').hidden = provider !== 'custom'
+}
+
 function renderAiConfig(config: OwtAiConfig): void {
   $<HTMLInputElement>('ai-endpoint').value = config.baseUrl
   $<HTMLInputElement>('ai-model').value = config.model
   $<HTMLInputElement>('ai-api-key').value = config.apiKey ?? ''
   $<HTMLSelectElement>('ai-protocol').value = config.protocol ?? 'auto'
+  const provider = inferAiProvider(config)
+  $<HTMLSelectElement>('ai-provider').value = provider
+  renderAiProviderUi(provider)
   $<HTMLSelectElement>('ai-thinking-mode').value = config.thinkingMode ?? ''
   $<HTMLSelectElement>('ai-reasoning-effort').value = config.reasoningEffort ?? ''
   $<HTMLInputElement>('ai-temperature').value = config.temperature === undefined ? '' : String(config.temperature)
@@ -2042,7 +2157,22 @@ function currentAiConfig(): OwtAiConfig {
 }
 
 function persistAiConfig(): void {
-  window.localStorage.setItem(AI_CONFIG_KEY, JSON.stringify(currentAiConfig()))
+  markSettingsSaving()
+  try {
+    const config = currentAiConfig()
+    window.localStorage.setItem(AI_CONFIG_KEY, JSON.stringify(config))
+    updateAiSettingsState()
+  } catch {
+    window.clearTimeout(settingsSavedTimer)
+    renderSettingsSaveState('settings.saveError', 'is-error')
+  }
+}
+
+function updateAiSettingsState(): void {
+  const config = currentAiConfig()
+  const aiState = $('settings-ai-state')
+  aiState.textContent = t(config.baseUrl && config.model ? 'settings.configured' : 'settings.notConfigured')
+  aiState.classList.toggle('ok', Boolean(config.baseUrl && config.model))
 }
 
 function aiTransport(signal?: AbortSignal): { proxyUrl?: string; signal: AbortSignal } {
@@ -2313,7 +2443,9 @@ function handleConversationalImprovPlaybackEnded(): void {
   setTranslatedStatus('ai-status', 'ai.improvListening', {}, 'ok')
 }
 
-renderAiConfig(storedAiConfig())
+const initialAiConfig = storedAiConfig()
+renderAiConfig(initialAiConfig)
+updateAiSettingsState()
 updateConversationalImprovUi()
 renderAiComposeButton()
 for (const id of ['ai-model', 'ai-protocol', 'ai-thinking-mode', 'ai-reasoning-effort', 'ai-retry-count', 'ai-auto-repair']) {
@@ -2328,6 +2460,44 @@ for (const id of ['ai-endpoint', 'ai-api-key']) {
 }
 for (const id of ['ai-template-system', 'ai-template-prompt', 'ai-template-media', 'ai-template-improvise']) {
   $(id).addEventListener('input', persistAiConfig)
+}
+
+$<HTMLSelectElement>('ai-provider').addEventListener('change', (event) => {
+  const provider = (event.target as HTMLSelectElement).value as AiProviderChoice
+  renderAiProviderUi(provider)
+  if (provider !== 'custom') {
+    const defaults = AI_PROVIDER_DEFAULTS[provider]
+    $<HTMLInputElement>('ai-endpoint').value = defaults.baseUrl
+    $<HTMLSelectElement>('ai-protocol').value = defaults.protocol
+  }
+  persistAiConfig()
+  updateConversationalImprovUi()
+  scheduleAiModelDiscovery()
+})
+
+$('btn-ai-key-visibility').addEventListener('click', () => {
+  const input = $<HTMLInputElement>('ai-api-key')
+  const visible = input.type === 'text'
+  input.type = visible ? 'password' : 'text'
+  $('btn-ai-key-visibility').textContent = t(visible ? 'settings.show' : 'settings.hide')
+})
+
+const promptTemplateTabs = [...document.querySelectorAll<HTMLButtonElement>('[data-prompt-target]')]
+const promptTemplatePanels = [...document.querySelectorAll<HTMLElement>('[data-prompt-panel]')]
+for (const tab of promptTemplateTabs) {
+  tab.addEventListener('click', () => {
+    const target = tab.dataset.promptTarget
+    for (const item of promptTemplateTabs) {
+      const active = item === tab
+      item.classList.toggle('active', active)
+      item.setAttribute('aria-selected', String(active))
+    }
+    for (const panel of promptTemplatePanels) {
+      const active = panel.dataset.promptPanel === target
+      panel.hidden = !active
+      panel.classList.toggle('active', active)
+    }
+  })
 }
 $('btn-ai-reset-templates').addEventListener('click', () => {
   renderAiConfig({ ...currentAiConfig(), promptTemplates: defaultOwtAiPromptTemplates(getLocale()) })

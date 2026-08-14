@@ -147,22 +147,24 @@ describe('web workspace structure', () => {
     expect(css).toContain('border-top: 1px solid var(--notation-rule)')
   })
 
-  test('uses one settings page for devices, AI and advanced controls', () => {
+  test('uses a categorized settings center for devices, AI and diagnostics', () => {
     expect(html).toContain('data-page-target="settings"')
     expect(html).toContain('data-workspace-page="settings"')
     expect(html).not.toContain('data-page-target="studio"')
     expect(html).not.toContain('data-page-target="devices"')
     expect(html).not.toContain('data-workspace-page="devices"')
-    expect(html).toContain('id="status-panel"')
-    expect(html).toContain('id="midi-panel"')
-    expect(html).toContain('id="ai-settings-panel"')
-    expect(html).toContain('class="advanced-settings"')
+    for (const category of ['general', 'audio', 'midi', 'ai', 'prompts', 'advanced']) {
+      expect(html).toContain(`data-settings-target="${category}"`)
+      expect(html).toContain(`data-settings-panel="${category}"`)
+    }
+    expect(html).toContain('id="settings-save-state"')
+    expect(html).toContain('id="midi-permission-card"')
+    expect(html).toContain('id="ai-provider"')
+    expect(html).toContain('class="prompt-workbench"')
     expect(html).not.toContain('id="record-panel"')
     expect(html).not.toContain('id="btn-record"')
-    expect(html).not.toContain('data-page-target="tools"')
-    expect(html).toContain('class="settings-action-row"')
-    expect(html).not.toContain('id="btn-request-midi" class="primary full-width"')
-    expect(css).toContain(".workspace-page[data-workspace-page='settings'] button { min-height: 30px;")
+    expect(css).toContain('.settings-shell {')
+    expect(css).toContain('.settings-nav-item.active')
   })
 
   test('fetches FluidR3Mono as a non-blocking, separately cached built-in bank', () => {
@@ -303,9 +305,10 @@ describe('web workspace structure', () => {
     expect(modalEditor).toContain("textarea.addEventListener('paste'")
   })
 
-  test('styles the model input and keeps model call parameters in advanced settings', () => {
+  test('uses provider-first AI configuration with progressive generation parameters', () => {
+    expect(html).toContain('id="ai-provider"')
     expect(html).toContain('id="ai-model" type="text"')
-    expect(html).toContain('class="ai-advanced-settings"')
+    expect(html).toContain('class="settings-more-parameters"')
     for (const id of ['ai-thinking-mode', 'ai-reasoning-effort', 'ai-temperature', 'ai-top-p', 'ai-max-tokens', 'ai-thinking-budget']) {
       expect(html).toContain(`id="${id}"`)
     }

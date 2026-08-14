@@ -173,108 +173,233 @@
         </section>
       </section>
 
-      <section class="workspace-page" data-workspace-page="settings" hidden>
-        <div class="secondary-page-head"><span class="eyebrow" data-i18n="nav.settings">Settings</span><h2 data-i18n="settings.title">Devices, sound and AI settings</h2></div>
-        <div class="module-grid settings-grid">
-          <section class="panel system-panel" id="status-panel">
-            <div class="section-heading"><div><span class="eyebrow" data-i18n="section.system">System</span><h2 data-i18n="section.studioStatus">Studio status</h2></div><span class="status-beacon" data-i18n-title="status.applicationReady" title="Application ready"></span></div>
-            <dl class="status-grid">
-              <div><dt data-i18n="status.audioEngine">Audio engine</dt><dd id="st-audio">—</dd></div><div><dt data-i18n="status.audioOutput">Audio output</dt><dd id="st-audio-output">—</dd></div><div><dt data-i18n="status.webMidi">Web MIDI</dt><dd id="st-midi">—</dd></div><div><dt data-i18n="status.permission">Permission</dt><dd id="st-perm">—</dd></div><div><dt data-i18n="status.input">Input</dt><dd id="st-input">—</dd></div><div><dt data-i18n="status.soundFont">SoundFont</dt><dd id="st-soundfont">—</dd></div><div><dt data-i18n="status.playback">Playback</dt><dd id="st-file">—</dd></div>
-            </dl><div id="st-error" class="error-box" hidden></div>
-          </section>
-          <section class="panel" id="midi-panel">
-            <div class="section-heading"><div><span class="eyebrow" data-i18n="section.hardware">Hardware</span><h2 data-i18n="section.midiConnections">MIDI connections</h2></div></div>
-            <div class="settings-action-row"><button id="btn-request-midi" class="primary" data-i18n="midi.enable">Enable MIDI access</button><button id="btn-refresh-midi" class="quiet" data-i18n="midi.refresh">Refresh devices</button></div>
-            <div class="field-stack"><label><span data-i18n="midi.inputDevice">Input device</span><select id="midi-input-select"></select></label><label><span data-i18n="midi.outputDevice">Output device</span><select id="midi-output-select"></select></label></div>
-            <div id="port-details" class="port-details"></div><div id="device-profile" class="device-profile" hidden><strong id="profile-name"></strong><div id="profile-controls" class="profile-controls"></div></div>
-          </section>
-          <section class="panel module-panel" id="soundfont-panel">
-            <div class="section-heading"><div><span class="eyebrow" data-i18n="section.tone">Tone</span><h2 data-i18n="section.soundLibrary">Sound library</h2></div></div>
-            <div class="built-in-soundfont" id="built-in-soundfont" data-state="loading">
-              <span class="soundfont-state-marker" aria-hidden="true"></span>
-              <div class="built-in-soundfont-copy"><strong data-i18n="sound.builtInName">FluidR3Mono GM + FreePiano piano</strong><small data-i18n="sound.builtInSeparate">The GM bank is fetched separately and never blocks the application.</small></div>
-              <span id="built-in-soundfont-state" class="soundfont-state-label" data-i18n="sound.stateLoading">Loading</span>
-              <button id="btn-retry-built-in-soundfont" class="quiet" data-i18n="sound.retry" hidden>Retry</button>
-            </div>
-            <label class="drop-zone"><input id="sf-file" type="file" accept=".sf2,.sf3,.sfogg" /><span class="drop-icon">SF</span><span class="built-in-badge" data-i18n="sound.customBadge">Custom</span><strong data-i18n="sound.load">Load another SoundFont</strong><small data-i18n="sound.formats">Optional: SF2, SF3 or SFOGG</small></label>
-            <div class="field-stack compact-fields">
-              <label><span data-i18n="sound.preset">Preset</span><select id="preset-select" disabled><option value="" data-i18n="sound.loadFirst">Load a SoundFont first</option></select></label>
-              <label><span data-i18n="sound.masterVolume">Master volume</span><input id="master-volume" type="range" min="0" max="100" value="80" /></label>
-              <div class="audio-output-field">
-                <label><span data-i18n="sound.audioOutput">Audio output</span><select id="audio-output-select"></select></label>
-                <button id="btn-choose-audio-output" class="quiet" data-i18n="sound.chooseOutput">Choose…</button>
-              </div>
-            </div>
-            <div id="sf-status" class="status"></div>
-            <div id="audio-output-status" class="status"></div>
-            <div class="soundfont-downloads">
-              <div class="soundfont-downloads-heading"><strong data-i18n="sound.downloads">Optional sound banks</strong><small data-i18n="sound.downloadsHint">Download from the official source, then load the saved file above.</small></div>
-              <div class="soundfont-download-option"><div><strong>MuseScore General</strong><small data-i18n="sound.museScoreGeneralMeta">about 38 MB · SF3 · MIT · richer standard bank</small></div><button id="btn-download-musescore-general" class="quiet" data-soundfont-download="https://ftp.osuosl.org/pub/musescore/soundfont/MuseScore_General/MuseScore_General.sf3" data-i18n="sound.download">Download</button></div>
-              <div class="soundfont-download-option"><div><strong>GeneralUser GS</strong><small data-i18n="sound.generalUserMeta">about 31 MB · SF2 · custom license · opens the official download page</small></div><button id="btn-download-generaluser" class="quiet" data-soundfont-download="https://www.schristiancollins.com/generaluser.php" data-i18n="sound.download">Download</button></div>
-              <div class="soundfont-download-option"><div><strong>TimGM6mb</strong><small data-i18n="sound.timGmMeta">about 5.7 MB · SF2 · GPL-2.0 · smallest option</small></div><button id="btn-download-timgm" class="quiet" data-soundfont-download="https://sourceforge.net/p/mscore/code/HEAD/tree/trunk/mscore/share/sound/TimGM6mb.sf2?format=raw" data-i18n="sound.download">Download</button></div>
-              <a id="fluidr3mono-license" class="soundfont-license-link" target="_blank" rel="noopener" data-i18n="sound.builtInLicense">FluidR3Mono license and acknowledgements</a>
-            </div>
-          </section>
-          <section class="panel module-panel" id="ai-settings-panel">
-            <div class="section-heading"><div><span class="eyebrow" data-i18n="section.ai">AI</span><h2 data-i18n="ai.settings">Model settings</h2></div></div>
-            <div id="ai-settings" class="ai-settings settings-ai-fields">
-              <label class="ai-endpoint-field"><span data-i18n="ai.endpoint">Service URL</span><input id="ai-endpoint" type="url" spellcheck="false" data-i18n-placeholder="ai.endpointPlaceholder" placeholder="OpenAI, Anthropic, OpenRouter, Ollama or llama.cpp URL" /></label>
-              <label><span data-i18n="ai.apiKey">API key (optional)</span><input id="ai-api-key" type="password" autocomplete="off" /></label>
-              <label><span data-i18n="ai.protocol">Protocol</span><select id="ai-protocol"><option value="auto" data-i18n="ai.protocolAuto">Auto detect</option><option value="openai-responses">OpenAI Responses</option><option value="openai-chat-completions">OpenAI Chat Completions</option><option value="openai-completions">OpenAI Completions</option><option value="anthropic-messages">Anthropic Messages</option><option value="ollama-native">Ollama Native</option></select></label>
-              <label class="ai-model-field"><span data-i18n="ai.model">Model</span><input id="ai-model" type="text" list="ai-model-options" spellcheck="false" autocomplete="off" data-i18n-placeholder="ai.modelPlaceholder" placeholder="Enter URL to load models" /><datalist id="ai-model-options"></datalist></label>
-              <div class="ai-settings-actions"><button id="btn-ai-refresh-models" class="quiet" data-i18n="ai.refreshModels">Refresh models</button><button id="btn-ai-test" class="quiet" data-i18n="ai.test">Test connection</button></div>
-            </div>
-            <details class="ai-advanced-settings">
-              <summary data-i18n="ai.advancedParameters">Advanced model parameters</summary>
-              <p class="hint" data-i18n="ai.advancedParametersHint">Unset values follow the provider or model default. Unsupported values are not sent for that protocol.</p>
-              <div class="ai-model-parameter-grid">
-                <label><span data-i18n="ai.thinkingMode">Thinking mode</span><select id="ai-thinking-mode"><option value="" data-i18n="ai.providerDefault">Provider default</option><option value="adaptive" data-i18n="ai.thinkingAdaptive">Adaptive</option><option value="enabled" data-i18n="ai.thinkingEnabled">Enabled (manual)</option><option value="disabled" data-i18n="ai.thinkingDisabled">Disabled</option></select></label>
-                <label><span data-i18n="ai.reasoningEffort">Reasoning effort</span><select id="ai-reasoning-effort"><option value="" data-i18n="ai.providerDefault">Provider default</option><option value="none">none</option><option value="minimal">minimal</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option><option value="xhigh">xhigh</option><option value="max">max</option></select></label>
-                <label><span data-i18n="ai.temperature">Temperature</span><input id="ai-temperature" type="number" min="0" max="2" step="0.05" data-i18n-placeholder="ai.providerDefault" placeholder="Provider default" /></label>
-                <label><span data-i18n="ai.topP">Top P</span><input id="ai-top-p" type="number" min="0" max="1" step="0.05" data-i18n-placeholder="ai.providerDefault" placeholder="Provider default" /></label>
-                <label><span data-i18n="ai.maxTokens">Maximum output tokens</span><input id="ai-max-tokens" type="number" min="1" max="1000000" step="1" value="4096" /></label>
-                <label><span data-i18n="ai.thinkingBudget">Manual thinking budget</span><input id="ai-thinking-budget" type="number" min="1024" max="1000000" step="1" value="2048" /></label>
-                <label><span data-i18n="ai.retryCount">Repair retries</span><input id="ai-retry-count" type="number" min="0" max="10" step="1" value="3" /></label>
-                <label class="ai-checkbox-field"><input id="ai-auto-repair" type="checkbox" checked /><span data-i18n="ai.autoRepair">Automatically repair invalid AI OWT</span></label>
-              </div>
-            </details>
-            <details class="ai-prompt-settings">
-              <summary data-i18n="ai.promptTemplates">Prompt templates</summary>
-              <p class="hint" data-i18n="ai.promptTemplatesHint">Use {instruction} where the request entered for that feature should appear.</p>
-              <div class="ai-prompt-template-fields">
-                <label><span data-i18n="ai.systemPromptTemplate">Shared system prompt</span><textarea id="ai-template-system" rows="8" spellcheck="false"></textarea></label>
-                <label><span data-i18n="ai.composePromptTemplate">Composition</span><textarea id="ai-template-prompt" rows="3" spellcheck="false"></textarea></label>
-                <label><span data-i18n="ai.mediaPromptTemplate">Media transcription</span><textarea id="ai-template-media" rows="3" spellcheck="false"></textarea></label>
-                <label><span data-i18n="ai.improvPromptTemplate">AI improvisation</span><textarea id="ai-template-improvise" rows="3" spellcheck="false"></textarea></label>
-              </div>
-              <div class="ai-settings-actions"><button id="btn-ai-test-templates" type="button" class="quiet" data-i18n="ai.testPromptTemplates">Test prompt templates</button><button id="btn-ai-reset-templates" type="button" class="quiet" data-i18n="ai.resetPromptTemplates">Restore defaults</button></div>
-            </details>
-            <div id="ai-status" class="status" data-status-key="ai.ready">API configuration is optional; without it, AI composition provides a prompt for manual use.</div>
-            <dialog id="ai-prompt-test-dialog" class="ai-prompt-test-dialog" aria-labelledby="ai-prompt-test-title">
-              <div class="ai-prompt-test-shell">
-                <div class="dialog-heading">
-                  <span class="eyebrow" data-i18n="ai.promptTestEyebrow">Live model test</span>
-                  <h2 id="ai-prompt-test-title" data-i18n="ai.promptTestTitle">Prompt template results</h2>
-                  <p data-i18n="ai.promptTestDescription">Each built-in request is sent to the configured model, then its OWT response is parsed and checked.</p>
-                </div>
-                <div id="ai-prompt-test-results" class="ai-prompt-test-results" aria-live="polite"></div>
-                <div class="dialog-actions">
-                  <button id="btn-ai-prompt-test-close" type="button" class="quiet" data-i18n="common.close">Close</button>
-                </div>
-              </div>
-            </dialog>
-          </section>
-        </div>
-        <details class="advanced-settings">
-          <summary data-i18n="settings.advanced">Advanced settings</summary>
-          <div class="advanced-settings-grid">
-            <section class="panel module-panel" id="learn-panel">
-              <div class="section-heading"><div><span class="eyebrow" data-i18n="section.control">Control</span><h2 data-i18n="section.midiLearn">MIDI Learn</h2></div></div><p class="hint" data-i18n="learn.description">Select a parameter, then move a hardware control to create a binding.</p>
-              <div class="learn-grid"><button data-learn="master-volume" data-i18n="learn.volume">Volume</button><button data-learn="octave-up" data-i18n="learn.octaveUp">Octave +</button><button data-learn="octave-down" data-i18n="learn.octaveDown">Octave −</button></div><div id="learn-status" class="status"></div><ul id="learn-bindings"></ul>
-            </section>
-            <section class="panel monitor-panel"><div class="section-heading inline-heading"><div><span class="eyebrow" data-i18n="section.diagnostics">Diagnostics</span><h2 data-i18n="section.messageMonitor">Message monitor</h2></div><span class="mono-label" data-i18n="monitor.liveStream">LIVE STREAM</span></div><div id="midi-monitor" class="monitor" aria-live="polite"><div class="monitor-empty" data-i18n="monitor.waiting">Waiting for MIDI activity…</div></div></section>
+      <section class="workspace-page settings-workspace" data-workspace-page="settings" hidden>
+        <header class="settings-page-header">
+          <button id="settings-mobile-back" class="settings-mobile-back quiet" type="button" aria-label="Back to settings categories">←</button>
+          <div>
+            <span class="eyebrow" data-i18n="nav.settings">Settings</span>
+            <h2 data-i18n="settings.centerTitle">Settings</h2>
           </div>
-        </details>
+          <div id="settings-save-state" class="settings-save-state is-saved" role="status" aria-live="polite">
+            <span class="settings-save-dot" aria-hidden="true"></span>
+            <span data-i18n="settings.saved">All changes saved</span>
+          </div>
+        </header>
+
+        <div class="settings-shell">
+          <nav class="settings-nav" aria-label="Settings categories" data-i18n-aria-label="settings.categories">
+            <button class="settings-nav-item active" type="button" data-settings-target="general" aria-current="page">
+              <span class="settings-nav-icon" aria-hidden="true">⌘</span>
+              <span><strong data-i18n="settings.general">General</strong><small data-i18n="settings.generalHint">Appearance and workspace</small></span>
+            </button>
+            <button class="settings-nav-item" type="button" data-settings-target="audio">
+              <span class="settings-nav-icon" aria-hidden="true">◉</span>
+              <span><strong data-i18n="settings.audio">Audio & sound</strong><small data-i18n="settings.audioHint">Output and sound library</small></span>
+              <span class="settings-nav-state ok">✓</span>
+            </button>
+            <button class="settings-nav-item" type="button" data-settings-target="midi">
+              <span class="settings-nav-icon" aria-hidden="true">⌁</span>
+              <span><strong data-i18n="settings.midi">MIDI</strong><small data-i18n="settings.midiHint">Devices and control mapping</small></span>
+              <span id="settings-midi-state" class="settings-nav-state" data-i18n="settings.notEnabled">Not enabled</span>
+            </button>
+            <button class="settings-nav-item" type="button" data-settings-target="ai">
+              <span class="settings-nav-icon" aria-hidden="true">✦</span>
+              <span><strong data-i18n="settings.aiModel">AI model</strong><small data-i18n="settings.aiHint">Provider and generation</small></span>
+              <span id="settings-ai-state" class="settings-nav-state" data-i18n="settings.notConfigured">Not configured</span>
+            </button>
+            <button class="settings-nav-item" type="button" data-settings-target="prompts">
+              <span class="settings-nav-icon" aria-hidden="true">{ }</span>
+              <span><strong data-i18n="settings.prompts">Prompt templates</strong><small data-i18n="settings.promptsHint">Generation instructions</small></span>
+            </button>
+            <button class="settings-nav-item" type="button" data-settings-target="advanced">
+              <span class="settings-nav-icon" aria-hidden="true">•••</span>
+              <span><strong data-i18n="settings.advanced">Advanced</strong><small data-i18n="settings.advancedHint">Diagnostics and internals</small></span>
+            </button>
+          </nav>
+
+          <div class="settings-content">
+            <section class="settings-section active" data-settings-panel="general">
+              <div class="settings-section-heading">
+                <span class="eyebrow" data-i18n="settings.general">General</span>
+                <h2 data-i18n="settings.generalTitle">Workspace preferences</h2>
+                <p data-i18n="settings.generalDescription">Choose how OpusWeave looks and communicates.</p>
+              </div>
+              <div class="settings-form-group">
+                <h3 data-i18n="settings.appearance">Appearance</h3>
+                <div class="settings-field-row">
+                  <label for="settings-theme"><span data-i18n="settings.theme">Theme</span><small data-i18n="settings.themeHint">Use a light, dark or system-matched interface.</small></label>
+                  <select id="settings-theme"><option value="system" data-i18n="theme.system">System</option><option value="dark" data-i18n="theme.dark">Dark</option><option value="light" data-i18n="theme.light">Light</option></select>
+                </div>
+                <div class="settings-field-row">
+                  <label for="settings-language"><span data-i18n="settings.language">Language</span><small data-i18n="settings.languageHint">Changes the complete application interface.</small></label>
+                  <select id="settings-language"><option value="en">English</option><option value="zh-CN">简体中文</option></select>
+                </div>
+              </div>
+              <div class="settings-form-group">
+                <h3 data-i18n="settings.data">Data</h3>
+                <div class="settings-info-row">
+                  <div><strong data-i18n="settings.autoSave">Automatic saving</strong><small data-i18n="settings.autoSaveHint">Your score and settings are stored in this browser as you work.</small></div>
+                  <span class="settings-pill ok" data-i18n="settings.on">On</span>
+                </div>
+              </div>
+            </section>
+
+            <section class="settings-section" data-settings-panel="audio" hidden>
+              <div class="settings-section-heading">
+                <span class="eyebrow" data-i18n="settings.audio">Audio & sound</span>
+                <h2 data-i18n="settings.audioTitle">Audio output and sound library</h2>
+                <p data-i18n="settings.audioDescription">Choose where sound plays and which instruments OpusWeave uses.</p>
+              </div>
+              <div class="settings-form-group">
+                <h3 data-i18n="settings.output">Output</h3>
+                <div class="settings-field-row settings-field-row-wide">
+                  <label for="audio-output-select"><span data-i18n="sound.audioOutput">Audio output</span><small data-i18n="settings.outputHint">Select speakers, headphones or an external audio interface.</small></label>
+                  <div class="settings-inline-control"><select id="audio-output-select"></select><button id="btn-choose-audio-output" class="quiet" data-i18n="sound.chooseOutput">Choose…</button></div>
+                </div>
+                <div class="settings-field-row settings-field-row-wide">
+                  <label for="master-volume"><span data-i18n="sound.masterVolume">Master volume</span><small data-i18n="settings.volumeHint">Controls OpusWeave without changing system volume.</small></label>
+                  <div class="settings-volume-control"><input id="master-volume" type="range" min="0" max="100" value="80" /><output id="master-volume-value">80%</output></div>
+                </div>
+                <div class="settings-row-actions"><button id="btn-test-audio" class="quiet" type="button" data-i18n="settings.testSound">Play test sound</button></div>
+                <div id="audio-output-status" class="status"></div>
+              </div>
+              <div class="settings-form-group" id="soundfont-panel">
+                <h3 data-i18n="section.soundLibrary">Sound library</h3>
+                <div class="sound-library-current" id="built-in-soundfont" data-state="loading">
+                  <span class="soundfont-state-marker" aria-hidden="true"></span>
+                  <div class="built-in-soundfont-copy"><strong data-i18n="sound.builtInName">FluidR3Mono GM + FreePiano piano</strong><small data-i18n="sound.builtInSeparate">The GM bank is fetched separately and never blocks the application.</small></div>
+                  <span id="built-in-soundfont-state" class="soundfont-state-label" data-i18n="sound.stateLoading">Loading</span>
+                  <button id="btn-retry-built-in-soundfont" class="quiet" data-i18n="sound.retry" hidden>Retry</button>
+                </div>
+                <div class="settings-field-row settings-field-row-wide">
+                  <label for="preset-select"><span data-i18n="sound.preset">Preset</span><small data-i18n="settings.presetHint">The instrument used for live play and score preview.</small></label>
+                  <select id="preset-select" disabled><option value="" data-i18n="sound.loadFirst">Load a SoundFont first</option></select>
+                </div>
+                <div class="settings-row-actions"><label class="file-action-button"><input id="sf-file" type="file" accept=".sf2,.sf3,.sfogg" /><span data-i18n="settings.replaceLibrary">Replace sound library</span></label></div>
+                <div id="sf-status" class="status"></div>
+              </div>
+              <details class="settings-resource-manager">
+                <summary><span><strong data-i18n="sound.downloads">Optional sound banks</strong><small data-i18n="sound.downloadsHint">Download from the official source, then load the saved file above.</small></span></summary>
+                <div class="soundfont-downloads">
+                  <div class="soundfont-download-option"><div><strong>MuseScore General <span class="settings-pill" data-i18n="settings.recommended">Recommended</span></strong><small data-i18n="sound.museScoreGeneralMeta">about 38 MB · SF3 · MIT · richer standard bank</small></div><button id="btn-download-musescore-general" class="quiet" data-soundfont-download="https://ftp.osuosl.org/pub/musescore/soundfont/MuseScore_General/MuseScore_General.sf3" data-i18n="sound.download">Download</button></div>
+                  <div class="soundfont-download-option"><div><strong>GeneralUser GS</strong><small data-i18n="sound.generalUserMeta">about 31 MB · SF2 · custom license · opens the official download page</small></div><button id="btn-download-generaluser" class="quiet" data-soundfont-download="https://www.schristiancollins.com/generaluser.php" data-i18n="sound.download">Download</button></div>
+                  <div class="soundfont-download-option"><div><strong>TimGM6mb <span class="settings-pill" data-i18n="settings.lightweight">Lightweight</span></strong><small data-i18n="sound.timGmMeta">about 5.7 MB · SF2 · GPL-2.0 · smallest option</small></div><button id="btn-download-timgm" class="quiet" data-soundfont-download="https://sourceforge.net/p/mscore/code/HEAD/tree/trunk/mscore/share/sound/TimGM6mb.sf2?format=raw" data-i18n="sound.download">Download</button></div>
+                  <a id="fluidr3mono-license" class="soundfont-license-link" target="_blank" rel="noopener" data-i18n="sound.builtInLicense">FluidR3Mono license and acknowledgements</a>
+                </div>
+              </details>
+            </section>
+
+            <section class="settings-section" data-settings-panel="midi" hidden>
+              <div class="settings-section-heading">
+                <span class="eyebrow" data-i18n="settings.midi">MIDI</span>
+                <h2 data-i18n="settings.midiTitle">MIDI devices and control mapping</h2>
+                <p data-i18n="settings.midiDescription">Connect a keyboard, pad controller or external sound module.</p>
+              </div>
+              <div id="midi-permission-card" class="settings-empty-state">
+                <span class="settings-empty-icon" aria-hidden="true">⌁</span>
+                <h3 data-i18n="settings.midiNotEnabled">MIDI access is not enabled</h3>
+                <p data-i18n="settings.midiPermissionHint">Browser permission is required before OpusWeave can discover MIDI devices.</p>
+                <button id="btn-request-midi" class="primary" data-i18n="midi.enable">Enable MIDI access</button>
+              </div>
+              <div id="midi-configured-view" hidden>
+                <div class="settings-form-group" id="midi-panel">
+                  <div class="settings-group-heading"><h3 data-i18n="section.midiConnections">MIDI connections</h3><button id="btn-refresh-midi" class="quiet" data-i18n="midi.refresh">Refresh devices</button></div>
+                  <div class="settings-field-row settings-field-row-wide"><label for="midi-input-select"><span data-i18n="midi.inputDevice">Input device</span><small data-i18n="settings.midiInputHint">Notes and controls received from this device drive OpusWeave.</small></label><select id="midi-input-select"></select></div>
+                  <div class="settings-field-row settings-field-row-wide"><label for="midi-output-select"><span data-i18n="midi.outputDevice">Output device</span><small data-i18n="settings.midiOutputHint">Optional destination for outgoing MIDI messages.</small></label><select id="midi-output-select"></select></div>
+                  <div id="port-details" class="port-details"></div>
+                  <div id="device-profile" class="device-profile" hidden><strong id="profile-name"></strong><div id="profile-controls" class="profile-controls"></div></div>
+                </div>
+                <div class="settings-form-group" id="learn-panel">
+                  <h3 data-i18n="section.midiLearn">Control mapping</h3>
+                  <p class="settings-group-description" data-i18n="learn.description">Select a parameter, then move a hardware control to create a binding.</p>
+                  <div class="learn-grid"><button data-learn="master-volume" data-i18n="learn.volume">Volume</button><button data-learn="octave-up" data-i18n="learn.octaveUp">Octave +</button><button data-learn="octave-down" data-i18n="learn.octaveDown">Octave −</button></div><div id="learn-status" class="status"></div><ul id="learn-bindings"></ul>
+                </div>
+              </div>
+            </section>
+
+            <section class="settings-section" data-settings-panel="ai" hidden>
+              <div class="settings-section-heading">
+                <span class="eyebrow" data-i18n="settings.aiModel">AI model</span>
+                <h2 data-i18n="settings.aiTitle">AI service and model</h2>
+                <p data-i18n="settings.aiDescription">Configure the model used for composition, transcription and improvisation.</p>
+              </div>
+              <div class="settings-form-group" id="ai-settings-panel">
+                <h3 data-i18n="settings.provider">Service provider</h3>
+                <div id="ai-settings" class="ai-settings settings-ai-fields">
+                  <label class="ai-provider-field"><span data-i18n="settings.provider">Service provider</span><select id="ai-provider"><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="openrouter">OpenRouter</option><option value="ollama">Ollama</option><option value="llamacpp">llama.cpp</option><option value="custom" data-i18n="settings.customProvider">Custom</option></select></label>
+                  <label class="ai-endpoint-field"><span data-i18n="ai.endpoint">Service URL</span><input id="ai-endpoint" type="url" spellcheck="false" data-i18n-placeholder="ai.endpointPlaceholder" placeholder="Provider service URL" /></label>
+                  <label id="ai-api-key-field"><span data-i18n="ai.apiKey">API key (optional)</span><span class="password-field"><input id="ai-api-key" type="password" autocomplete="off" /><button id="btn-ai-key-visibility" type="button" class="field-button" data-i18n="settings.show">Show</button></span></label>
+                  <label id="ai-protocol-field"><span data-i18n="ai.protocol">Protocol</span><select id="ai-protocol"><option value="auto" data-i18n="ai.protocolAuto">Auto detect</option><option value="openai-responses">OpenAI Responses</option><option value="openai-chat-completions">OpenAI Chat Completions</option><option value="openai-completions">OpenAI Completions</option><option value="anthropic-messages">Anthropic Messages</option><option value="ollama-native">Ollama Native</option></select></label>
+                  <label class="ai-model-field"><span data-i18n="ai.model">Model</span><span class="model-field"><input id="ai-model" type="text" list="ai-model-options" spellcheck="false" autocomplete="off" data-i18n-placeholder="ai.modelPlaceholder" placeholder="Enter URL to load models" /><datalist id="ai-model-options"></datalist><button id="btn-ai-refresh-models" class="field-button" data-i18n="ai.refreshModels">Refresh</button></span></label>
+                  <div class="ai-settings-actions"><button id="btn-ai-test" class="primary" data-i18n="ai.test">Test connection</button></div>
+                </div>
+                <div id="ai-status" class="status" data-status-key="ai.ready">API configuration is optional; without it, AI composition provides a prompt for manual use.</div>
+              </div>
+              <div class="settings-form-group">
+                <h3 data-i18n="settings.generation">Generation</h3>
+                <div class="ai-model-parameter-grid">
+                  <label><span data-i18n="ai.thinkingMode">Thinking mode</span><select id="ai-thinking-mode"><option value="" data-i18n="ai.providerDefault">Provider default</option><option value="adaptive" data-i18n="ai.thinkingAdaptive">Adaptive</option><option value="enabled" data-i18n="ai.thinkingEnabled">Enabled (manual)</option><option value="disabled" data-i18n="ai.thinkingDisabled">Disabled</option></select></label>
+                  <label><span data-i18n="ai.reasoningEffort">Reasoning effort</span><select id="ai-reasoning-effort"><option value="" data-i18n="ai.providerDefault">Provider default</option><option value="none">none</option><option value="minimal">minimal</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option><option value="xhigh">xhigh</option><option value="max">max</option></select></label>
+                  <label><span data-i18n="ai.maxTokens">Maximum output tokens</span><input id="ai-max-tokens" type="number" min="1" max="1000000" step="1" value="4096" /></label>
+                  <label class="ai-checkbox-field"><input id="ai-auto-repair" type="checkbox" checked /><span><strong data-i18n="ai.autoRepair">Automatically repair invalid AI OWT</strong><small data-i18n="settings.autoRepairHint">Ask the model to correct output that the OWT parser rejects.</small></span></label>
+                  <label><span data-i18n="ai.retryCount">Repair retries</span><input id="ai-retry-count" type="number" min="0" max="10" step="1" value="3" /></label>
+                </div>
+                <details class="settings-more-parameters">
+                  <summary data-i18n="settings.moreParameters">Show more parameters</summary>
+                  <div class="ai-model-parameter-grid">
+                    <label><span data-i18n="ai.temperature">Temperature</span><input id="ai-temperature" type="number" min="0" max="2" step="0.05" data-i18n-placeholder="ai.providerDefault" placeholder="Provider default" /></label>
+                    <label><span data-i18n="ai.topP">Top P</span><input id="ai-top-p" type="number" min="0" max="1" step="0.05" data-i18n-placeholder="ai.providerDefault" placeholder="Provider default" /></label>
+                    <label><span data-i18n="ai.thinkingBudget">Manual thinking budget</span><input id="ai-thinking-budget" type="number" min="1024" max="1000000" step="1" value="2048" /></label>
+                  </div>
+                </details>
+              </div>
+            </section>
+
+            <section class="settings-section" data-settings-panel="prompts" hidden>
+              <div class="settings-section-heading">
+                <span class="eyebrow" data-i18n="settings.prompts">Prompt templates</span>
+                <h2 data-i18n="settings.promptsTitle">AI generation instructions</h2>
+                <p data-i18n="settings.promptsDescription">Edit the exact instructions sent for each AI workflow. Invalid variables are reported before a request is sent.</p>
+              </div>
+              <div class="prompt-workbench">
+                <div class="prompt-template-nav" role="tablist" aria-label="Prompt templates">
+                  <button class="active" type="button" role="tab" data-prompt-target="system" aria-selected="true" data-i18n="ai.systemPromptTemplate">Shared system prompt</button>
+                  <button type="button" role="tab" data-prompt-target="prompt" aria-selected="false" data-i18n="ai.composePromptTemplate">Composition</button>
+                  <button type="button" role="tab" data-prompt-target="media" aria-selected="false" data-i18n="ai.mediaPromptTemplate">Media transcription</button>
+                  <button type="button" role="tab" data-prompt-target="improvise" aria-selected="false" data-i18n="ai.improvPromptTemplate">AI improvisation</button>
+                </div>
+                <div class="prompt-editor-panel active" data-prompt-panel="system"><textarea id="ai-template-system" rows="22" spellcheck="false" aria-label="Shared system prompt"></textarea></div>
+                <div class="prompt-editor-panel" data-prompt-panel="prompt" hidden><textarea id="ai-template-prompt" rows="22" spellcheck="false" aria-label="Composition prompt"></textarea></div>
+                <div class="prompt-editor-panel" data-prompt-panel="media" hidden><textarea id="ai-template-media" rows="22" spellcheck="false" aria-label="Media transcription prompt"></textarea></div>
+                <div class="prompt-editor-panel" data-prompt-panel="improvise" hidden><textarea id="ai-template-improvise" rows="22" spellcheck="false" aria-label="AI improvisation prompt"></textarea></div>
+                <div class="prompt-variable-strip"><span data-i18n="settings.availableVariables">Available variables</span><code>{instruction}</code><code>{currentOwt}</code><code>{owtReference}</code></div>
+              </div>
+              <div class="settings-row-actions split"><button id="btn-ai-reset-templates" type="button" class="quiet" data-i18n="ai.resetPromptTemplates">Restore defaults</button><button id="btn-ai-test-templates" type="button" class="primary" data-i18n="ai.testPromptTemplates">Test prompt templates</button></div>
+              <dialog id="ai-prompt-test-dialog" class="ai-prompt-test-dialog" aria-labelledby="ai-prompt-test-title">
+                <div class="ai-prompt-test-shell">
+                  <div class="dialog-heading"><span class="eyebrow" data-i18n="ai.promptTestEyebrow">Live model test</span><h2 id="ai-prompt-test-title" data-i18n="ai.promptTestTitle">Prompt template results</h2><p data-i18n="ai.promptTestDescription">Each built-in request is sent to the configured model, then its OWT response is parsed and checked.</p></div>
+                  <div id="ai-prompt-test-results" class="ai-prompt-test-results" aria-live="polite"></div>
+                  <div class="dialog-actions"><button id="btn-ai-prompt-test-close" type="button" class="quiet" data-i18n="common.close">Close</button></div>
+                </div>
+              </dialog>
+            </section>
+
+            <section class="settings-section" data-settings-panel="advanced" hidden>
+              <div class="settings-section-heading">
+                <span class="eyebrow" data-i18n="settings.advanced">Advanced</span>
+                <h2 data-i18n="settings.advancedTitle">Diagnostics and internals</h2>
+                <p data-i18n="settings.advancedDescription">Inspect runtime state and MIDI messages when troubleshooting.</p>
+              </div>
+              <div class="settings-form-group" id="status-panel">
+                <div class="settings-group-heading"><h3 data-i18n="section.studioStatus">Studio status</h3><span class="status-beacon" data-i18n-title="status.applicationReady" title="Application ready"></span></div>
+                <dl class="status-grid">
+                  <div><dt data-i18n="status.audioEngine">Audio engine</dt><dd id="st-audio">—</dd></div><div><dt data-i18n="status.audioOutput">Audio output</dt><dd id="st-audio-output">—</dd></div><div><dt data-i18n="status.webMidi">Web MIDI</dt><dd id="st-midi">—</dd></div><div><dt data-i18n="status.permission">Permission</dt><dd id="st-perm">—</dd></div><div><dt data-i18n="status.input">Input</dt><dd id="st-input">—</dd></div><div><dt data-i18n="status.soundFont">SoundFont</dt><dd id="st-soundfont">—</dd></div><div><dt data-i18n="status.playback">Playback</dt><dd id="st-file">—</dd></div>
+                </dl><div id="st-error" class="error-box" hidden></div>
+              </div>
+              <div class="settings-form-group monitor-panel"><div class="settings-group-heading"><h3 data-i18n="section.messageMonitor">MIDI message monitor</h3><span class="mono-label" data-i18n="monitor.liveStream">LIVE STREAM</span></div><div id="midi-monitor" class="monitor" aria-live="polite"><div class="monitor-empty" data-i18n="monitor.waiting">Waiting for MIDI activity…</div></div></div>
+            </section>
+          </div>
+        </div>
       </section>
     </main>
     <dialog id="owt-reference-dialog" class="owt-reference-dialog" aria-labelledby="owt-reference-title" aria-describedby="owt-reference-description">

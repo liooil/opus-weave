@@ -156,12 +156,11 @@ export function defaultOwtAiPromptTemplates(locale: 'en' | 'zh-CN' = 'en'): OwtA
 当前 OWT（可作为素材；若为空或无效则重新构建合法文档）：
 {currentOwt}
 
-先在内部规划调号、拍号、速度、轨道和完整小节数。对于 4/4，每条轨道先复制下面的节奏骨架，再只替换音高；需要更多小节就继续复制同一行，不得修改任何 :1：
-| C4:1 D4:1 E4:1 F4:1 |
-| C4:1 D4:1 E4:1 F4:1 |
-| C4:1 D4:1 E4:1 F4:1 |
-| C4:1 D4:1 E4:1 F4:1 |
-对于 3/4 或 6/8，每行写三个 :1 事件。轨道事件中不得输出分数时值或 :2、:3、:4。逐行数清事件后，最后只输出完整 OWT。`,
+先在内部规划调号、拍号、速度、轨道和完整小节数。使用 OWT 支持的多种时值（4、2、1、1/2、1/4、3/2、1/3），让音乐拥有真实节奏，而不是只有四分音符。每个小节仍须严格等于当前拍号的小节长度。例如：
+- 4/4 合计为 4： | C4:1 D4:1 E4:2 | 或 | C4:1/2 D4:1/2 E4:1/2 F4:1/2 G4:2 |
+- 3/4 合计为 3： | C4:1 D4:2 | 或 | C4:1/2 D4:1/2 E4:1/2 F4:1/2 G4:1 |
+- 6/8 合计为 3： | C4:1/2 D4:1/2 E4:1/2 F4:1/2 G4:1/2 A4:1/2 |
+闭合右侧小节线之前逐小节数清总时值；不足时用休止符补齐。最后只输出完整 OWT。`,
       scoreMedia: `任务：读取附带的乐谱图像或视频采样帧，把可见音乐转写为一份完整、可播放的 OWT 乐谱。
 
 用户补充要求：
@@ -213,12 +212,11 @@ USER REQUEST:
 CURRENT OWT (use as material; rebuild it if empty or invalid):
 {currentOwt}
 
-Silently plan the key, meter, tempo, tracks, and complete measure count. For 4/4, first copy this rhythmic skeleton for every track, then replace pitches only; if more measures are needed, keep copying the same line and never modify any :1:
-| C4:1 D4:1 E4:1 F4:1 |
-| C4:1 D4:1 E4:1 F4:1 |
-| C4:1 D4:1 E4:1 F4:1 |
-| C4:1 D4:1 E4:1 F4:1 |
-For 3/4 or 6/8, write three :1 events per line. Do not output fractional event durations or :2, :3, or :4. Count each line's events, then output only the complete OWT.`,
+Silently plan the key, meter, tempo, tracks, and complete measure count. Use varied OWT durations (4, 2, 1, 1/2, 1/4, 3/2, 1/3) so the music has real rhythm, not only quarter notes. Every measure must still sum exactly to the active meter length. For example:
+- 4/4 sums to 4:  | C4:1 D4:1 E4:2 |  or  | C4:1/2 D4:1/2 E4:1/2 F4:1/2 G4:2 |
+- 3/4 sums to 3:  | C4:1 D4:2 |  or  | C4:1/2 D4:1/2 E4:1/2 F4:1/2 G4:1 |
+- 6/8 sums to 3:  | C4:1/2 D4:1/2 E4:1/2 F4:1/2 G4:1/2 A4:1/2 |
+Count each measure before closing its bar line; add rests to fill any deficit. Then output only the complete OWT.`,
     scoreMedia: `TASK: Read the attached score image or sampled video frames and transcribe the visible music into one complete, playable OWT score.
 
 ADDITIONAL USER REQUEST:

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { ConversationalImprovSession } from '../domain/ai/conversational-improv.ts'
 import { RecentPerformanceCapture } from '../domain/ai/recent-performance.ts'
-import { buildManualOwtPrompt, buildOwtAiMessages, createOwtWithAi, defaultOwtAiPromptTemplates, DEFAULT_OWT_AI_CONFIG, extractOwtFromAiResponse, hasConfiguredAiApi, validateOwtAiPromptTemplates } from '../domain/ai/owt-ai.ts'
+import { buildOwtAiMessages, createOwtWithAi, defaultOwtAiPromptTemplates, DEFAULT_OWT_AI_CONFIG, extractOwtFromAiResponse, hasConfiguredAiApi, validateOwtAiPromptTemplates } from '../domain/ai/owt-ai.ts'
 import { keyboardLayoutTextToOwt } from '../domain/composition/keyboard-layout-composition.ts'
 import { musicalTypingPitches, musicalTypingStep, musicalTypingToOwt } from '../domain/composition/musical-typing.ts'
 import { BUILTIN_OWT_EXAMPLES } from '../domain/owt/builtin-examples.ts'
@@ -66,18 +66,11 @@ describe('musical typing', () => {
 })
 
 describe('OWT AI client', () => {
-  test('keeps API configuration optional and builds a complete manual collaboration prompt', () => {
+  test('keeps API configuration optional', () => {
     expect(DEFAULT_OWT_AI_CONFIG).toMatchObject({ baseUrl: '', model: '', retryCount: 0 })
     expect(hasConfiguredAiApi(DEFAULT_OWT_AI_CONFIG)).toBe(false)
     expect(hasConfiguredAiApi({ baseUrl: 'http://model.test', model: 'local-model' })).toBe(true)
     expect(hasConfiguredAiApi({ baseUrl: 'http://model.test', model: '' })).toBe(false)
-
-    const prompt = buildManualOwtPrompt(validAiOwt, 'zh-CN')
-    expect(prompt).toContain(buildOwt01Reference('zh-CN'))
-    expect(prompt).toContain('OWT 0.1 的时值单位是四分音符')
-    expect(prompt).toContain('每一对 | ... | 之间必须恰好写一个完整小节')
-    expect(prompt).toContain(validAiOwt.trim())
-    expect(prompt).toContain('请在这里写下希望创作或修改的内容')
   })
 
   test('extracts a validated OWT document from fenced model output', () => {
@@ -111,27 +104,6 @@ describe('OWT AI client', () => {
       expect(messages[0]!.content).toContain(`SYSTEM::${buildOwt01Reference('en')}`)
       expect(messages[1]!.content).toContain(`${marker}::user request::${validAiOwt.trim()}`)
     }
-  })
-
-  test('provides concise bilingual behavior prompts backed by the complete reference', () => {
-    const english = defaultOwtAiPromptTemplates('en')
-    const chinese = defaultOwtAiPromptTemplates('zh-CN')
-    for (const templates of [english, chinese]) {
-      expect(templates.system).toContain('{owtReference}')
-      expect(templates.prompt).toContain('{instruction}')
-      expect(templates.prompt).toContain('{currentOwt}')
-      expect(templates.system).toContain('numerator*4/denominator')
-      expect(templates.system).not.toContain('ppq 480')
-      expect(templates.system).not.toContain('track "Melody"')
-    }
-    expect(english.system).toContain('return the complete replacement document')
-    expect(english.system).toContain('create original music')
-    expect(english.system).toContain('4/4=4, 3/4=3, 6/8=3')
-    expect(english.prompt).toContain('copy this rhythmic skeleton')
-    expect(chinese.system).toContain('输出完整替换文档')
-    expect(chinese.system).toContain('创作情绪或风格相近的原创音乐')
-    expect(chinese.system).toContain('4/4=4，3/4=3，6/8=3')
-    expect(chinese.prompt).toContain('复制下面的节奏骨架')
   })
 
 

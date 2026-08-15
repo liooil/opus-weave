@@ -29,10 +29,16 @@ const ATTR_PATTERN = /([A-Za-z][\w-]*)=([^\s,}]+)/g
 const PITCH_CLASS: Record<string, number> = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 }
 
 
+export interface OwtParseOptions {
+  /** Treat bar lines as timing hints instead of hard validation points. */
+  lenientBars?: boolean
+}
+
 interface ParseContext {
   diagnostics: OwtDiagnostic[]
   lines: string[]
   ended: boolean
+  lenientBars: boolean
 }
 
 function issue(ctx: ParseContext, line: number, column: number, code: string, message: string): void {
@@ -402,7 +408,7 @@ function parseScore(ctx: ParseContext): OwtScore {
       continue
     }
     if (source.startsWith('track ')) {
-      if (currentTrack && !isMeasureBoundary(cursor, score.meters)) {
+      if (currentTrack && !ctx.lenientBars && !isMeasureBoundary(cursor, score.meters)) {
         issue(ctx, line, 1, 'score.track.incompleteMeasure', `track "${currentTrack.name}" must end on a complete measure boundary`)
       }
       sawTrack = true
@@ -439,7 +445,7 @@ function parseScore(ctx: ParseContext): OwtScore {
 
     for (const token of scoreTokens(source)) {
       if (token.text === '|') {
-        if (!isMeasureBoundary(cursor, score.meters)) issue(ctx, line, token.column, 'score.bar.misaligned', 'bar boundary does not match the active meter')
+        if (!ctx.lenientBars && !isMeasureBoundary(cursor, score.meters)) issue(ctx, line, token.column, 'score.bar.misaligned', 'bar boundary does not match the active meter')
         continue
       }
       const parsed = parseScoreEvent(token.text, cursor, line, token.column, score.ppq, ctx)
@@ -447,7 +453,7 @@ function parseScore(ctx: ParseContext): OwtScore {
       if (parsed.advance) cursor = addRational(cursor, parsed.advance)
     }
   }
-  if (currentTrack && !isMeasureBoundary(cursor, score.meters)) {
+  if (currentTrack && !ctx.lenientBars && !isMeasureBoundary(cursor, score.meters)) {
     issue(ctx, ctx.lines.length, 1, 'score.track.incompleteMeasure', `track "${currentTrack.name}" must end on a complete measure boundary`)
   }
 
@@ -460,10 +466,10 @@ function parseScore(ctx: ParseContext): OwtScore {
 }
 
 
-export function parseOwt(text: string): OwtParseResult {
+export function parseOwt(text: string, options: OwtParseOptions = {}): OwtParseResult {
   const lines = text.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').split('\n')
   const diagnostics: OwtDiagnostic[] = []
-  const ctx: ParseContext = { diagnostics, lines, ended: false }
+  const ctx: ParseContext = { diagnostics, lines, ended: false, lenientBars: options.lenientBars === true }
   const firstIndex = lines.findIndex((line) => stripComment(line).trim().length > 0)
   if (firstIndex < 0) return { diagnostics: [{ severity: 'error', line: 1, column: 1, code: 'document.empty', message: 'OWT document is empty' }] }
   const header = stripComment(lines[firstIndex]!).trim()
@@ -477,8 +483,8 @@ export function parseOwt(text: string): OwtParseResult {
     : { document, diagnostics }
 }
 
-export function parseOwtOrThrow(text: string): OwtDocument {
-  const result = parseOwt(text)
+export function parseOwtOrThrow(text: string, options: OwtParseOptions = {}): OwtDocument {
+  const result = parseOwt(text, options)
   if (!result.document) throw new OwtSyntaxError(result.diagnostics)
   return result.document
 }

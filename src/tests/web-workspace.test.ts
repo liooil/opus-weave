@@ -207,6 +207,8 @@ describe('web workspace structure', () => {
     expect(app).toContain("const unavailable = !active && !configured")
     expect(app).toContain("button.disabled = unavailable || (aiBusy && !active)")
     expect(css).toContain(".ai-improv-button:disabled")
+    expect(css).toContain(".ai-improv-button[data-improv-state='thinking'] { border-color: rgba(198, 165, 246, 0.55)")
+    expect(css).toContain('@keyframes ai-improv-pulse')
     expect(css).toContain(":root[data-effective-theme='light'] .ai-compose-button")
   })
 
@@ -439,6 +441,9 @@ describe('web workspace structure', () => {
     expect(app).not.toContain('traceActiveOnly')
     expect(css).toContain('.keyboard-map-section + .keyboard-map-section')
     expect(css).toContain('margin-inline-start: var(--keyboard-row-offset, 0px)')
+    expect(app).toContain('if (!assignment && !action)')
+    expect(app).not.toContain("keycap.classList.add('unmapped')")
+    expect(css).not.toContain('.computer-keycap.unmapped')
   })
 
   test('explains hovered score source as a readable multiline field list', () => {

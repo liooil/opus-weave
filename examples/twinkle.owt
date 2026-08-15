@@ -8,10 +8,8 @@ key 1:1 C major
 
 track "Melody / 旋律" channel=1 program=0 velocity=88
 
-| C4:1 C4:1 G4:1 G4:1 |
-| A4:1 A4:1 G4:2 |
-| F4:1 F4:1 E4:1 E4:1 |
-| D4:1 D4:1 C4:2 |
+| C4:1 C4:1 G4:1 G4:1 | A4:1 A4:1 G4:2 |
+| F4:1 F4:1 E4:1 E4:1 | D4:1 D4:1 C4:2 |
 
 track "Piano Chords / 钢琴和弦" channel=2 program=0 velocity=72
 

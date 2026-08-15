@@ -70,6 +70,8 @@ export interface MelodyExtractionOptions {
   voiceStrategy?: MelodyVoiceStrategy
   preserveVelocity?: boolean
   title?: string
+  /** Name of the emitted OWT track. Defaults to "Melody". */
+  trackName?: string
 }
 
 export interface MelodyExtractionReport {
@@ -251,6 +253,7 @@ export function extractMelodyFromMidi(data: ArrayBuffer, options: MelodyExtracti
     throw new Error('melody extraction channel must be an integer from 1 to 16')
   }
   const strategy = options.voiceStrategy ?? 'continuous'
+  if (options.trackName !== undefined && !options.trackName.trim()) throw new Error('melody extraction track name must not be empty')
   const candidates = collectCandidates(midi, options)
   const source = candidates[0]
   if (!source) throw new Error('MIDI contains no non-drum notes to extract')
@@ -259,7 +262,7 @@ export function extractMelodyFromMidi(data: ArrayBuffer, options: MelodyExtracti
   const velocities = selected.map((note) => note.velocity).sort((left, right) => left - right)
   const defaultVelocity = velocities.length > 0 ? velocities[Math.floor(velocities.length / 2)]! : 88
   const track: OwtScoreTrack = {
-    name: 'Melody',
+    name: options.trackName?.trim() || 'Melody',
     channel: source.channel + 1,
     program: programForChannel(midi, source.trackIndex, source.channel),
     velocity: defaultVelocity,

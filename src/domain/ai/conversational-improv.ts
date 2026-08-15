@@ -74,6 +74,12 @@ export class ConversationalImprovSession {
     return take
   }
 
+  /** Current phrase with held notes closed, for live OWT previews while recording. */
+  preview(timestampMs: number): RecordedTake | null {
+    if (this.currentState !== 'recording' || this.noteOnCount < this.minimumNotes) return null
+    return this.capture.preview(timestampMs)
+  }
+
   markResponding(): void {
     if (this.currentState === 'thinking') this.currentState = 'responding'
   }

@@ -18,9 +18,9 @@ import { compileScoreText, extractMelodyFromMidi, extractMelodyFromRecording, ty
 import { parseOwt } from '../domain/owt/parser.ts'
 import { parseRational, rational, rationalToNumber } from '../domain/owt/rational.ts'
 import { serializeOwt } from '../domain/owt/serializer.ts'
-import { appendOwtScores, completeOwtPrefix } from '../domain/owt/streaming.ts'
+import { appendOwtUserTrack } from '../domain/owt/streaming.ts'
 import { buildOwt01Reference } from '../domain/owt/reference.ts'
-import type { OwtDocument } from '../domain/owt/ast.ts'
+import type { OwtDocument, OwtScoreTrack } from '../domain/owt/ast.ts'
 import { activeOwtPlaybackIds, activeOwtSourceRanges, buildOwtPlaybackMap, cursorOwtPlaybackTokens, playbackStartForSourceRanges, type OwtPlaybackToken, type OwtSourceRange } from '../domain/owt/playback-map.ts'
 import { owtLexicalRanges, renderOwtHighlight, type OwtDecoration, type OwtLexicalRange } from './components/owt-highlighter.ts'
 import { ModalOwtEditor, normalizedSelection, owtMotionDestinations, type ModalEditorViewState, type OwtMotionDestination } from './editor/modal-editor.ts'
@@ -846,6 +846,8 @@ let improvAbortController: AbortController | undefined
 let improvRequestSequence = 0
 let improvScoreText = ''
 let improvResponseStreaming = false
+let improvLiveFrame: number | undefined
+let improvLivePreviewAt = 0
 const mapping = new MappingEngine()
 let practiceSession: PracticeSession | null = null
 let practiceExpectedNotes: number[] = []
@@ -1861,25 +1863,19 @@ function showExtractedMelody(result: MelodyExtractionResult, sourceKey: 'owt.mid
   }, 'ok')
 }
 
-interface OwtPlaybackOptions {
-  text?: string
-  startSeconds?: number
-}
-
-async function playOwtRange(sourceRange?: { start: number; end?: number }, allowLoop = true, options: OwtPlaybackOptions = {}): Promise<void> {
+async function playOwtRange(sourceRange?: { start: number; end?: number }, allowLoop = true): Promise<void> {
   transportController.beginLoading(sourceRange ? 'selection' : 'owt')
-  const sourceText = options.text ?? owtEditor.value
-  const document = options.text === undefined ? parseEditorOwt() : parseOwt(sourceText).document
+  const document = parseEditorOwt()
   if (!document) return
-  const compiled = compileScoreText(sourceText)
+  const compiled = compileScoreText(owtEditor.value)
   const fileName = owtFileName(document, 'mid')
-  if (options.text === undefined && activeScoreView === 'timeline' && timelineOwtRevision !== owtRevision) syncTimelineFromCurrentOwt()
-  owtPlaybackTokens = buildOwtPlaybackMap(sourceText, compiled.score)
+  if (activeScoreView === 'timeline' && timelineOwtRevision !== owtRevision) syncTimelineFromCurrentOwt()
+  owtPlaybackTokens = buildOwtPlaybackMap(owtEditor.value, compiled.score)
   owtPlaybackRanges = []
   owtActiveRangeKey = ''
-  let startSeconds = Math.max(0, options.startSeconds ?? 0)
+  let startSeconds = 0
   let endSeconds: number | undefined
-  if (sourceRange && options.startSeconds === undefined) {
+  if (sourceRange) {
     const startToken = owtPlaybackTokens.find((token) => token.start <= sourceRange.start && token.end > sourceRange.start)
       ?? owtPlaybackTokens.find((token) => token.start >= sourceRange.start)
     startSeconds = startToken?.startSeconds ?? 0
@@ -2330,106 +2326,6 @@ function createAiEditorStream(): { update: (text: string) => void; finish: (text
   }
 }
 
-type AiPlaybackStream = {
-  update: (text: string) => void
-  finish: (text: string) => Promise<boolean>
-  cancel: (stopPlayback?: boolean) => void
-}
-
-function createAiPlaybackStream(allowLoop: boolean, onStarted?: () => void): AiPlaybackStream {
-  let disposed = false
-  let started = false
-  let playbackStarted = false
-  let playbackFailed = false
-  let latestPlayableText = ''
-  let playedText = ''
-  let pendingRefreshText = ''
-  let startPromise: Promise<void> | undefined
-  let refreshPromise: Promise<void> | undefined
-
-  const start = (text: string, loop: boolean, startSeconds = 0): Promise<void> => {
-    playbackStarted = true
-    return playOwtRange(undefined, loop, { text, startSeconds }).then(() => {
-      playedText = text
-      onStarted?.()
-    })
-  }
-
-  const startInitial = (text: string): void => {
-    started = true
-    startPromise = start(text, false).catch(() => {
-      playbackFailed = true
-      started = false
-    })
-  }
-
-  const refresh = (): void => {
-    if (disposed || !started || refreshPromise || playbackFailed) return
-    refreshPromise = (async () => {
-      await startPromise
-      while (!disposed && pendingRefreshText) {
-        const text = pendingRefreshText
-        pendingRefreshText = ''
-        if (!text || text === playedText) continue
-        const position = engine?.getPlaybackPosition().seconds ?? 0
-        try {
-          await start(text, false, position)
-        } catch {
-          playbackFailed = true
-          break
-        }
-      }
-    })().finally(() => {
-      refreshPromise = undefined
-      if (!disposed && pendingRefreshText && !playbackFailed) refresh()
-    })
-  }
-
-  return {
-    update: (text) => {
-      if (disposed) return
-      const prefix = completeOwtPrefix(text)
-      if (!prefix || prefix.text === latestPlayableText) return
-      latestPlayableText = prefix.text
-      if (!started) startInitial(prefix.text)
-      else {
-        pendingRefreshText = prefix.text
-        refresh()
-      }
-    },
-    finish: async (text) => {
-      if (disposed) return false
-      const prefix = completeOwtPrefix(text)
-      if (!prefix || playbackFailed) return false
-      latestPlayableText = prefix.text
-      if (!started) startInitial(prefix.text)
-      else pendingRefreshText = prefix.text
-      refresh()
-      await startPromise
-      await refreshPromise
-      if (disposed || !prefix) return false
-      try {
-        // The stream previews use looping=false. Start the finalized score at
-        // the current position when possible, while restarting from zero if
-        // the preview has already reached its end.
-        const position = engine?.getPlaybackPosition().seconds ?? 0
-        const resumeAt = playbackActive || prefix.text !== playedText ? position : 0
-        await start(prefix.text, allowLoop, resumeAt)
-      } catch {
-        playbackFailed = true
-        return false
-      }
-      latestPlayableText = prefix.text
-      return true
-    },
-    cancel: (stopPlayback = false) => {
-      disposed = true
-      pendingRefreshText = ''
-      if (stopPlayback && playbackStarted && playbackActive) engine?.stop()
-    },
-  }
-}
-
 type AiReasoningStream = {
   begin: () => void
   update: (text: string) => void
@@ -2443,6 +2339,13 @@ const aiReasoningState = $('ai-reasoning-state')
 const aiReasoningOutput = $('ai-reasoning-stream')
 let activeAiReasoningStream: AiReasoningStream | undefined
 
+const refreshAiReasoningLastLineClip = (): void => {
+  if (aiReasoningPanel.hidden || aiReasoningLastLine.clientWidth === 0) return
+  aiReasoningLastLine.classList.toggle('is-overflowing', aiReasoningLastLine.scrollWidth > aiReasoningLastLine.clientWidth)
+}
+aiReasoningPanel.addEventListener('toggle', refreshAiReasoningLastLineClip)
+window.addEventListener('resize', refreshAiReasoningLastLineClip)
+
 function createAiReasoningStream(): AiReasoningStream {
   let pending = ''
   let disposed = false
@@ -2455,9 +2358,13 @@ function createAiReasoningStream(): AiReasoningStream {
     const lines = text.split(/\r?\n/)
     return [...lines].reverse().find((line) => line.trim().length > 0)?.trim() ?? ''
   }
+  const renderLastLine = (): void => {
+    aiReasoningLastLine.textContent = lastLine(pending)
+    refreshAiReasoningLastLineClip()
+  }
   const render = (): void => {
     aiReasoningOutput.textContent = pending
-    aiReasoningLastLine.textContent = lastLine(pending)
+    renderLastLine()
     aiReasoningOutput.scrollTop = aiReasoningOutput.scrollHeight
   }
   return {
@@ -2467,6 +2374,7 @@ function createAiReasoningStream(): AiReasoningStream {
       pending = ''
       aiReasoningOutput.textContent = ''
       aiReasoningLastLine.textContent = ''
+      aiReasoningLastLine.classList.remove('is-overflowing')
       aiReasoningPanel.hidden = true
       aiReasoningPanel.open = false
       setState('ai.reasoningStreaming')
@@ -2480,9 +2388,9 @@ function createAiReasoningStream(): AiReasoningStream {
         aiReasoningOutput.textContent = text
       }
       pending = text
-      aiReasoningLastLine.textContent = lastLine(pending)
       aiReasoningOutput.scrollTop = aiReasoningOutput.scrollHeight
       aiReasoningPanel.hidden = false
+      renderLastLine()
       if (!hasRendered) {
         aiReasoningPanel.open = true
         hasRendered = true
@@ -2508,6 +2416,7 @@ function createAiReasoningStream(): AiReasoningStream {
       pending = ''
       aiReasoningOutput.textContent = ''
       aiReasoningLastLine.textContent = ''
+      aiReasoningLastLine.classList.remove('is-overflowing')
       aiReasoningPanel.hidden = true
       aiReasoningPanel.open = false
       aiReasoningState.removeAttribute('data-text-key')
@@ -2545,39 +2454,35 @@ async function applyAiRequest(request: OwtAiRequest, statusKey: string, statusVa
   persistAiConfig()
   setAiComposeState('working')
   setAiBusy(true)
-  workspaceStore.update({ activity: { kind: 'compose', task: request.task === 'score-media' ? 'media' : 'prompt' } })
+  const composeTask = request.task === 'score-media' ? 'media' as const : 'prompt' as const
+  let composeError: string | undefined
+  workspaceStore.update({ activity: { kind: 'compose', task: composeTask } })
   renderAiActivity()
   setTranslatedStatus('ai-status', statusKey, statusValues, 'warn')
   const stream = createAiEditorStream()
   const reasoningStream = beginAiReasoningStream()
-  const playbackStream = createAiPlaybackStream(true)
   clearOwtPlaybackContext()
   try {
     const text = await createOwtWithAi(currentAiConfig(), request, {
       ...aiTransport(),
-      onUpdate: (value) => {
-        stream.update(value)
-        playbackStream.update(value)
-      },
+      onUpdate: stream.update,
       onReasoningUpdate: reasoningStream.update,
     })
     stream.finish(text)
-    renderOwtDiagnostics([])
-    if (!validateEditorOwt()) throw new Error('AI OWT validation failed')
+    const document = validateEditorOwt()
     setTranslatedStatus('ai-status', 'ai.applied', {}, 'ok')
-    if (!await playbackStream.finish(text)) await playOwtRange()
     setAiComposeState('success')
+    if (document) await playOwtRange()
     return true
   } catch (error) {
-    setTranslatedStatus('ai-status', 'ai.error', { error: error instanceof Error ? error.message : String(error) }, 'err')
+    composeError = error instanceof Error ? error.message : String(error)
+    setTranslatedStatus('ai-status', 'ai.error', { error: composeError }, 'err')
     setAiComposeState('error')
-    playbackStream.cancel(true)
     return false
   } finally {
-    playbackStream.cancel()
     finishAiReasoningStream(reasoningStream)
     setAiBusy(false)
-    workspaceStore.update({ activity: { kind: 'idle' } })
+    workspaceStore.update({ activity: composeError ? { kind: 'compose', task: composeTask, error: composeError } : { kind: 'idle' } })
     renderAiActivity()
   }
 }
@@ -2614,6 +2519,8 @@ function updateConversationalImprovUi(): void {
 
 function stopConversationalImprov(showStatus = true): void {
   window.clearTimeout(improvPhraseTimer)
+  if (improvLiveFrame !== undefined) cancelAnimationFrame(improvLiveFrame)
+  improvLiveFrame = undefined
   improvAbortController?.abort()
   improvAbortController = undefined
   improvRequestSequence++
@@ -2637,11 +2544,13 @@ function startConversationalImprov(): void {
     return
   }
   persistAiConfig()
-  improvScoreText = ''
+  improvScoreText = emptyImprovScoreText()
   improvResponseStreaming = false
   cancelSemanticPerformanceReplacement()
   engine?.stop()
   clearOwtPlaybackContext()
+  setOwtEditorText(improvScoreText, true)
+  renderOwtDiagnostics([])
   improvSession.start()
   workspaceStore.update({ activity: { kind: 'improv' } })
   updateConversationalImprovUi()
@@ -2652,9 +2561,55 @@ function startConversationalImprov(): void {
   })
 }
 
+function emptyImprovScoreText(): string {
+  return `owt 0.1 score
+
+title "Improvisation"
+ppq 480
+meter 1:1 4/4
+tempo 1:1 120
+key 1:1 C major
+
+track "Human" channel=1 program=0 velocity=88
+
+track "AI Response" channel=2 program=0 velocity=88
+
+end
+`
+}
+
+function improvPhraseDocument(take: RecordedTake): OwtDocument | null {
+  const extraction = extractMelodyFromRecording(take, {
+    title: 'Human',
+    trackName: 'Human',
+    grid: rational(1, 4),
+    voiceStrategy: 'continuous',
+  }).text
+  const repaired = repairCommonOwtErrors(extraction, { splitCrossBoundaryEvents: true })
+  return parseOwt(repaired.valid ? repaired.text : extraction).document ?? null
+}
+
 function scheduleConversationalImprovTurn(): void {
   window.clearTimeout(improvPhraseTimer)
   improvPhraseTimer = window.setTimeout(finishConversationalImprovPhrase, improvSession.silenceMs + 25)
+}
+
+function scheduleConversationalImprovLive(timestampMs: number): void {
+  improvLivePreviewAt = timestampMs
+  if (improvLiveFrame !== undefined) return
+  improvLiveFrame = requestAnimationFrame(() => {
+    improvLiveFrame = undefined
+    const take = improvSession.preview(improvLivePreviewAt)
+    if (!take) return
+    const base = parseOwt(improvScoreText).document
+    const phrase = improvPhraseDocument(take)
+    if (!base || !phrase) return
+    const scrollTop = owtEditor.scrollTop
+    const scrollLeft = owtEditor.scrollLeft
+    modalEditor.setText(serializeOwt(appendOwtUserTrack(base, phrase)), false)
+    owtEditor.scrollTop = scrollTop
+    owtEditor.scrollLeft = scrollLeft
+  })
 }
 
 function handleConversationalImprovInput(data: Uint8Array, timestampMs: number): void {
@@ -2683,29 +2638,26 @@ function finishConversationalImprovPhrase(): void {
   void requestConversationalImprovResponse(phrase)
 }
 
+function sameTrackContent(left: OwtScoreTrack, right: OwtScoreTrack): boolean {
+  const signature = (track: OwtScoreTrack): string => JSON.stringify(track.events.map(({ line, column, ...event }) => event))
+  return signature(left) === signature(right)
+}
+
 async function requestConversationalImprovResponse(phrase: RecordedTake): Promise<void> {
   const requestSequence = ++improvRequestSequence
   const controller = new AbortController()
   improvAbortController = controller
   improvResponseStreaming = true
   const reasoningStream = beginAiReasoningStream()
-  const playbackStream = createAiPlaybackStream(false, () => {
-    if (requestSequence !== improvRequestSequence || (improvSession.state !== 'thinking' && improvSession.state !== 'responding')) return
-    improvSession.markResponding()
-    updateConversationalImprovUi()
-    setTranslatedStatus('ai-status', 'ai.improvResponding', {}, 'ok')
-  })
-  const responseStream = createAiEditorStream()
   try {
-    const phraseOwt = extractMelodyFromRecording(phrase, {
-      title: 'Human Call',
-      grid: rational(1, 4),
-      voiceStrategy: 'continuous',
-    }).text
-    const phraseDocument = parseOwt(phraseOwt).document
-    if (!phraseDocument) throw new Error('Recorded phrase could not be converted to OWT')
-    const currentDocument = improvScoreText ? parseOwt(improvScoreText).document : undefined
-    const turnOwt = serializeOwt(appendOwtScores(currentDocument, phraseDocument))
+    const phraseDocument = improvPhraseDocument(phrase)
+    if (!phraseDocument || phraseDocument.tracks.length !== 1) throw new Error('Recorded phrase could not be converted to a single-track OWT')
+    const previousDocument = parseOwt(improvScoreText).document
+    if (!previousDocument || previousDocument.tracks.length < 2) throw new Error('Improvisation score must contain a human track and an AI track')
+    const turnDocument = appendOwtUserTrack(previousDocument, phraseDocument)
+    const turnHumanTrack = turnDocument.tracks[0]!
+    const existingAiTrack = turnDocument.tracks[1]!
+    const turnOwt = serializeOwt(turnDocument)
     improvScoreText = turnOwt
     setOwtEditorText(turnOwt, true)
     renderOwtDiagnostics([])
@@ -2713,43 +2665,56 @@ async function requestConversationalImprovResponse(phrase: RecordedTake): Promis
       task: 'improvise',
       instruction: '',
       currentOwt: turnOwt,
+      lenientBars: true,
     }, {
       ...aiTransport(controller.signal),
-      onUpdate: (value) => {
-        if (requestSequence !== improvRequestSequence) return
-        const prefix = completeOwtPrefix(value)
-        if (!prefix) return
-        const merged = serializeOwt(appendOwtScores(parseOwt(turnOwt).document, prefix.document))
-        responseStream.update(merged)
-        playbackStream.update(merged)
-      },
       onReasoningUpdate: (value) => {
         if (requestSequence === improvRequestSequence) reasoningStream.update(value)
       },
     })
     if (requestSequence !== improvRequestSequence || (improvSession.state !== 'thinking' && improvSession.state !== 'responding')) return
-    const responseDocument = parseOwt(text).document
-    if (!responseDocument) throw new Error('AI returned invalid OWT')
-    const merged = serializeOwt(appendOwtScores(parseOwt(turnOwt).document, responseDocument))
-    responseStream.finish(merged)
+
+    const responseDocument = parseOwt(text, { lenientBars: true }).document
+    if (!responseDocument) {
+      setOwtEditorText(text, true)
+      validateEditorOwt()
+      improvSession.markListening()
+      updateConversationalImprovUi()
+      setTranslatedStatus('ai-status', 'ai.improvListening', {}, 'ok')
+      return
+    }
+    if (responseDocument.tracks.length !== 2) throw new Error('AI improvisation must contain exactly two tracks')
+    const humanResponseTrack = responseDocument.tracks[0]!
+    const aiResponseTrack = responseDocument.tracks[1]!
+    if (humanResponseTrack.name !== turnHumanTrack.name || humanResponseTrack.channel !== turnHumanTrack.channel || humanResponseTrack.program !== turnHumanTrack.program || humanResponseTrack.velocity !== turnHumanTrack.velocity || !sameTrackContent(turnHumanTrack, humanResponseTrack)) {
+      throw new Error('AI improvisation must preserve the first human track unchanged')
+    }
+    if (aiResponseTrack.name !== existingAiTrack.name || aiResponseTrack.channel !== existingAiTrack.channel) {
+      throw new Error('AI improvisation must continue the existing second AI track')
+    }
+    if (!aiResponseTrack.events.some((event) => event.kind === 'note')) throw new Error('AI improvisation must write notes to the second track')
+
+    let merged = serializeOwt(responseDocument)
+    if (!parseOwt(merged).document) {
+      const repairedMerged = repairCommonOwtErrors(merged, { splitCrossBoundaryEvents: true })
+      if (!repairedMerged.valid) throw new Error('AI OWT validation failed')
+      merged = repairedMerged.text
+    }
     improvScoreText = merged
+    setOwtEditorText(merged, true)
     renderOwtDiagnostics([])
     if (!validateEditorOwt()) throw new Error('AI OWT validation failed')
-    if (!await playbackStream.finish(merged)) {
-      improvSession.markResponding()
-      updateConversationalImprovUi()
-      setTranslatedStatus('ai-status', 'ai.improvResponding', {}, 'ok')
-      await playOwtRange(undefined, false)
-    }
+    improvSession.markResponding()
+    updateConversationalImprovUi()
+    setTranslatedStatus('ai-status', 'ai.improvResponding', {}, 'ok')
+    await playOwtRange(undefined, false)
   } catch (error) {
-    playbackStream.cancel(true)
     if (requestSequence !== improvRequestSequence || !improvSession.active || improvSession.state === 'recording') return
     improvSession.markListening()
     updateConversationalImprovUi()
     setTranslatedStatus('ai-status', 'ai.error', { error: error instanceof Error ? error.message : String(error) }, 'err')
   } finally {
     if (requestSequence === improvRequestSequence) improvResponseStreaming = false
-    playbackStream.cancel()
     finishAiReasoningStream(reasoningStream)
     if (requestSequence === improvRequestSequence) improvAbortController = undefined
   }
@@ -3009,7 +2974,8 @@ function renderFullCompositionStepper(stage: CompositionWorkflowState): void {
   const cancel = $<HTMLButtonElement>('btn-ai-activity-cancel')
 
   title.textContent = plan ? t('ai.activity.fullTitle', { title: plan.title }) : t('ai.fullComposition')
-  status.textContent = fullCompositionStageText(stage)
+  status.textContent = stage.kind === 'error' ? t('ai.error', { error: stage.message }) : fullCompositionStageText(stage)
+  status.classList.toggle('err', stage.kind === 'error')
   stepper.hidden = false
   cancel.hidden = stage.kind === 'complete' || stage.kind === 'cancelled' || stage.kind === 'error'
 
@@ -3052,13 +3018,16 @@ function renderAiActivity(): void {
   const stepper = $<HTMLOListElement>('ai-activity-stepper')
   const cancel = $<HTMLButtonElement>('btn-ai-activity-cancel')
   switch (activity.kind) {
-    case 'compose':
+    case 'compose': {
+      const status = $('ai-activity-status')
       $('ai-activity-title').textContent = activity.task === 'media' ? t('ai.activity.media') : t('ai.compose')
-      $('ai-activity-status').textContent = t('ai.composing')
+      status.textContent = activity.error ? t('ai.error', { error: activity.error }) : t('ai.composing')
+      status.classList.toggle('err', Boolean(activity.error))
       stepper.replaceChildren()
       stepper.hidden = true
       cancel.hidden = true
       break
+    }
     case 'full':
       renderFullCompositionStepper(workspaceStore.state.composition)
       break
@@ -3081,7 +3050,7 @@ function renderAiActivity(): void {
 
 function renderFullCompositionStage(stage: FullCompositionStage): void {
   const active = stage.kind === 'planning' || stage.kind === 'composing' || stage.kind === 'repairing' || stage.kind === 'assembling' || stage.kind === 'validating'
-  workspaceStore.update({ composition: stage, activity: active ? { kind: 'full' } : { kind: 'idle' } })
+  workspaceStore.update({ composition: stage, activity: active || stage.kind === 'error' ? { kind: 'full' } : { kind: 'idle' } })
   renderAiActivity()
 }
 
@@ -3473,16 +3442,25 @@ function renderComputerKeyMap(): void {
       const row = document.createElement('div')
       row.className = 'qwerty-row'
       row.style.setProperty('--keyboard-row-offset', `${(sectionSpec.rowOffsets?.[rowIndex] ?? 0) * 49}px`)
+      const appendSpacer = (): void => {
+        const spacer = document.createElement('span')
+        spacer.className = 'computer-key-spacer'
+        row.appendChild(spacer)
+      }
       for (const keyName of rowKeys) {
         if (keyName === null) {
-          const spacer = document.createElement('span')
-          spacer.className = 'computer-key-spacer'
-          row.appendChild(spacer)
+          appendSpacer()
           continue
         }
         const assignment = assignments.get(keyName)
         const notes = mapping.previewKeyPitches(keyName)
         const action = actionLabels[keyName]
+        // Unmapped keys keep their physical slot as an invisible spacer,
+        // so the visible keycaps stay aligned with the real keyboard rows.
+        if (!assignment && !action) {
+          appendSpacer()
+          continue
+        }
         const keycap = document.createElement('span')
         keycap.className = 'computer-keycap'
         keycap.dataset.key = keyName
@@ -3500,8 +3478,6 @@ function renderComputerKeyMap(): void {
           keycap.classList.add('action')
           if (action.velocity) keycap.classList.add('velocity-action')
           keycap.title = action.label
-        } else {
-          keycap.classList.add('unmapped')
         }
 
         const key = document.createElement('kbd')

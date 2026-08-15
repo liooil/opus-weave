@@ -26,8 +26,7 @@ key 1:1 C major
 
 track "Melody" channel=1 program=0 velocity=88
 
-| C4:1 D4:1 E4:1 G4:1 |
-| A4:2 G4:1 R:1 |
+| C4:1 D4:1 E4:1 G4:1 | A4:2 G4:1 R:1 |
 
 end
 ```
@@ -45,6 +44,13 @@ end
 Durations are normalized rational numbers, so cursor arithmetic does not
 accumulate floating-point error. Every note, rest and chord has an explicit
 duration. `|` validates a measure boundary but does not advance time.
+
+Line breaks are editorial. A line may contain several complete measures, and
+breaking a line does not affect musical time. Canonical formatting starts a new
+line at a phrase boundary — a measure whose tail is a rest of at least a
+quarter of the measure, or whose final note lasts at least half the measure —
+and otherwise wraps after at most four measures per line, like a printed staff
+system. A canonical line therefore reads as one musical phrase.
 
 Quoted strings use JSON escaping. Comments start with `#` when preceded by
 whitespace, so accidentals such as `C#4` remain unambiguous.
@@ -111,8 +117,10 @@ to complete musical objects instead of exposing a separate selection-level contr
 - **Track** — one complete musical track.
 
 Use `h`/`l` (and `b`/`w`/`e`) to move between events; the arrow keys mirror
-`h`/`l`. `k`/`j` move by text line. Move between measures with `]b`/`[b`, between
-tracks with `]t`/`[t`, and select whole tracks with `x`/`X`. Search commands are
+`h`/`l`. `k`/`j` move by text line. A line is not a measure: canonical lines
+hold one phrase (or a system of up to four measures), so `k`/`j` move between
+phrases while `]b`/`[b` move between measures. Move between tracks with
+`]t`/`[t`, and select whole tracks with `x`/`X`. Search commands are
 not part of the OWT modal language. `Space` opens the button-command hierarchy,
 including play/pause, views, editing actions, import, examples and AI actions.
 `F5` toggles play/pause globally, including from the timeline, staff and Jianpu
@@ -219,17 +227,18 @@ prompt containing the current score and OWT validity rules. It can be copied
 into any AI chat, and the returned OWT can always be pasted directly into the
 editor.
 
-- A typed or suggested prompt edits the current OWT, validates the returned
-  document and plays it.
+- A typed or suggested prompt edits the current OWT. Validation and playback
+  happen only after the complete AI document has arrived.
 - **Open / Import** and drag-and-drop share one dispatcher: OWT opens directly,
   MIDI is converted deterministically, and score images or MP4 files go to AI.
   Images are sent as multimodal content; MP4 files are decoded in the browser
   and sampled into up to eight JPEG frames before transcription.
-- **Improv mode** listens continuously to MIDI, computer-keyboard or virtual-keyboard input. The first Note On starts a user turn; once all notes are released and input is silent for 1.2 seconds, the phrase is converted to OWT and sent automatically. The AI response is validated and played, then the mode returns to listening. Playing during the AI response interrupts it immediately and begins the next user turn.
+- **Improv mode** clears the current score and creates an empty two-track improvisation: track 1 is the human performance and track 2 is reserved for the AI response. Every accepted MIDI, computer-keyboard or virtual-keyboard note is converted to OWT immediately and written into track 1 while the user plays. After all notes are released and input is silent for 1.2 seconds, the completed first track is sent to the model, which may only continue the second AI track. Valid responses are normalized and played; if the generated OWT is invalid, the response is left in the editor for the diagnostics panel and the mode returns to listening. Playing during the AI response interrupts it immediately and begins the next user turn.
 
 AI requests are sent directly from the browser to the configured provider
-endpoint. Generation is one-shot by default: invalid model output fails the
-request instead of being silently rewritten. The optional **Automatically
+endpoint. Generation is one-shot by default and is considered complete as soon
+as the model returns content; OWT syntax conformance is reported by the editor
+diagnostics, not treated as a generation failure. The optional **Automatically
 repair invalid AI OWT** setting can be enabled to return parser diagnostics to
 the model for a bounded number of repair attempts.
 
@@ -297,7 +306,10 @@ opusweave composition analyze plan.json score.owt
 opusweave composition revise plan.json sections.json intro revised.owt
 ```
 
-`owt fmt` parses, validates, and emits canonical OWT. The current AST does not
+`owt fmt` parses, validates, and emits canonical OWT. Canonical output starts
+a new line at each detected phrase boundary — a trailing rest of at least a
+quarter of the measure or a final note of at least half the measure — and
+otherwise wraps after at most four measures per line. The current AST does not
 preserve comments, so formatting intentionally removes them. `--check` exits
 zero only when the input already equals canonical output.
 

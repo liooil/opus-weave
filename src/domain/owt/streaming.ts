@@ -1,11 +1,5 @@
-import type { OwtScore, OwtScoreTrack, OwtDocument, ScoreEvent } from './ast.ts'
-import { parseOwt } from './parser.ts'
+import type { OwtScore, OwtScoreTrack, ScoreEvent } from './ast.ts'
 import { addRational, compareRational, ZERO, type Rational } from './rational.ts'
-
-export interface CompleteOwtPrefix {
-  text: string
-  document: OwtDocument
-}
 
 function eventDuration(event: ScoreEvent): Rational | undefined {
   return event.kind === 'note' || event.kind === 'rest' ? event.duration : undefined
@@ -128,32 +122,47 @@ export function appendOwtScores(base: OwtScore | undefined, response: OwtScore):
   return hasScorePrefix(base, response) ? appendCombinedScore(base, response) : appendFragmentScore(base, response)
 }
 
-function canonicalCandidate(raw: string): CompleteOwtPrefix | undefined {
-  const trimmed = raw.trim()
-  if (!trimmed) return undefined
-  const lines = trimmed.split('\n')
-  const endLine = lines.findIndex((line) => line.trim() === 'end')
-  const text = endLine >= 0 ? lines.slice(0, endLine + 1).join('\n') : `${trimmed}\nend`
-  const parsed = parseOwt(`${text.trim()}\n`)
-  if (!parsed.document) return undefined
-  const hasVoice = parsed.document.tracks.some((track) => voiceEvents(track).length > 0)
-  return hasVoice ? { text: `${text.trim()}\n`, document: parsed.document } : undefined
+/**
+ * Append one newly performed track after the end of the current combined
+ * score. Conversational improv uses this for the human phrase so repeated or
+ * abbreviated phrases can never be mistaken for a streamed full-score prefix.
+ */
+export function appendOwtTrack(base: OwtScore | undefined, track: OwtScore): OwtScore {
+  if (!base) return track
+  if (track.tracks.length !== 1) throw new Error('appendOwtTrack expects a single-track OWT score')
+  const sourceTrack = track.tracks[0]!
+  const offset = scoreEnd(base)
+  const tracks = base.tracks.map((item) => copyTrack(item))
+  const targetIndex = base.tracks.findIndex((item) => item.name === sourceTrack.name && item.channel === sourceTrack.channel)
+  const shifted = sourceTrack.events.map((event) => shiftedEvent(event, offset))
+  if (targetIndex >= 0) tracks[targetIndex]!.events.push(...shifted)
+  else tracks.push(copyTrack(sourceTrack, shifted))
+  return { ...base, tracks }
 }
 
 /**
- * Find the newest complete OWT prefix in a streamed response. A score is
- * playable once a complete measure has arrived; the unfinished current line
- * is ignored until the next chunk closes it.
+ * Write a newly performed phrase into the first (human) track of the fixed
+ * two-track improvisation score. The first phrase also establishes the human
+ * track identity; the second track is always reserved for the AI response.
  */
-export function completeOwtPrefix(text: string): CompleteOwtPrefix | undefined {
-  const normalized = text.replace(/\r\n?/g, '\n')
-  const start = normalized.indexOf('owt 0.1 score')
-  if (start < 0) return undefined
-  const scoreText = normalized.slice(start)
-  const lines = scoreText.split('\n')
-  for (let count = lines.length; count > 0; count--) {
-    const candidate = canonicalCandidate(lines.slice(0, count).join('\n'))
-    if (candidate) return candidate
+export function appendOwtUserTrack(base: OwtScore, phrase: OwtScore): OwtScore {
+  if (phrase.tracks.length !== 1) throw new Error('appendOwtUserTrack expects a single-track OWT score')
+  const source = phrase.tracks[0]!
+  const human = base.tracks[0] ? copyTrack(base.tracks[0]!) : copyTrack(source)
+  if (human.events.length === 0) {
+    human.channel = source.channel
+    human.program = source.program
+    human.velocity = source.velocity
   }
-  return undefined
+  const ai = base.tracks[1] ? copyTrack(base.tracks[1]!) : {
+    name: 'AI Response',
+    channel: human.channel === 16 ? 1 : human.channel + 1,
+    program: 0,
+    velocity: 88,
+    events: [],
+  }
+  if (ai.events.length === 0 && ai.channel === human.channel) ai.channel = human.channel === 16 ? 1 : human.channel + 1
+  const offset = scoreEnd(base)
+  human.events.push(...source.events.map((event) => shiftedEvent(event, offset)))
+  return { ...base, tracks: [human, ai] }
 }

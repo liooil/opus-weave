@@ -29,17 +29,57 @@ export class RecentPerformanceCapture {
   }
 
   take(nowMs: number): RecordedTake | null {
+    const phrase = this.recentPhrase(nowMs)
+    if (!phrase) return null
+    return this.materialize(phrase, nowMs, false)
+  }
+
+  /** Like take(), but closes notes that are still held so live OWT previews stay valid. */
+  preview(nowMs: number): RecordedTake | null {
+    const phrase = this.recentPhrase(nowMs)
+    if (!phrase) return null
+    return this.materialize(phrase, nowMs, true)
+  }
+
+  private recentPhrase(nowMs: number): TimedMessage[] | null {
     const cutoff = nowMs - this.maxAgeMs
     const source = this.messages.filter((message) => message.timestampMs >= cutoff)
     const firstNoteOn = source.findIndex((message) => (message.data[0]! & 0xf0) === 0x90 && message.data[2]! > 0)
     if (firstNoteOn < 0) return null
-    const phrase = source.slice(firstNoteOn)
+    return source.slice(firstNoteOn)
+  }
+
+  private materialize(phrase: TimedMessage[], nowMs: number, closeHeld: boolean): RecordedTake {
     const start = phrase[0]!.timestampMs
     const tickPerMs = RECORD_PPQ / (60000 / DEFAULT_TEMPO_BPM)
-    const events: RecordedMidiEvent[] = phrase.map((message) => ({
-      tick: Math.max(0, Math.round((message.timestampMs - start) * tickPerMs)),
-      data: Uint8Array.from(message.data),
-    }))
-    return { events, durationMs: Math.max(1, nowMs - start) }
+    const tickAt = (timestampMs: number): number => Math.max(0, Math.round((timestampMs - start) * tickPerMs))
+    const events: RecordedMidiEvent[] = []
+    const held = new Set<string>()
+    for (const message of phrase) {
+      const data = message.data
+      const status = data[0]!
+      const kind = status & 0xf0
+      if (kind !== 0x80 && kind !== 0x90) continue
+      const channel = status & 0x0f
+      const key = `${channel}:${data[1]!}`
+      const tick = tickAt(message.timestampMs)
+      if (kind === 0x90 && data[2]! > 0) {
+        if (held.has(key)) events.push({ tick, data: new Uint8Array([0x80 | channel, data[1]!, 0x40]) })
+        held.add(key)
+        events.push({ tick, data: Uint8Array.from(data) })
+      } else {
+        if (held.has(key)) held.delete(key)
+        events.push({ tick, data: Uint8Array.from(data) })
+      }
+    }
+    const durationMs = Math.max(1, nowMs - start)
+    if (closeHeld) {
+      const endTick = tickAt(nowMs)
+      for (const key of held.keys()) {
+        const [channel, note] = key.split(':')
+        events.push({ tick: endTick, data: new Uint8Array([0x80 | Number(channel), Number(note), 0x40]) })
+      }
+    }
+    return { events, durationMs }
   }
 }

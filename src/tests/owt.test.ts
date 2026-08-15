@@ -33,6 +33,20 @@ describe('OWT 0.1', () => {
     expect(compiled.midi.byteLength).toBeGreaterThan(100)
   })
 
+  test('breaks canonical lines at phrase ends and wraps after four measures otherwise', () => {
+    const canonical = serializeScore(parseOwtOrThrow(scoreFixture))
+    expect(canonical).toContain('| C4:1 C4:1 G4:1 G4:1 | A4:1 A4:1 G4:2 |')
+    expect(canonical).toContain('| F4:1 F4:1 E4:1 E4:1 | D4:1 D4:1 C4:2 |')
+    const stream = `owt 0.1 score\n\nmeter 1:1 4/4\ntrack "T" channel=1\n${Array.from({ length: 5 }, () => '| C4:1 D4:1 E4:1 F4:1 |').join(' ')}\nend\n`
+    const streamLines = serializeScore(parseOwtOrThrow(stream)).split('\n').filter((line) => line.startsWith('|'))
+    expect(streamLines).toEqual([
+      '| C4:1 D4:1 E4:1 F4:1 | C4:1 D4:1 E4:1 F4:1 | C4:1 D4:1 E4:1 F4:1 | C4:1 D4:1 E4:1 F4:1 |',
+      '| C4:1 D4:1 E4:1 F4:1 |',
+    ])
+    const breath = `owt 0.1 score\n\nmeter 1:1 4/4\ntrack "T" channel=1\n| C4:1 D4:1 R:2 | E4:1 F4:1 G4:1 A4:1 |\nend\n`
+    expect(serializeScore(parseOwtOrThrow(breath))).toContain('| C4:1 D4:1 R:2 |\n| E4:1 F4:1 G4:1 A4:1 |')
+  })
+
   test('keeps supported score controls and velocity overrides', () => {
     const text = `owt 0.1 score\n\nmeter 1:1 4/4\ntempo 1:1 120\nkey 1:1 A minor\ntrack "Control" channel=1 program=0 velocity=80\n| <cc64=127> C4:1{v=64} <bend=9000> <program=40> R:3 |\nend\n`
     const compiled = compileScoreText(text)
@@ -80,6 +94,22 @@ describe('OWT 0.1', () => {
     expect(zeroTick.diagnostics.map((item) => item.code)).toContain('score.duration.zeroTick')
     const incomplete = parseOwt('owt 0.1 score\ntrack "M" channel=1\nC4:1\nend\n')
     expect(incomplete.diagnostics.map((item) => item.code)).toContain('score.track.incompleteMeasure')
+  })
+
+  test('relaxes bar validation only for lenient parsing', () => {
+    const lenientText = `owt 0.1 score
+meter 1:1 4/4
+track "M" channel=1
+| C4:2 D4:2 E4:2 |
+end
+`
+    const strict = parseOwt(lenientText)
+    expect(strict.document).toBeUndefined()
+    expect(strict.diagnostics.map((item) => item.code)).toContain('score.bar.misaligned')
+    const lenient = parseOwt(lenientText, { lenientBars: true })
+    expect(lenient.document).toBeDefined()
+    expect(lenient.diagnostics.some((item) => item.code === 'score.bar.misaligned')).toBe(false)
+    expect(lenient.diagnostics.some((item) => item.code === 'score.track.incompleteMeasure')).toBe(false)
   })
 
   test('warns only when shared MIDI channels have conflicting programs', () => {

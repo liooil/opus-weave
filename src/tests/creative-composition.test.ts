@@ -73,8 +73,34 @@ describe('OWT AI client', () => {
     expect(hasConfiguredAiApi({ baseUrl: 'http://model.test', model: '' })).toBe(false)
   })
 
-  test('extracts a validated OWT document from fenced model output', () => {
+  test('extracts generated OWT text without judging its syntax', () => {
     expect(extractOwtFromAiResponse(`Here is the score:\n\`\`\`owt\n${validAiOwt}\`\`\``)).toBe(validAiOwt)
+  })
+
+  test('keeps OWT syntax errors in the generated text for the editor to diagnose', () => {
+    const invalidOwt = validAiOwt.replace('| C4:1 D4:1 E4:1 G4:1 |', '| C4:2 D4:2 E4:2 |')
+    const extracted = extractOwtFromAiResponse(`\`\`\`owt\n${invalidOwt}\`\`\``)
+    expect(extracted).toBe(invalidOwt)
+    expect(() => parseOwtOrThrow(extracted)).toThrow()
+    const missingEnd = extractOwtFromAiResponse(`owt 0.1 score\n\ntrack "M" channel=1\n| C4:4 |\n`)
+    expect(missingEnd).toContain('| C4:4 |')
+    expect(missingEnd).not.toContain('\nend')
+  })
+
+  test('accepts lenient improvisation bars through the streaming extraction path', async () => {
+    const lenientOwt = validAiOwt.replace('| C4:1 D4:1 E4:1 G4:1 |', '| C4:2 D4:2 E4:2 |')
+    const fetcher = (async () => Response.json({ choices: [{ message: { content: lenientOwt } }] })) as unknown as typeof fetch
+    const config = { baseUrl: 'http://model.test', model: 'test' }
+    await expect(createOwtWithAi(config, {
+      task: 'improvise', instruction: '', currentOwt: validAiOwt, lenientBars: true,
+    }, { fetcher })).resolves.toBe(lenientOwt)
+  })
+
+  test('asks improv mode for one unchanged human track and exactly one AI response track', () => {
+    const messages = buildOwtAiMessages({ task: 'improvise', instruction: '', currentOwt: validAiOwt, lenientBars: true })
+    expect(messages[1]!.content).toContain('Track 1 is the human performance')
+    expect(messages[1]!.content).toContain('Track 2 is the AI response')
+    expect(messages[1]!.content).toContain('Never add a third track')
   })
 
   test('sends images through OpenAI-compatible multimodal content', () => {
@@ -150,7 +176,7 @@ describe('OWT AI client', () => {
     expect(requests[1]!.messages).toHaveLength(4)
   })
 
-  test('does not retry invalid OWT by default', async () => {
+  test('completes generation with invalid OWT by default and leaves validation to the editor', async () => {
     let calls = 0
     const fetcher = (async (_input: URL | RequestInfo, _init?: RequestInit) => {
       calls++
@@ -158,7 +184,7 @@ describe('OWT AI client', () => {
     }) as typeof fetch
     await expect(createOwtWithAi({ baseUrl: 'http://model.test', model: 'test' }, {
       task: 'prompt', instruction: 'do not retry', currentOwt: validAiOwt,
-    }, { fetcher })).rejects.toThrow('AI response did not contain an OWT score')
+    }, { fetcher })).resolves.toBe('still invalid\n')
     expect(calls).toBe(1)
   })
 
@@ -173,7 +199,7 @@ describe('OWT AI client', () => {
     }) as typeof fetch
     await expect(createOwtWithAi({ baseUrl: 'http://model.test', model: 'test', retryCount: 3 }, {
       task: 'improvise', instruction: 'answer it', currentOwt: validAiOwt,
-    }, { fetcher })).rejects.toThrow('AI response did not contain an OWT score')
+    }, { fetcher })).resolves.toBe('still invalid\n')
     expect(calls).toBe(4)
   })
 
@@ -185,12 +211,12 @@ describe('OWT AI client', () => {
     }) as typeof fetch
     await expect(createOwtWithAi({ baseUrl: 'http://model.test', model: 'test', retryCount: 1 }, {
       task: 'prompt', instruction: 'test', currentOwt: validAiOwt,
-    }, { fetcher })).rejects.toThrow()
+    }, { fetcher })).resolves.toBe('invalid\n')
     expect(calls).toBe(2)
     calls = 0
     await expect(createOwtWithAi({ baseUrl: 'http://model.test', model: 'test', retryCount: 9, autoRepair: false }, {
       task: 'prompt', instruction: 'test', currentOwt: validAiOwt,
-    }, { fetcher })).rejects.toThrow()
+    }, { fetcher })).resolves.toBe('invalid\n')
     expect(calls).toBe(1)
   })
 })
@@ -221,6 +247,16 @@ describe('conversational improvisation', () => {
     const phrase = session.poll(2_600)
     expect(phrase?.events).toHaveLength(2)
     expect(session.state).toBe('thinking')
+  })
+
+  test('previews the current phrase with held notes closed for live OWT', () => {
+    const capture = new RecentPerformanceCapture(30_000, 5_000)
+    capture.push(new Uint8Array([0x90, 60, 90]), 1_000)
+    capture.push(new Uint8Array([0x90, 64, 80]), 1_200)
+    const preview = capture.preview(1_300)
+    expect(preview?.events).toHaveLength(4)
+    expect(preview?.events[0]).toMatchObject({ data: expect.any(Uint8Array), tick: 0 })
+    expect(preview?.events.at(-1)?.data[0]).toBe(0x80)
   })
 
   test('returns to listening after AI playback and supports barge-in', () => {

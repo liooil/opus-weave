@@ -5,6 +5,8 @@ import {
   addRational,
   compareRational,
   formatRational,
+  multiplyRational,
+  rational,
   subtractRational,
   type Rational,
 } from './rational.ts'
@@ -45,30 +47,58 @@ function nextMeasureBoundary(cursor: Rational, score: OwtScore): Rational {
   throw new Error('score exceeds supported measure range')
 }
 
+/** Maximum measures per canonical line when no phrase boundary breaks earlier. */
+const MAX_MEASURES_PER_LINE = 4
+
 function serializeTrack(track: OwtScoreTrack, score: OwtScore): string[] {
   const lines = [`track ${quote(track.name)} channel=${track.channel} program=${track.program} velocity=${track.velocity}`, '']
   const events = track.events.slice().sort((a, b) => compareRational(a.at, b.at) || a.line - b.line || a.column - b.column)
   let cursor = ZERO
   let boundary = nextMeasureBoundary(cursor, score)
+  let previousBoundary = ZERO
   let tokens = ['|']
+  let measuresOnLine = 0
+  /** Duration of a rest filling the tail of the measure being written. */
+  let trailingRest: Rational | undefined
+  /** Duration of the last note event inside the measure being written. */
+  let finalNote: Rational | undefined
 
   const flushMeasure = (): void => {
+    const measureLength = subtractRational(boundary, previousBoundary)
+    const halfMeasure = multiplyRational(measureLength, rational(1, 2))
+    const quarterMeasure = multiplyRational(measureLength, rational(1, 4))
+    const phraseEnd = (trailingRest !== undefined && compareRational(trailingRest, quarterMeasure) >= 0)
+      || (finalNote !== undefined && compareRational(finalNote, halfMeasure) >= 0)
     tokens.push('|')
-    lines.push(tokens.join(' '))
-    tokens = ['|']
+    measuresOnLine += 1
+    if (phraseEnd || measuresOnLine >= MAX_MEASURES_PER_LINE) {
+      lines.push(tokens.join(' '))
+      tokens = ['|']
+      measuresOnLine = 0
+    }
+    previousBoundary = boundary
     boundary = nextMeasureBoundary(cursor, score)
+    trailingRest = undefined
+    finalNote = undefined
   }
 
   for (const event of events) {
     if (compareRational(event.at, cursor) > 0) {
       const gap = subtractRational(event.at, cursor)
       tokens.push(`R:${formatRational(gap)}`)
+      trailingRest = gap
       cursor = event.at
     }
     while (compareRational(cursor, boundary) === 0) flushMeasure()
     tokens.push(eventToken(event, track.velocity))
     if (event.kind === 'note' || event.kind === 'rest') {
       cursor = addRational(cursor, event.duration)
+      if (event.kind === 'note') {
+        finalNote = event.duration
+        trailingRest = undefined
+      } else {
+        trailingRest = event.duration
+      }
       while (compareRational(cursor, boundary) === 0) flushMeasure()
     }
   }

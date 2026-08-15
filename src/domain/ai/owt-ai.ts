@@ -111,6 +111,8 @@ export interface OwtAiRequest {
   instruction: string
   currentOwt: string
   attachments?: readonly OwtAiAttachment[]
+  /** Allow misplaced bar lines for conversational improvisation. */
+  lenientBars?: boolean
 }
 
 export interface OwtAiTransportOptions {
@@ -170,7 +172,7 @@ export function defaultOwtAiPromptTemplates(locale: 'en' | 'zh-CN' = 'en'): OwtA
 {currentOwt}
 
 无法确定的细节应采用保守、合法的记谱，不要发明 OWT 未支持的符号。每个小节独立求和，只有总时值严格等于当前拍号的小节长度时才闭合右侧小节线；不足使用休止符补齐。只输出最终的完整 OWT。`,
-      improvise: `任务：把当前演奏继续成连贯的音乐问答，保留可辨识的动机，加入合乎调性与节拍的回答，并返回合并后的完整 OWT。
+      improvise: `任务：把当前演奏继续成双轨即兴协奏。第一轨是用户演奏，第二轨是 AI 应答。
 
 用户补充要求：
 {instruction}
@@ -178,7 +180,14 @@ export function defaultOwtAiPromptTemplates(locale: 'en' | 'zh-CN' = 'en'): OwtA
 当前 OWT：
 {currentOwt}
 
-不得只输出新增片段。保持原有拍号；每个小节独立求和，严格补足所有轨道后才能写右侧小节线，并只输出最终的完整 OWT。`,
+轨道规则：
+1. 第一轨是用户演奏，必须逐字保持完全不变。
+2. 第二轨是 AI 应答；若第二轨为空，则在第一轨当前乐句结束后创建第一句应答，前面的空白用休止符补齐；否则继续这条已有的第二轨。
+3. 禁止增加第三轨，也禁止改动第一轨。
+4. 用休止符填补第二轨中上一次应答与本次应答之间的空白，让两条轨道结束在同一完整小节。
+5. 即兴模式下小节线允许宽松，但仍应保持时值清晰、可演奏。
+
+只输出最终的完整 OWT。`,
       fullCompositionPlan: `为以下要求创建纯文本 OpusWeave 作品计划：{instruction}。目标为两到三分钟的乐谱。不要返回 JSON 或 Markdown。
 严格使用以下行格式：
 PLAN 0.1
@@ -201,7 +210,7 @@ GENERATION BEHAVIOR:
 1. Return one complete OWT document only. No Markdown fence, preface, explanation, trailing note, or visible verification.
 2. When editing or continuing, return the complete replacement document—not a patch or only the new fragment. Treat invalid current OWT as musical material only; do not preserve its syntax errors.
 3. Use only syntax defined by the reference. Prefer simple, explicit forms and never invent unsupported notation.
-4. Use one paired | ... | measure per line by default. Independently sum the event durations in every measure and require the exact active-meter length: numerator*4/denominator (4/4=4, 3/4=3, 6/8=3). Before a closing bar line, add a rest when short; never emit a bar line after an incomplete measure. Before answering, recompute every measure and confirm every track ends on a complete boundary.
+4. Use paired | ... | bar lines with exactly one complete measure between each pair. Several complete measures may share one line: start a new line at a phrase boundary (a trailing rest of at least a quarter of the measure, or a final note of at least half the measure) and otherwise after at most four measures per line. Independently sum the event durations in every measure and require the exact active-meter length: numerator*4/denominator (4/4=4, 3/4=3, 6/8=3). Before a closing bar line, add a rest when short; never emit a bar line after an incomplete measure. Before answering, recompute every measure and confirm every track ends on a complete boundary.
 5. Use distinct MIDI channels for multiple tracks by default and avoid conflicting programs on one channel.
 6. If asked to copy a copyrighted modern work, create original music with a similar mood or style rather than a recognizable extended transcription.`,
     prompt: `TASK: Create or edit one complete OWT score according to the user's request.
@@ -226,7 +235,7 @@ CURRENT OWT (use only when the user requests an edit):
 {currentOwt}
 
 Resolve uncertain details conservatively with valid notation; never invent unsupported OWT symbols. Sum each measure independently and close its right bar line only when the duration exactly equals the active-meter measure length; fill any deficit with a rest. Output only the final complete OWT.`,
-    improvise: `TASK: Continue the current performance as coherent musical call-and-response. Preserve its recognizable motif, add an answer consistent with its key and meter, and return the complete combined OWT.
+    improvise: `TASK: Continue the current performance as a two-track improvisation duet. Track 1 is the human performance and track 2 is the AI response.
 
 ADDITIONAL USER REQUEST:
 {instruction}
@@ -234,7 +243,14 @@ ADDITIONAL USER REQUEST:
 CURRENT OWT:
 {currentOwt}
 
-Do not return only the new fragment. Preserve the meter. Sum each measure independently, fill every deficit with a rest, and write its closing bar line only after the exact measure length is reached. Output only the final complete OWT.`,
+TRACK RULES:
+1. Track 1 is the human performance. Copy it exactly unchanged.
+2. Track 2 is the AI response. If it is empty, start the first response phrase after track 1 ends and fill the preceding span with rests; otherwise continue this existing second track.
+3. Never add a third track or change track 1.
+4. Use rests to fill any silence between the previous AI phrase and the new answer so both tracks end at the same complete measure.
+5. Bar lines are treated leniently in improv mode, but keep durations clear and playable.
+
+Output only the final complete OWT.`,
     fullCompositionPlan: `Create a plain-text OpusWeave composition plan for: {instruction}. Target a two-to-three-minute score. Do not return JSON or Markdown.
 Use exactly this line format:
 PLAN 0.1
@@ -341,23 +357,21 @@ export function buildOwtAiMessages(request: OwtAiRequest, config?: OwtAiConfig):
   return [{ role: 'system', content: system }, { role: 'user', content }]
 }
 
+/**
+ * Extract the generated OWT region without judging its syntax. The editor owns
+ * OWT validation; generation is complete once the model returns content.
+ */
 export function extractOwtFromAiResponse(content: string): string {
-  const unfenced = content.replace(/^```(?:owt|text)?\s*/i, '').replace(/\s*```\s*$/i, '')
+  const unfenced = content.trim().replace(/^```(?:owt|text)?\s*/i, '').replace(/\s*```\s*$/i, '')
   const start = unfenced.indexOf('owt 0.1 score')
-  if (start < 0) throw new Error('AI response did not contain an OWT score')
+  if (start < 0) return `${unfenced}\n`
   const candidate = unfenced.slice(start)
   const endMatch = /(?:^|\n)end\s*(?:\n|$)/g
   let match: RegExpExecArray | null
   let end = -1
   while ((match = endMatch.exec(candidate))) end = match.index + match[0].length
-  if (end < 0) throw new Error('AI response did not terminate the OWT score')
-  const text = `${candidate.slice(0, end).trim()}\n`
-  const parsed = parseOwt(text)
-  if (!parsed.document) {
-    const summary = parsed.diagnostics.slice(0, 6).map((diagnostic) => `${diagnostic.line}:${diagnostic.column} ${diagnostic.message}`).join('; ')
-    throw new Error(`AI returned invalid OWT: ${summary}`)
-  }
-  return text
+  const text = end >= 0 ? candidate.slice(0, end) : candidate
+  return `${text.trim()}\n`
 }
 
 async function postChat(config: OwtAiConfig, body: ChatBody, options: OwtAiTransportOptions): Promise<string> {
@@ -443,23 +457,22 @@ export async function createOwtWithAi(config: OwtAiConfig, request: OwtAiRequest
   }
   if (!body.model) throw new Error('AI model is required')
   let content = await postChat(config, body, options)
-  let validationError: unknown
   const retryCount = config.autoRepair === false ? 0 : Math.max(0, Math.min(10, Math.trunc(config.retryCount ?? 0)))
   for (let attempt = 0; attempt <= retryCount; attempt++) {
-    try {
-      return extractOwtFromAiResponse(content)
-    } catch (error) {
-      validationError = error
-      if (attempt === retryCount) break
-      body.messages = [
-        ...messages,
-        { role: 'assistant', content },
-        { role: 'user', content: `Repair every validation error. Recount every measure so each 4/4 bar totals exactly 4. Return the complete corrected OWT only. Validation error: ${error instanceof Error ? error.message : String(error)}` },
-      ]
-      content = await postChat(config, body, options)
-    }
+    const text = extractOwtFromAiResponse(content)
+    if (retryCount === 0) return text
+    const parsed = parseOwt(text, { lenientBars: request.lenientBars })
+    if (parsed.document) return text
+    if (attempt === retryCount) return text
+    const summary = parsed.diagnostics.slice(0, 6).map((diagnostic) => `${diagnostic.line}:${diagnostic.column} ${diagnostic.message}`).join('; ')
+    body.messages = [
+      ...messages,
+      { role: 'assistant', content },
+      { role: 'user', content: `Repair every validation error. Recount every measure so each 4/4 bar totals exactly 4. Return the complete corrected OWT only. Validation error: ${summary}` },
+    ]
+    content = await postChat(config, body, options)
   }
-  throw validationError
+  return extractOwtFromAiResponse(content)
 }
 
 export async function testOwtAiConnection(config: OwtAiConfig, options: OwtAiTransportOptions = {}): Promise<string> {

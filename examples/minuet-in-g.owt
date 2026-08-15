@@ -7,12 +7,8 @@ tempo 1:1 112
 key 1:1 G major
 
 track "Melody" channel=1 program=0 velocity=84
-| D5:1 G4:1 A4:1 |
-| B4:1 C5:1 D5:1 |
-| G4:1 G4:1 E5:1 |
-| C5:1 D5:1 E5:1 |
-| F#5:1 G5:1 F#5:1 |
-| E5:1 D5:1 C#5:1 |
-| D5:1 E5:1 D5:1 |
-| C5:1 B4:1 A4:1 |
+
+| D5:1 G4:1 A4:1 | B4:1 C5:1 D5:1 | G4:1 G4:1 E5:1 | C5:1 D5:1 E5:1 |
+| F#5:1 G5:1 F#5:1 | E5:1 D5:1 C#5:1 | D5:1 E5:1 D5:1 | C5:1 B4:1 A4:1 |
+
 end

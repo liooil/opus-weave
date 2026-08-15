@@ -118,7 +118,8 @@ All global directives must appear before the first track.
 - A bar line is a validation assertion: whenever | appears, the accumulated duration of that track must be exactly a measure boundary calculated from the meter map.
 - Put exactly one complete measure between a paired | ... |. In 4/4 its event durations must sum to exactly 4 quarter-note units; in 3/4 exactly 3; in 6/8 exactly 3.
 - Count every measure independently. For example, "| G4:1/2 B4:1/2 D5:1 G5:1 |" is invalid in 4/4 because it totals 3, so it needs R:1 or another duration totaling 1 before the closing bar.
-- Prefer paired bar lines with one complete measure per line. Do not place a bar line after an incomplete measure, and do not use a leading bar to hide an incomplete previous measure.
+- Prefer paired bar lines with one complete measure between each pair. Do not place a bar line after an incomplete measure, and do not use a leading bar to hide an incomplete previous measure.
+- A line may contain several complete measures; line breaks do not affect musical time. The canonical formatter starts a new line at a phrase boundary — a measure whose tail is a rest of at least a quarter of the measure, or whose final note lasts at least half the measure — and otherwise starts a new line after at most four measures per line.
 - Although the parser permits omitted bar lines and events crossing an unchecked boundary, generated OWT must not rely on those permissive forms.
 
 9. TIME AND DEFAULT SUMMARY
@@ -263,7 +264,8 @@ const OWT_0_1_REFERENCE_ZH_CN = `OWT 0.1——完整格式参考
 - 小节线是校验断言：每当出现 |，该轨道累计时值必须恰好位于根据拍号表计算的小节边界。
 - 每一对 | ... | 之间必须恰好写一个完整小节。4/4 中事件时值之和必须严格等于 4 个四分音符单位；3/4 必须等于 3；6/8 必须等于 3。
 - 每个小节必须独立计数。例如“| G4:1/2 B4:1/2 D5:1 G5:1 |”在 4/4 中只有 3 拍，因此无效；右侧小节线前还需要 R:1 或其他总时值为 1 的事件。
-- 默认使用成对小节线并且每行只写一个完整小节。不得在不完整小节后写小节线，也不得用下一行开头的小节线掩盖上一小节不完整。
+- 默认使用成对小节线，每对小节线之间恰好写一个完整小节。不得在不完整小节后写小节线，也不得用下一行开头的小节线掩盖上一小节不完整。
+- 一行可以包含多个完整小节，换行不影响音乐时间。规范格式化会在乐句边界处换行——小节尾部有至少四分之一小节时值的休止符，或末音至少持续半小节——否则每行最多放四个小节。
 - 虽然解析器允许省略小节线以及事件跨过未检查的边界，但生成的 OWT 不得依赖这些宽松形式。
 
 9. 时间与默认值汇总

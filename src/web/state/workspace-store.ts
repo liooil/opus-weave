@@ -29,7 +29,7 @@ export type CompositionWorkflowState =
 /** Which AI feature is currently active, at a coarse level. Detailed progress lives in `composition` and `improv`. */
 export type AiActivity =
   | { kind: 'idle' }
-  | { kind: 'compose'; task: 'prompt' | 'media' }
+  | { kind: 'compose'; task: 'prompt' | 'media'; error?: string }
   | { kind: 'full' }
   | { kind: 'improv' }
   | { kind: 'prompt-test'; passed: number; total: number }

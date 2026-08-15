@@ -42,7 +42,7 @@ import { repairCommonOwtErrors } from '../domain/owt/repair.ts'
 import { attachSourceHover, describeOwtSourceToken, type SourceHoverField } from './views/source-hover-view.ts'
 import { computerInputKey, computerKeyLabel, computerKeyWidth, keyboardSectionsForLayout } from './keyboard/layout-view-model.ts'
 import { byId as $, clearStatus, retranslateTrackedCopy, setStatus, setTranslatedStatus, setTranslatedText, showError } from './views/status-view.ts'
-import { WorkspaceStore, type WorkspaceState } from './state/workspace-store.ts'
+import { WorkspaceStore, type CompositionWorkflowState, type ImprovState, type WorkspaceState } from './state/workspace-store.ts'
 import { TransportController } from './controllers/transport-controller.ts'
 import { ImprovController } from './controllers/improv-controller.ts'
 import builtInGmSoundFontUrl from './assets/soundfonts/FluidR3Mono_GM.sf3' with { type: 'file' }
@@ -290,6 +290,7 @@ const initialWorkspaceState: WorkspaceState = {
   transport: { kind: 'idle', positionSeconds: 0, loop: false },
   improv: { kind: 'off' },
   composition: { kind: 'idle', mode: 'sketch' },
+  activity: { kind: 'idle' },
 }
 const workspaceStore = new WorkspaceStore(initialWorkspaceState)
 const transportController = new TransportController(workspaceStore, {
@@ -2545,6 +2546,8 @@ async function applyAiRequest(request: OwtAiRequest, statusKey: string, statusVa
   persistAiConfig()
   setAiComposeState('working')
   setAiBusy(true)
+  workspaceStore.update({ activity: { kind: 'compose', task: request.task === 'score-media' ? 'media' : 'prompt' } })
+  renderAiActivity()
   setTranslatedStatus('ai-status', statusKey, statusValues, 'warn')
   const stream = createAiEditorStream()
   const reasoningStream = beginAiReasoningStream()
@@ -2575,6 +2578,8 @@ async function applyAiRequest(request: OwtAiRequest, statusKey: string, statusVa
     playbackStream.cancel()
     finishAiReasoningStream(reasoningStream)
     setAiBusy(false)
+    workspaceStore.update({ activity: { kind: 'idle' } })
+    renderAiActivity()
   }
 }
 
@@ -2605,6 +2610,7 @@ function updateConversationalImprovUi(): void {
   button.title = unavailable ? accessibleCopy : `${accessibleCopy} · ${t(stateKeys[improvSession.state])}`
   label.removeAttribute('data-i18n')
   label.textContent = active ? t(stateKeys[improvSession.state]) : t('simpleEdit.improvMode')
+  renderAiActivity()
 }
 
 function stopConversationalImprov(showStatus = true): void {
@@ -2620,6 +2626,7 @@ function stopConversationalImprov(showStatus = true): void {
     clearOwtPlaybackContext()
   }
   improvSession.stop()
+  workspaceStore.update({ activity: { kind: 'idle' } })
   updateConversationalImprovUi()
   if (showStatus) setTranslatedStatus('ai-status', 'ai.improvStopped')
 }
@@ -2637,6 +2644,7 @@ function startConversationalImprov(): void {
   engine?.stop()
   clearOwtPlaybackContext()
   improvSession.start()
+  workspaceStore.update({ activity: { kind: 'improv' } })
   updateConversationalImprovUi()
   setTranslatedStatus('ai-status', 'ai.improvListening', {}, 'ok')
   void ensureEngine().catch((error) => {
@@ -2864,6 +2872,8 @@ async function runPromptTemplateExamples(): Promise<void> {
   results.replaceChildren()
   aiPromptTestDialog.showModal()
   setAiBusy(true)
+  workspaceStore.update({ activity: { kind: 'prompt-test', passed: 0, total: promptTestCases.length } })
+  renderAiActivity()
   let passed = 0
   for (const testCase of promptTestCases) {
     const instruction = t(testCase.instructionKey)
@@ -2878,6 +2888,7 @@ async function runPromptTemplateExamples(): Promise<void> {
       state.textContent = t('ai.promptTest.passed')
       output.textContent = `${summary}\n\n${text}`
       passed++
+      workspaceStore.update({ activity: { kind: 'prompt-test', passed, total: promptTestCases.length } })
     } catch (error) {
       card.classList.replace('running', 'failed')
       state.textContent = t('ai.promptTest.failed')
@@ -2885,6 +2896,8 @@ async function runPromptTemplateExamples(): Promise<void> {
     }
   }
   setAiBusy(false)
+  workspaceStore.update({ activity: { kind: 'idle' } })
+  renderAiActivity()
   setTranslatedStatus('ai-status', passed === promptTestCases.length ? 'ai.promptTest.complete' : 'ai.promptTest.incomplete', {
     passed,
     total: promptTestCases.length,
@@ -2940,44 +2953,137 @@ function applyFullCompositionResult(owt: string, updateEditor = true): void {
   setAiComposeState('success')
 }
 
-function renderFullCompositionStage(stage: FullCompositionStage): void {
-  workspaceStore.update({ composition: stage })
-  const panel = $('ai-full-progress')
-  panel.hidden = false
-  const stageKey = stage.kind === 'composing' || stage.kind === 'repairing'
-    ? `ai.full.${stage.kind}`
-    : stage.kind === 'error' ? 'ai.failed' : `ai.full.${stage.kind}`
-  $('ai-full-stage').textContent = t(stageKey, 'sectionId' in stage && stage.sectionId ? { section: stage.sectionId } : {})
+function aiActivityStep(text: string, state: 'done' | 'active' | 'pending' | 'failed', onRetry?: () => void): HTMLLIElement {
+  const li = document.createElement('li')
+  li.className = `ai-activity-step is-${state}`
+  li.dataset.state = state
+  if (state === 'active') li.setAttribute('aria-current', 'step')
+  const icon = document.createElement('span')
+  icon.className = 'ai-activity-step-icon'
+  icon.setAttribute('aria-hidden', 'true')
+  icon.textContent = state === 'done' ? '✓' : state === 'failed' ? '✗' : state === 'active' ? '⟳' : '○'
+  const label = document.createElement('span')
+  label.className = 'ai-activity-step-label'
+  label.textContent = text
+  li.append(icon, label)
+  if (state === 'failed' && onRetry) {
+    const retry = document.createElement('button')
+    retry.type = 'button'
+    retry.className = 'quiet ai-activity-step-retry'
+    retry.textContent = t('sound.retry')
+    retry.addEventListener('click', onRetry)
+    li.append(' ', retry)
+  }
+  return li
+}
+
+function fullCompositionStageText(stage: CompositionWorkflowState): string {
+  switch (stage.kind) {
+    case 'planning': return t('ai.full.planning')
+    case 'composing': return t('ai.full.composing', { section: stage.sectionId })
+    case 'repairing': return t('ai.full.repairing', { section: stage.sectionId })
+    case 'assembling': return t('ai.full.assembling')
+    case 'validating': return t('ai.full.validating')
+    case 'complete': return t('ai.full.complete')
+    case 'cancelled': return t('ai.full.cancelled')
+    case 'error': return t('ai.failed')
+    default: return t('ai.composing')
+  }
+}
+
+function retryFullCompositionSection(sectionId: string): void {
+  const reasoningStream = beginAiReasoningStream()
+  void fullCompositionWorkflow!.composeSection(sectionId).then(() => {
+    applyFullCompositionResult(fullCompositionWorkflow!.finalize().owt)
+  }).catch((error: unknown) => {
+    setStatus('ai-status', error instanceof Error ? error.message : String(error), 'err')
+  }).finally(() => {
+    finishAiReasoningStream(reasoningStream)
+  })
+}
+
+function renderFullCompositionStepper(stage: CompositionWorkflowState): void {
   const plan = fullCompositionWorkflow?.plan
-  if (!plan) return
+  const title = $('ai-activity-title')
+  const status = $('ai-activity-status')
+  const stepper = $<HTMLOListElement>('ai-activity-stepper')
+  const cancel = $<HTMLButtonElement>('btn-ai-activity-cancel')
+
+  title.textContent = plan ? t('ai.activity.fullTitle', { title: plan.title }) : t('ai.fullComposition')
+  status.textContent = fullCompositionStageText(stage)
+  stepper.hidden = false
+  cancel.hidden = stage.kind === 'complete' || stage.kind === 'cancelled' || stage.kind === 'error'
+
   const completed = new Set('completed' in stage ? stage.completed : fullCompositionWorkflow?.composedSections.map((section) => section.id))
   const current = 'sectionId' in stage ? stage.sectionId : undefined
-  const list = $<HTMLOListElement>('ai-full-sections')
-  list.replaceChildren(...plan.sections.map((section) => {
-    const item = document.createElement('li')
-    const marker = completed.has(section.id) ? '✓' : current === section.id ? (stage.kind === 'error' ? '!' : '…') : '○'
-    item.textContent = `${marker} ${section.name} · ${section.bars} bars · ${section.tempoStart}${section.tempoEnd ? `→${section.tempoEnd}` : ''} BPM`
-    if (stage.kind === 'error' && current === section.id) {
-      const retry = document.createElement('button')
-      retry.type = 'button'
-      retry.className = 'quiet'
-      retry.textContent = t('sound.retry')
-      retry.addEventListener('click', () => {
-        retry.disabled = true
-        const reasoningStream = beginAiReasoningStream()
-        void fullCompositionWorkflow!.composeSection(section.id).then(() => {
-          applyFullCompositionResult(fullCompositionWorkflow!.finalize().owt)
-        }).catch((error: unknown) => {
-          setStatus('ai-status', error instanceof Error ? error.message : String(error), 'err')
-          retry.disabled = false
-        }).finally(() => {
-          finishAiReasoningStream(reasoningStream)
-        })
-      })
-      item.append(' ', retry)
-    }
-    return item
-  }))
+  const nodes: HTMLLIElement[] = [aiActivityStep(t('ai.activity.plan'), plan ? 'done' : stage.kind === 'planning' ? 'active' : 'pending')]
+  for (const section of plan?.sections ?? []) {
+    const state: 'done' | 'active' | 'pending' | 'failed' = completed.has(section.id)
+      ? 'done'
+      : current === section.id
+        ? (stage.kind === 'error' ? 'failed' : 'active')
+        : 'pending'
+    const onRetry = state === 'failed' ? () => retryFullCompositionSection(section.id) : undefined
+    nodes.push(aiActivityStep(section.name, state, onRetry))
+  }
+  nodes.push(aiActivityStep(t('ai.activity.assemble'), stage.kind === 'assembling' || stage.kind === 'validating' ? 'active' : stage.kind === 'complete' ? 'done' : 'pending'))
+  nodes.push(aiActivityStep(t('ai.activity.done'), stage.kind === 'complete' ? 'done' : 'pending'))
+  stepper.replaceChildren(...nodes)
+}
+
+function improvStateKey(state: ImprovState): string {
+  switch (state.kind) {
+    case 'listening': return 'ai.improvListeningState'
+    case 'recording': return 'ai.improvRecordingState'
+    case 'thinking': return 'ai.improvThinkingState'
+    case 'responding': return 'ai.improvRespondingState'
+    case 'error': return 'ai.failed'
+    default: return 'ai.improvOff'
+  }
+}
+
+function renderAiActivity(): void {
+  const activity = workspaceStore.state.activity
+  const container = $<HTMLElement>('ai-activity')
+  if (activity.kind === 'idle') {
+    container.hidden = true
+    return
+  }
+  container.hidden = false
+  const stepper = $<HTMLOListElement>('ai-activity-stepper')
+  const cancel = $<HTMLButtonElement>('btn-ai-activity-cancel')
+  switch (activity.kind) {
+    case 'compose':
+      $('ai-activity-title').textContent = activity.task === 'media' ? t('ai.activity.media') : t('ai.compose')
+      $('ai-activity-status').textContent = t('ai.composing')
+      stepper.replaceChildren()
+      stepper.hidden = true
+      cancel.hidden = true
+      break
+    case 'full':
+      renderFullCompositionStepper(workspaceStore.state.composition)
+      break
+    case 'improv':
+      $('ai-activity-title').textContent = t('simpleEdit.improvMode')
+      $('ai-activity-status').textContent = t(improvStateKey(workspaceStore.state.improv))
+      stepper.replaceChildren()
+      stepper.hidden = true
+      cancel.hidden = true
+      break
+    case 'prompt-test':
+      $('ai-activity-title').textContent = t('ai.promptTestTitle')
+      $('ai-activity-status').textContent = t('ai.activity.testing', { passed: activity.passed, total: activity.total })
+      stepper.replaceChildren()
+      stepper.hidden = true
+      cancel.hidden = true
+      break
+  }
+}
+
+function renderFullCompositionStage(stage: FullCompositionStage): void {
+  const active = stage.kind === 'planning' || stage.kind === 'composing' || stage.kind === 'repairing' || stage.kind === 'assembling' || stage.kind === 'validating'
+  workspaceStore.update({ composition: stage, activity: active ? { kind: 'full' } : { kind: 'idle' } })
+  renderAiActivity()
 }
 
 function renderFullCompositionStream(update: FullCompositionStreamUpdate): void {
@@ -3063,13 +3169,12 @@ $('btn-ai-compose').addEventListener('click', () => {
     showManualAiDialog()
     return
   }
-  $('ai-full-progress').hidden = true
   aiComposeDialog.showModal()
   requestAnimationFrame(() => aiPrompt.focus())
 })
 
 $('btn-ai-cancel').addEventListener('click', () => aiComposeDialog.close())
-$('btn-ai-full-cancel').addEventListener('click', () => fullCompositionWorkflow?.cancel())
+$('btn-ai-activity-cancel').addEventListener('click', () => fullCompositionWorkflow?.cancel())
 $('btn-ai-manual-close').addEventListener('click', () => aiManualDialog.close())
 
 aiManualForm.addEventListener('submit', (event) => {
@@ -3107,7 +3212,7 @@ aiComposeForm.addEventListener('submit', (event) => {
     applyFullCompositionResult(owt, false)
     setTranslatedStatus('ai-status', 'ai.applied', {}, 'ok')
   }).catch((error: unknown) => {
-    if (error instanceof DOMException && error.name === 'AbortError') return
+    if (error instanceof Error && error.name === 'AbortError') return
     setStatus('ai-status', error instanceof Error ? error.message : String(error), 'err')
     setAiComposeState('error')
   }).finally(() => {

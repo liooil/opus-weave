@@ -7,7 +7,7 @@ function createStore(): WorkspaceStore {
   const state: WorkspaceState = {
     owt: 'old', documentVersion: 0, selectedRanges: [{ start: 1, end: 2 }], midiLoaded: true, recording: true,
     transport: { kind: 'idle', positionSeconds: 0, loop: false }, improv: { kind: 'off' },
-    composition: { kind: 'idle', mode: 'sketch' }, error: 'old error',
+    composition: { kind: 'idle', mode: 'sketch' }, activity: { kind: 'idle' }, error: 'old error',
   }
   return new WorkspaceStore(state)
 }

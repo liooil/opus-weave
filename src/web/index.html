@@ -72,6 +72,18 @@
 
     <main class="workspace-pages">
       <section class="workspace-page active" data-workspace-page="studio">
+        <section id="ai-activity" class="ai-activity" hidden aria-live="polite">
+          <div class="ai-activity-head">
+            <span id="ai-activity-title" class="ai-activity-title"></span>
+            <span id="ai-activity-status" class="ai-activity-status"></span>
+            <button id="btn-ai-activity-cancel" type="button" class="quiet" data-shortcut="Esc" aria-keyshortcuts="Escape" data-i18n="common.cancel" hidden>Cancel</button>
+          </div>
+          <ol id="ai-activity-stepper" class="ai-activity-stepper" role="list"></ol>
+          <details id="ai-reasoning-panel" class="ai-reasoning-panel" hidden>
+            <summary><span class="ai-reasoning-title" data-i18n="ai.reasoningPanel">AI reasoning</span><span id="ai-reasoning-last-line" class="ai-reasoning-last-line" aria-live="polite"></span><span id="ai-reasoning-state" data-i18n="ai.reasoningStreaming">Streaming</span></summary>
+            <pre id="ai-reasoning-stream" class="ai-reasoning-stream" aria-live="polite"></pre>
+          </details>
+        </section>
         <section class="panel owt-panel active" id="owt-panel" data-score-view="owt" data-i18n-aria-label="section.owtWorkspace" aria-label="OWT Melody Editor">
           <div id="owt-edit-status" class="status" hidden aria-live="polite"></div>
           <div class="owt-editor-shell" data-edit-mode="score">
@@ -101,10 +113,6 @@
             <input id="owt-repair-split-events" type="checkbox" />
             <span data-i18n="owt.repairSplitEvents">Split long events across bar lines</span>
           </label>
-          <details id="ai-reasoning-panel" class="ai-reasoning-panel" hidden>
-            <summary><span class="ai-reasoning-title" data-i18n="ai.reasoningPanel">AI reasoning</span><span id="ai-reasoning-last-line" class="ai-reasoning-last-line" aria-live="polite"></span><span id="ai-reasoning-state" data-i18n="ai.reasoningStreaming">Streaming</span></summary>
-            <pre id="ai-reasoning-stream" class="ai-reasoning-stream" aria-live="polite"></pre>
-          </details>
         </section>
         <section class="panel arranger-panel" id="playback-panel" data-score-view="timeline" hidden>
           <div class="arranger-transport">
@@ -498,11 +506,6 @@
           <label><input type="radio" name="ai-compose-mode" value="sketch" checked><span data-i18n="ai.sketch">Sketch</span></label>
           <label><input type="radio" name="ai-compose-mode" value="full"><span data-i18n="ai.fullComposition">Full Composition</span></label>
         </fieldset>
-        <section id="ai-full-progress" class="ai-full-progress" hidden aria-live="polite">
-          <strong id="ai-full-stage"></strong>
-          <ol id="ai-full-sections"></ol>
-          <button id="btn-ai-full-cancel" type="button" class="quiet" data-shortcut="Esc" aria-keyshortcuts="Escape" data-i18n="common.cancel">Cancel</button>
-        </section>
         <label class="dialog-prompt"><span data-i18n="ai.promptLabel">Composition request</span><textarea id="ai-prompt" rows="7" autofocus placeholder="It’s raining"></textarea></label>
         <div class="dialog-actions">
           <button id="btn-ai-cancel" type="button" class="quiet" data-shortcut="Esc" aria-keyshortcuts="Escape" data-i18n="common.cancel">Cancel</button>

@@ -26,6 +26,14 @@ export type CompositionWorkflowState =
   | { kind: 'cancelled' }
   | { kind: 'error'; message: string; sectionId?: string }
 
+/** Which AI feature is currently active, at a coarse level. Detailed progress lives in `composition` and `improv`. */
+export type AiActivity =
+  | { kind: 'idle' }
+  | { kind: 'compose'; task: 'prompt' | 'media' }
+  | { kind: 'full' }
+  | { kind: 'improv' }
+  | { kind: 'prompt-test'; passed: number; total: number }
+
 export interface WorkspaceState {
   owt: string
   documentVersion: number
@@ -35,6 +43,7 @@ export interface WorkspaceState {
   transport: TransportState
   improv: ImprovState
   composition: CompositionWorkflowState
+  activity: AiActivity
   error?: string
 }
 
@@ -71,6 +80,7 @@ export class WorkspaceStore {
       transport: { kind: 'idle', positionSeconds: 0, loop: state.transport.loop },
       improv: { kind: 'off' },
       composition: { kind: 'idle', mode: 'sketch' },
+      activity: { kind: 'idle' },
       error: undefined,
     }))
   }

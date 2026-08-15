@@ -47,7 +47,6 @@
         <button id="btn-loop-playback" class="loop-playback-button topbar-control" data-shortcut="Space t l" aria-pressed="false" data-i18n-aria-label="playback.loop" data-i18n-title="playback.loop" aria-label="Loop playback" title="Loop playback"><span class="control-icon" aria-hidden="true">↻</span><span class="control-label" data-i18n="playback.loop">Loop</span></button>
         <button id="btn-return-to-start" class="topbar-control return-to-start-button" data-shortcut="Space s" data-i18n-aria-label="playback.returnToStart" data-i18n-title="playback.returnToStart" aria-label="Return to beginning" title="Return to beginning" disabled><span class="control-icon" aria-hidden="true">|←</span><span class="control-label" data-i18n="playback.returnToStart">Return to beginning</span></button>
         <button id="btn-owt-practice" class="topbar-control performance-button" data-studio-only data-shortcut="Space q" aria-keyshortcuts="Space Q" aria-pressed="false" data-i18n-aria-label="owt.practice" data-i18n-title="owt.practice" aria-label="Perform" title="Perform"><span class="control-icon" aria-hidden="true">♩</span><span class="control-label" data-i18n="owt.practice">Perform</span></button>
-        <button id="btn-owt-repair" class="topbar-control repair-button" data-studio-only data-shortcut="Space f" data-i18n-aria-label="owt.repair" data-i18n-title="owt.repair" aria-label="Repair OWT" title="Repair OWT" hidden><span class="control-icon" aria-hidden="true">◇</span><span class="control-label" data-i18n="owt.repair">Repair OWT</span></button>
         <button id="btn-ai-compose" class="ai-compose-button topbar-control" data-studio-only data-ai-state="idle" data-shortcut="Space z c" data-i18n-aria-label="ai.compose" data-i18n-title="ai.compose" aria-label="AI composition" title="AI composition"><span class="control-icon" aria-hidden="true">✦</span><span class="control-label" data-i18n="ai.compose">AI composition</span></button>
         <button id="btn-ai-improvise" class="ai-improv-button topbar-control" data-studio-only data-improv-state="off" data-shortcut="Space z i" aria-pressed="false" data-i18n-aria-label="ai.improviseStart" data-i18n-title="ai.improviseStart" aria-label="Start improv mode" title="Start improv mode"><span class="control-icon" aria-hidden="true">∞</span><span class="control-label" data-i18n="simpleEdit.improvMode">Improv</span></button>
           </nav>
@@ -107,7 +106,10 @@
           </div>
           <input id="owt-command" class="owt-command" type="text" autocomplete="off" spellcheck="false" hidden aria-label="OWT command" />
           <div id="owt-key-hints" class="owt-key-hints" hidden></div>
-          <div id="owt-status" class="status" hidden aria-live="polite"></div>
+          <div class="owt-status-row">
+            <div id="owt-status" class="status" hidden aria-live="polite"></div>
+            <button id="btn-owt-repair" class="quiet owt-repair-inline" data-shortcut="Space f" data-i18n="owt.repair" hidden>Repair OWT</button>
+          </div>
           <div id="owt-diagnostics" class="owt-diagnostics" aria-live="polite"></div>
           <label id="owt-repair-options" class="owt-repair-options" hidden>
             <input id="owt-repair-split-events" type="checkbox" />

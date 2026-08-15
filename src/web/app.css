@@ -559,6 +559,11 @@ progress::-moz-progress-bar { background: var(--accent); }
 .msg-noteon { color: var(--accent); }.msg-noteoff { color: #9cb2d3; }.msg-cc { color: var(--warn); }.msg-pb { color: #c8a8f3; }.msg-other { color: var(--muted); }
 
 .status { min-height: 17px; margin-top: 10px; color: var(--muted); font-size: 11px; }
+.owt-status-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.owt-status-row:has(#owt-status:not([hidden])) { margin-top: 10px; }
+.owt-status-row .status { margin-top: 0; }
+.owt-repair-inline { min-height: 0; padding: 3px 10px; border-radius: 999px; font-size: 10px; font-weight: 600; line-height: 1.6; }
+.owt-repair-inline:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); background: rgba(198, 165, 246, 0.1); }
 .status.ok { color: var(--ok); }.status.warn { color: var(--warn); }.status.err { color: var(--err); }
 .ai-reasoning-panel { min-width: 0; max-width: 100%; margin-top: 10px; overflow: hidden; border: 1px solid rgba(198,165,246,0.34); border-radius: 11px; background: rgba(198,165,246,0.06); color: var(--muted); }
 .ai-reasoning-panel[hidden] { display: none; }

@@ -486,7 +486,7 @@ describe('web workspace structure', () => {
     expect(html).toContain('id="owt-repair-split-events" type="checkbox"')
     expect(html).not.toMatch(/id="owt-repair-split-events"[^>]*checked/)
     expect(app).toContain("diagnostics.some((diagnostic) => diagnostic.severity === 'error')")
-    expect(app).toContain("control.id === 'btn-owt-repair' && !owtHasErrors")
+    expect(app).toContain("'btn-owt-repair').hidden = !owtHasErrors")
     expect(app).toContain('splitCrossBoundaryEvents')
     expect(html).toContain('id="ai-retry-count"')
     expect(html).toContain('id="ai-retry-count" type="number" min="0" max="10" step="1" value="0"')

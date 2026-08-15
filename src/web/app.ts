@@ -137,7 +137,7 @@ const studioOnlyTopbarControls = [...document.querySelectorAll<HTMLElement>('[da
 
 function showWorkspacePage(pageId: string): void {
   for (const control of studioOnlyTopbarControls) {
-    control.hidden = pageId !== 'studio' || (control.id === 'btn-owt-repair' && !owtHasErrors)
+    control.hidden = pageId !== 'studio'
   }
   for (const page of workspacePages) {
     const active = page.dataset.workspacePage === pageId
@@ -1800,9 +1800,8 @@ $('btn-return-to-start').addEventListener('click', returnToBeginning)
 function renderOwtDiagnostics(diagnostics: Array<{ line: number; column: number; severity: string; code: string; message: string }>): void {
   owtDiagnostics = diagnostics.map(({ line, column }) => ({ line, column }))
   owtHasErrors = diagnostics.some((diagnostic) => diagnostic.severity === 'error')
-  const repairVisible = owtHasErrors && Boolean(document.querySelector<HTMLElement>('[data-workspace-page="studio"]')?.classList.contains('active'))
-  $<HTMLButtonElement>('btn-owt-repair').hidden = !repairVisible
-  $<HTMLLabelElement>('owt-repair-options').hidden = !repairVisible || !diagnostics.some((diagnostic) => diagnostic.code === 'score.bar.misaligned')
+  $<HTMLButtonElement>('btn-owt-repair').hidden = !owtHasErrors
+  $<HTMLLabelElement>('owt-repair-options').hidden = !owtHasErrors || !diagnostics.some((diagnostic) => diagnostic.code === 'score.bar.misaligned')
   owtSyntaxIndex = buildOwtSyntaxIndex(owtEditor.value, owtDiagnostics)
   const box = $('owt-diagnostics')
   box.innerHTML = ''

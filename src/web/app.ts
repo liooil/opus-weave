@@ -13,7 +13,7 @@ import { findProfileForPort, overrideControl, type DeviceProfile } from '../doma
 import { midiplusTinyPlusProfile } from '../domain/devices/midiplus-tiny-plus.ts'
 import { VirtualKeyboard } from './components/virtual-keyboard.ts'
 import { enableHorizontalPointerScroll } from './components/horizontal-pointer-scroll.ts'
-import { getLocale, resolveLocale, setLocale, t, translateDocument, type TranslationValues } from './i18n.ts'
+import { getLocale, resolveLocale, setLocale, t, translateDocument, type Locale, type TranslationValues } from './i18n.ts'
 import { compileScoreText, extractMelodyFromMidi, extractMelodyFromRecording, type MelodyExtractionResult, type MelodyVoiceStrategy } from '../domain/owt/integration.ts'
 import { parseOwt } from '../domain/owt/parser.ts'
 import { parseRational, rational, rationalToNumber } from '../domain/owt/rational.ts'
@@ -103,6 +103,7 @@ localeButton.addEventListener('click', () => {
   const locale = document.documentElement.lang === 'en' ? 'zh-CN' : 'en'
   setLocale(locale)
   window.localStorage.setItem('opusweave.locale', locale)
+  if (!savedComputerLayoutPreference()) setComputerKeyboardLayout(defaultComputerLayoutForLocale(locale), false)
   translateDocument()
   if (templatesUseDefaults) {
     renderAiConfig({ ...currentAiConfig(), locale, promptTemplates: defaultOwtAiPromptTemplates(locale) })
@@ -1960,6 +1961,46 @@ function handleModalCommand(command: string, args = ''): void | Promise<void> {
   }
 }
 
+const GLOBAL_CTRL_SHORTCUTS: Readonly<Record<string, () => void>> = {
+  O: () => $<HTMLInputElement>('owt-file').click(),
+  N: () => $('btn-owt-new-score').click(),
+  S: () => $('btn-owt-save').click(),
+  E: () => $('btn-owt-export-midi').click(),
+  '/': () => $('btn-owt-reference').click(),
+  '1': () => document.querySelector<HTMLButtonElement>('[data-score-view-target="owt"]')?.click(),
+  '2': () => document.querySelector<HTMLButtonElement>('[data-score-view-target="timeline"]')?.click(),
+  '3': () => document.querySelector<HTMLButtonElement>('[data-score-view-target="staff"]')?.click(),
+  '4': () => document.querySelector<HTMLButtonElement>('[data-score-view-target="jianpu"]')?.click(),
+  '`': () => cycleScoreView(),
+  L: () => $('btn-loop-playback').click(),
+  Home: () => returnToBeginning(),
+  P: () => $('btn-owt-practice').click(),
+  'Shift+P': () => $('btn-practice-stop').click(),
+  K: () => $('btn-ai-compose').click(),
+  I: () => $('btn-ai-improvise').click(),
+  ',': () => showWorkspacePage('settings'),
+  'Shift+L': () => localeButton.click(),
+  'Shift+H': () => themeButton.click(),
+}
+
+function globalCtrlShortcutToken(event: KeyboardEvent): string | undefined {
+  if (!(event.ctrlKey || event.metaKey) || event.altKey) return undefined
+  const key = event.key.length === 1 ? event.key.toUpperCase() : event.key
+  if (!key || key === 'CONTROL' || key === 'META' || key === 'SHIFT' || key === 'ALT') return undefined
+  return event.shiftKey ? `Shift+${key}` : key
+}
+
+window.addEventListener('keydown', (event) => {
+  if (event.defaultPrevented || event.repeat) return
+  const target = event.target
+  if (target instanceof Element && target.closest('dialog[open], #owt-command')) return
+  const token = globalCtrlShortcutToken(event)
+  const action = token ? GLOBAL_CTRL_SHORTCUTS[token] : undefined
+  if (!action) return
+  event.preventDefault()
+  action()
+})
+
 function validateCurrentOwt(): void {
   try {
     validateEditorOwt()
@@ -2060,7 +2101,17 @@ async function loadBuiltinExample(id: string | undefined, play: boolean): Promis
 }
 
 const COMPUTER_LAYOUT_PREFERENCE_KEY = 'opusweave.computer-layout'
+const COMPUTER_LAYOUT_IDS: readonly BuiltinComputerLayoutId[] = ['default', 'english', 'pinyin', 'freepiano']
 let keyboardSequenceGeneration = 0
+
+function savedComputerLayoutPreference(): BuiltinComputerLayoutId | null {
+  const saved = window.localStorage.getItem(COMPUTER_LAYOUT_PREFERENCE_KEY)
+  return saved && COMPUTER_LAYOUT_IDS.includes(saved as BuiltinComputerLayoutId) ? saved as BuiltinComputerLayoutId : null
+}
+
+function defaultComputerLayoutForLocale(locale: Locale): BuiltinComputerLayoutId {
+  return locale === 'zh-CN' ? 'pinyin' : 'english'
+}
 
 function currentComputerLayout(): BuiltinComputerLayoutId {
   return mapping.currentComputerLayoutId as BuiltinComputerLayoutId
@@ -3693,6 +3744,11 @@ enableHorizontalPointerScroll($<HTMLDivElement>('computer-key-map'), {
     if (release) window.setTimeout(release, 160)
   },
 })
+$('computer-map-head').addEventListener('click', (event) => {
+  if (!(event.target instanceof Element)) return
+  if (event.target.closest('button, select, input, label, .map-performance-controls')) return
+  setComputerMapExpanded(!computerMapExpanded, true)
+})
 $('toggle-computer-map').addEventListener('click', () => setComputerMapExpanded(!computerMapExpanded, true))
 
 $('oct-up').addEventListener('click', () => changeOctave(1))
@@ -3755,17 +3811,14 @@ window.addEventListener('beforeunload', () => {
 // ─── Boot ────────────────────────────────────────────────────────────────────
 
 renderLearnBindings()
-const savedComputerLayout = window.localStorage.getItem(COMPUTER_LAYOUT_PREFERENCE_KEY)
-const initialComputerLayout: BuiltinComputerLayoutId = ['default', 'english', 'pinyin', 'freepiano'].includes(savedComputerLayout ?? '')
-  ? savedComputerLayout as BuiltinComputerLayoutId
-  : 'default'
+const initialComputerLayout = savedComputerLayoutPreference() ?? defaultComputerLayoutForLocale(getLocale())
 setComputerKeyboardLayout(initialComputerLayout, false)
 setPlaybackUi(false)
 renderLoopPlaybackUi()
 const initialOwtHashPresent = window.location.hash.startsWith('#owt=')
 const initialOwtFromHash = decodeOwtHash(window.location.hash)
 setOwtEditorText(initialOwtFromHash ?? DEFAULT_OWT_SCORE)
-setHelixEditingMode('normal')
+setHelixEditingMode('raw')
 const savedScoreView = window.localStorage.getItem(SCORE_VIEW_PREFERENCE_KEY)
 const initialScoreView: ScoreViewId = ['owt', 'timeline', 'staff', 'jianpu'].includes(savedScoreView ?? '')
   ? savedScoreView as ScoreViewId

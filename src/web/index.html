@@ -20,45 +20,45 @@
       <details class="file-menu topbar-file-menu">
         <summary class="topbar-control" data-i18n-aria-label="owt.fileActions" data-i18n-title="owt.fileActions" aria-label="File" title="File"><span class="control-icon" aria-hidden="true">↥</span><span class="control-label" data-i18n="owt.fileActions">File</span></summary>
         <div class="file-menu-popover">
-          <label class="file-menu-item" data-shortcut="Space o"><span class="control-icon" aria-hidden="true">↥</span><span data-i18n="owt.open">Open / Import</span><input id="owt-file" type="file" accept=".owt,.txt,.mid,.midi,text/plain,audio/midi,image/*,video/mp4,.mp4" /></label>
+          <label class="file-menu-item" data-shortcut="Ctrl+O"><span class="control-icon" aria-hidden="true">↥</span><span data-i18n="owt.open">Open / Import</span><input id="owt-file" type="file" accept=".owt,.txt,.mid,.midi,text/plain,audio/midi,image/*,video/mp4,.mp4" /></label>
           <details class="file-submenu">
             <summary><span><span class="control-icon" aria-hidden="true">♫</span><span data-i18n="examples.load">Open example</span></span><span aria-hidden="true">›</span></summary>
             <div id="owt-example-menu" class="file-submenu-popover example-menu-list" role="menu" data-i18n-aria-label="examples.label" aria-label="Built-in examples"></div>
           </details>
           <div class="file-menu-separator" role="separator"></div>
-          <button id="btn-owt-new-score" data-shortcut="Space n" data-i18n="owt.newScore">New melody</button>
-          <button id="btn-owt-save" data-shortcut="Space w" data-i18n="owt.save">Save OWT</button>
-          <button id="btn-owt-export-midi" data-shortcut="Space e" data-i18n="owt.exportMidi">Export MIDI</button>
+          <button id="btn-owt-new-score" data-shortcut="Ctrl+N" data-i18n="owt.newScore">New melody</button>
+          <button id="btn-owt-save" data-shortcut="Ctrl+S" data-i18n="owt.save">Save OWT</button>
+          <button id="btn-owt-export-midi" data-shortcut="Ctrl+E" data-i18n="owt.exportMidi">Export MIDI</button>
           <div class="file-menu-separator" role="separator"></div>
-          <button id="btn-owt-reference" data-shortcut="Space ?" data-i18n="owt.reference">OWT 0.1 reference</button>
+          <button id="btn-owt-reference" data-shortcut="Ctrl+/" data-i18n="owt.reference">OWT 0.1 reference</button>
         </div>
       </details>
       <div class="topbar-scroll">
         <div class="topbar-scroll-content">
           <nav id="score-view-toolbar" class="score-view-toolbar" aria-label="Score and playback controls" data-i18n-aria-label="scoreViews.label">
         <div class="score-view-tabs" role="tablist" data-studio-only>
-          <button class="score-view-tab active" role="tab" aria-selected="true" data-score-view-target="owt" data-shortcut="Space g o" data-i18n-aria-label="scoreViews.owt" data-i18n-title="scoreViews.owt" aria-label="OWT" title="OWT"><span class="control-icon text-icon" aria-hidden="true">&lt;&gt;</span><span class="control-label" data-i18n="scoreViews.owt">OWT</span></button>
-          <button class="score-view-tab" role="tab" aria-selected="false" data-score-view-target="timeline" data-shortcut="Space g t" data-i18n-aria-label="scoreViews.timeline" data-i18n-title="scoreViews.timeline" aria-label="Timeline" title="Timeline"><span class="control-icon" aria-hidden="true">▥</span><span class="control-label" data-i18n="scoreViews.timeline">Timeline</span></button>
-          <button class="score-view-tab" role="tab" aria-selected="false" data-score-view-target="staff" data-shortcut="Space g s" data-i18n-aria-label="scoreViews.staff" data-i18n-title="scoreViews.staff" aria-label="Staff" title="Staff"><span class="control-icon" aria-hidden="true">𝄞</span><span class="control-label" data-i18n="scoreViews.staff">Staff</span></button>
-          <button class="score-view-tab" role="tab" aria-selected="false" data-score-view-target="jianpu" data-shortcut="Space g j" data-i18n-aria-label="scoreViews.jianpu" data-i18n-title="scoreViews.jianpu" aria-label="Jianpu" title="Jianpu"><span class="control-icon text-icon" aria-hidden="true">1</span><span class="control-label" data-i18n="scoreViews.jianpu">Jianpu</span></button>
+          <button class="score-view-tab active" role="tab" aria-selected="true" data-score-view-target="owt" data-shortcut="Ctrl+1" data-i18n-aria-label="scoreViews.owt" data-i18n-title="scoreViews.owt" aria-label="OWT" title="OWT"><span class="control-icon text-icon" aria-hidden="true">&lt;&gt;</span><span class="control-label" data-i18n="scoreViews.owt">OWT</span></button>
+          <button class="score-view-tab" role="tab" aria-selected="false" data-score-view-target="timeline" data-shortcut="Ctrl+2" data-i18n-aria-label="scoreViews.timeline" data-i18n-title="scoreViews.timeline" aria-label="Timeline" title="Timeline"><span class="control-icon" aria-hidden="true">▥</span><span class="control-label" data-i18n="scoreViews.timeline">Timeline</span></button>
+          <button class="score-view-tab" role="tab" aria-selected="false" data-score-view-target="staff" data-shortcut="Ctrl+3" data-i18n-aria-label="scoreViews.staff" data-i18n-title="scoreViews.staff" aria-label="Staff" title="Staff"><span class="control-icon" aria-hidden="true">𝄞</span><span class="control-label" data-i18n="scoreViews.staff">Staff</span></button>
+          <button class="score-view-tab" role="tab" aria-selected="false" data-score-view-target="jianpu" data-shortcut="Ctrl+4" data-i18n-aria-label="scoreViews.jianpu" data-i18n-title="scoreViews.jianpu" aria-label="Jianpu" title="Jianpu"><span class="control-icon text-icon" aria-hidden="true">1</span><span class="control-label" data-i18n="scoreViews.jianpu">Jianpu</span></button>
         </div>
-        <button id="btn-score-view-cycle" class="score-view-cycle topbar-control" data-studio-only data-shortcut="Space g n" aria-label="OWT · Switch to Timeline" title="OWT · Switch to Timeline"><span id="score-view-cycle-icon" class="control-icon text-icon" aria-hidden="true">&lt;&gt;</span><span id="score-view-cycle-label" class="control-label">OWT</span></button>
-        <button id="btn-score-view-play" class="primary topbar-control" data-shortcut="F5 · Space p" aria-keyshortcuts="F5" data-i18n-aria-label="playback.play" data-i18n-title="playback.play" aria-label="Play" title="Play"><span class="control-icon" aria-hidden="true">▶</span><span class="control-label" data-i18n="playback.play">Play</span></button>
-        <button id="btn-loop-playback" class="loop-playback-button topbar-control" data-shortcut="Space t l" aria-pressed="false" data-i18n-aria-label="playback.loop" data-i18n-title="playback.loop" aria-label="Loop playback" title="Loop playback"><span class="control-icon" aria-hidden="true">↻</span><span class="control-label" data-i18n="playback.loop">Loop</span></button>
-        <button id="btn-return-to-start" class="topbar-control return-to-start-button" data-shortcut="Space s" data-i18n-aria-label="playback.returnToStart" data-i18n-title="playback.returnToStart" aria-label="Return to beginning" title="Return to beginning" disabled><span class="control-icon" aria-hidden="true">|←</span><span class="control-label" data-i18n="playback.returnToStart">Return to beginning</span></button>
-        <button id="btn-owt-practice" class="topbar-control performance-button" data-studio-only data-shortcut="Space q" aria-keyshortcuts="Space Q" aria-pressed="false" data-i18n-aria-label="owt.practice" data-i18n-title="owt.practice" aria-label="Perform" title="Perform"><span class="control-icon" aria-hidden="true">♩</span><span class="control-label" data-i18n="owt.practice">Perform</span></button>
-        <button id="btn-ai-compose" class="ai-compose-button topbar-control" data-studio-only data-ai-state="idle" data-shortcut="Space z c" data-i18n-aria-label="ai.compose" data-i18n-title="ai.compose" aria-label="AI composition" title="AI composition"><span class="control-icon" aria-hidden="true">✦</span><span class="control-label" data-i18n="ai.compose">AI composition</span></button>
-        <button id="btn-ai-improvise" class="ai-improv-button topbar-control" data-studio-only data-improv-state="off" data-shortcut="Space z i" aria-pressed="false" data-i18n-aria-label="ai.improviseStart" data-i18n-title="ai.improviseStart" aria-label="Start improv mode" title="Start improv mode"><span class="control-icon" aria-hidden="true">∞</span><span class="control-label" data-i18n="simpleEdit.improvMode">Improv</span></button>
+        <button id="btn-score-view-cycle" class="score-view-cycle topbar-control" data-studio-only data-shortcut="Ctrl+`" aria-label="OWT · Switch to Timeline" title="OWT · Switch to Timeline"><span id="score-view-cycle-icon" class="control-icon text-icon" aria-hidden="true">&lt;&gt;</span><span id="score-view-cycle-label" class="control-label">OWT</span></button>
+        <button id="btn-score-view-play" class="primary topbar-control" data-shortcut="F5" aria-keyshortcuts="F5" data-i18n-aria-label="playback.play" data-i18n-title="playback.play" aria-label="Play" title="Play"><span class="control-icon" aria-hidden="true">▶</span><span class="control-label" data-i18n="playback.play">Play</span></button>
+        <button id="btn-loop-playback" class="loop-playback-button topbar-control" data-shortcut="Ctrl+L" aria-pressed="false" data-i18n-aria-label="playback.loop" data-i18n-title="playback.loop" aria-label="Loop playback" title="Loop playback"><span class="control-icon" aria-hidden="true">↻</span><span class="control-label" data-i18n="playback.loop">Loop</span></button>
+        <button id="btn-return-to-start" class="topbar-control return-to-start-button" data-shortcut="Ctrl+Home" data-i18n-aria-label="playback.returnToStart" data-i18n-title="playback.returnToStart" aria-label="Return to beginning" title="Return to beginning" disabled><span class="control-icon" aria-hidden="true">|←</span><span class="control-label" data-i18n="playback.returnToStart">Return to beginning</span></button>
+        <button id="btn-owt-practice" class="topbar-control performance-button" data-studio-only data-shortcut="Ctrl+P" aria-keyshortcuts="Control+P" aria-pressed="false" data-i18n-aria-label="owt.practice" data-i18n-title="owt.practice" aria-label="Perform" title="Perform"><span class="control-icon" aria-hidden="true">♩</span><span class="control-label" data-i18n="owt.practice">Perform</span></button>
+        <button id="btn-ai-compose" class="ai-compose-button topbar-control" data-studio-only data-ai-state="idle" data-shortcut="Ctrl+K" data-i18n-aria-label="ai.compose" data-i18n-title="ai.compose" aria-label="AI composition" title="AI composition"><span class="control-icon" aria-hidden="true">✦</span><span class="control-label" data-i18n="ai.compose">AI composition</span></button>
+        <button id="btn-ai-improvise" class="ai-improv-button topbar-control" data-studio-only data-improv-state="off" data-shortcut="Ctrl+I" aria-pressed="false" data-i18n-aria-label="ai.improviseStart" data-i18n-title="ai.improviseStart" aria-label="Start improv mode" title="Start improv mode"><span class="control-icon" aria-hidden="true">∞</span><span class="control-label" data-i18n="simpleEdit.improvMode">Improv</span></button>
           </nav>
           <div class="topbar-actions">
-          <button class="workspace-tab" data-page-target="settings" data-shortcut="Space b c" data-i18n-aria-label="nav.settings" data-i18n-title="nav.settings" aria-label="Settings" title="Settings"><span class="control-icon" aria-hidden="true">⚙</span><span class="control-label" data-i18n="nav.settings">Settings</span></button>
-          <button id="language-toggle" class="language-toggle" type="button" data-shortcut="Space z l" title="Switch to Chinese" aria-label="Switch to Chinese">
+          <button class="workspace-tab" data-page-target="settings" data-shortcut="Ctrl+," data-i18n-aria-label="nav.settings" data-i18n-title="nav.settings" aria-label="Settings" title="Settings"><span class="control-icon" aria-hidden="true">⚙</span><span class="control-label" data-i18n="nav.settings">Settings</span></button>
+          <button id="language-toggle" class="language-toggle" type="button" data-shortcut="Ctrl+Shift+L" title="Switch to Chinese" aria-label="Switch to Chinese">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <circle cx="12" cy="12" r="9"></circle>
               <path d="M3 12h18M12 3c2.4 2.5 3.7 5.5 3.7 9s-1.3 6.5-3.7 9M12 3c-2.4 2.5-3.7 5.5-3.7 9s1.3 6.5 3.7 9"></path>
             </svg>
           </button>
-          <button id="theme-toggle" class="theme-toggle" type="button" data-theme-state="system" data-shortcut="Space z h" title="Follow system theme" aria-label="Follow system theme">
+          <button id="theme-toggle" class="theme-toggle" type="button" data-theme-state="system" data-shortcut="Ctrl+Shift+H" title="Follow system theme" aria-label="Follow system theme">
             <svg data-theme-icon="light" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.6"></circle><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M18.7 5.3l-1.4 1.4M6.7 17.3l-1.4 1.4"></path></svg>
             <svg data-theme-icon="dark" viewBox="0 0 24 24" aria-hidden="true"><path d="M19.7 15.5A8.2 8.2 0 0 1 8.5 4.3 8.7 8.7 0 1 0 19.7 15.5Z"></path></svg>
             <svg data-theme-icon="system" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"></rect><path d="M8 21h8M12 17v4M12 6.5a4 4 0 0 0 0 8Z"></path></svg>
@@ -85,7 +85,7 @@
         </section>
         <section class="panel owt-panel active" id="owt-panel" data-score-view="owt" data-i18n-aria-label="section.owtWorkspace" aria-label="OWT Melody Editor">
           <div id="owt-edit-status" class="status" hidden aria-live="polite"></div>
-          <div class="owt-editor-shell" data-edit-mode="score">
+          <div class="owt-editor-shell" data-edit-mode="raw">
             <pre id="owt-highlight" class="owt-highlight" aria-hidden="true"></pre>
             <textarea id="owt-editor" class="owt-editor" spellcheck="false" aria-label="OWT editor" data-i18n-aria-label="owt.editorLabel"></textarea>
             <div class="owt-editor-overlay">
@@ -99,17 +99,15 @@
             </div>
           </div>
           <div class="owt-modal-statusline">
-            <button id="owt-mode" class="owt-mode normal" type="button" data-shortcut-exempt="mode-switch" data-i18n-aria-label="simpleEdit.switchToRaw" data-i18n-title="simpleEdit.switchToRaw" aria-label="Switch to RAW text mode" title="Switch to RAW text mode">NORMAL</button>
+            <button id="owt-mode" class="owt-mode raw" type="button" data-shortcut-exempt="mode-switch" data-i18n-aria-label="simpleEdit.switchToNormal" data-i18n-title="simpleEdit.switchToNormal" aria-label="Switch to Helix score mode" title="Switch to Helix score mode">RAW</button>
             <span id="owt-position">Ln 1, Col 1</span>
             <span id="owt-selection-count">1 selection</span>
+            <span id="owt-status" class="status" hidden aria-live="polite"></span>
             <span id="owt-pending"></span>
+            <button id="btn-owt-repair" class="quiet owt-repair-inline" data-shortcut="Space f" data-i18n="owt.repair" hidden>Repair OWT</button>
           </div>
           <input id="owt-command" class="owt-command" type="text" autocomplete="off" spellcheck="false" hidden aria-label="OWT command" />
           <div id="owt-key-hints" class="owt-key-hints" hidden></div>
-          <div class="owt-status-row">
-            <div id="owt-status" class="status" hidden aria-live="polite"></div>
-            <button id="btn-owt-repair" class="quiet owt-repair-inline" data-shortcut="Space f" data-i18n="owt.repair" hidden>Repair OWT</button>
-          </div>
           <div id="owt-diagnostics" class="owt-diagnostics" aria-live="polite"></div>
           <label id="owt-repair-options" class="owt-repair-options" hidden>
             <input id="owt-repair-split-events" type="checkbox" />
@@ -161,10 +159,10 @@
             <strong id="practice-note">—</strong>
             <kbd id="practice-computer-key" hidden></kbd>
             <span id="practice-progress"></span>
-            <button id="btn-practice-stop" class="quiet" data-shortcut="Space q" data-i18n="practice.stop">End performance</button>
+            <button id="btn-practice-stop" class="quiet" data-shortcut="Ctrl+Shift+P" aria-keyshortcuts="Control+Shift+P" data-i18n="practice.stop">End performance</button>
           </div>
           <div class="computer-map" aria-labelledby="computer-map-title">
-            <div class="computer-map-head">
+            <div id="computer-map-head" class="computer-map-head">
               <strong id="computer-map-title" data-i18n="live.computerMap">Computer keyboard map</strong>
               <div id="live-notes" class="live-notes"><span class="notes-placeholder" data-i18n="live.notesPlaceholder">Played notes</span></div>
               <label class="performance-layout-control computer-map-layout"><span class="stepper-label" data-i18n="live.layout">Layout</span><select id="computer-layout"><option value="default" data-i18n="layout.default">OpusWeave default</option><option value="english" data-i18n="layout.english">English word melody</option><option value="pinyin" data-i18n="layout.pinyin">Pinyin melody</option><option value="freepiano" data-i18n="layout.freepiano">FreePiano classic</option></select></label>

@@ -30,7 +30,7 @@ MIDI 播放/导出  →  SoundFont 合成
 
 | # | 能力 |
 |---|---|
-| 1 | 使用 Helix 模态快捷键按乐谱对象移动和编辑 `.owt`：CHAR 对应事件、WORD 对应小节、LINE 对应轨道；也可直接编辑原始文本或通过实时弹奏替换 |
+| 1 | 默认以 RAW 原始文本模式编辑 `.owt`，应用按钮使用单键 Ctrl 快捷键；也可切换到进阶 Helix 模态编辑，按事件、小节和轨道对象移动编辑 |
 | 2 | 通过有意的有损转换从 MIDI 提取旋律，支持轨道选择、声部简化和节奏量化 |
 | 3 | 将 OWT 导出为 Standard MIDI，用于播放和交换 |
 | 4 | 默认使用 FreePiano 风格 mda Piano 与完整 FluidR3Mono GM，也可加载自定义 SoundFont |

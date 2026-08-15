@@ -31,7 +31,7 @@ MIDI playback/export  →  SoundFont synthesis
 
 | # | Capability |
 |---|---|
-| 1 | Navigate and edit `.owt` with Helix modal motions across event, measure and track objects—or use raw text and live performance replacement |
+| 1 | Edit `.owt` in RAW text mode by default, with one-key Ctrl shortcuts for app buttons—or switch to advanced Helix modal motions across event, measure and track objects |
 | 2 | Import MIDI through intentional lossy melody extraction with track selection, voice reduction and rhythm quantization |
 | 3 | Export OWT to Standard MIDI for playback and interchange |
 | 4 | Play with the FreePiano-style mda Piano default and the full FluidR3Mono GM bank, or load a custom `.sf2` / `.sf3` / `.sfogg` bank |

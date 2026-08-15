@@ -116,18 +116,26 @@ to complete musical objects instead of exposing a separate selection-level contr
 - **Measure** — the events between a pair of bar lines.
 - **Track** — one complete musical track.
 
-Use `h`/`l` (and `b`/`w`/`e`) to move between events; the arrow keys mirror
-`h`/`l`. `k`/`j` move by text line. A line is not a measure: canonical lines
-hold one phrase (or a system of up to four measures), so `k`/`j` move between
-phrases while `]b`/`[b` move between measures. Move between tracks with
-`]t`/`[t`, and select whole tracks with `x`/`X`. Search commands are
-not part of the OWT modal language. `Space` opens the button-command hierarchy,
-including play/pause, views, editing actions, import, examples and AI actions.
-`F5` toggles play/pause globally, including from the timeline, staff and Jianpu
-views. Computer-keyboard performance handles only unmodified keys, so Ctrl,
-Command and Alt combinations remain available to native copy/paste and editor
-shortcuts. The adjacent **Loop playback** toggle repeats the active MIDI or OWT
-playback continuously; `Space t l` toggles it from the Helix command tree.
+The editor opens in **RAW** text mode so ordinary textarea editing, undo and
+Ctrl+Arrow word/event motion work immediately. **Helix** mode is the advanced
+modal layer: use `h`/`l` (and `b`/`w`/`e`) to move between events; the arrow
+keys mirror `h`/`l`. `k`/`j` move by text line. A line is not a measure:
+canonical lines hold one phrase (or a system of up to four measures), so
+`k`/`j` move between phrases while `]b`/`[b` move between measures. Move
+between tracks with `]t`/`[t`, and select whole tracks with `x`/`X`. Search
+commands are not part of the OWT modal language. In Helix mode, `Space` opens
+the button-command hierarchy, including play/pause, views, editing actions,
+import, examples and AI actions.
+
+Most app buttons use one-key Ctrl shortcuts in both modes: `Ctrl+O` open,
+`Ctrl+N` new, `Ctrl+S` save, `Ctrl+E` export MIDI, `Ctrl+/` help, `Ctrl+1` to
+`Ctrl+4` switch score views, `Ctrl+\`` cycle views, `Ctrl+L` loop, `Ctrl+Home`
+return to beginning, `Ctrl+P` perform, `Ctrl+K` AI composition, `Ctrl+I` improv
+and `Ctrl+,` settings. `F5` toggles play/pause globally, including from the
+timeline, staff and Jianpu views. Computer-keyboard performance handles only
+unmodified keys, so Ctrl, Command and Alt combinations remain available to
+native copy/paste and editor shortcuts. The adjacent **Loop playback** toggle
+repeats the active MIDI or OWT playback continuously.
 The transport remains visible on **Settings**, so SoundFont, preset, output and
 volume changes can be auditioned without returning to the score. Its single
 action label reads **Play** while paused and **Pause** while playing. The global
@@ -173,7 +181,13 @@ The Live Performance panel owns the active computer-keyboard layout. Changing
 its selector immediately updates the visible key-to-note map, piano range and
 live keystrokes. The selected layout is saved locally.
 
-- **OpusWeave default** is the existing chromatic two-octave piano layout.
+When no keyboard layout has been saved, the initial layout follows the
+interface language: **English word melody** for English and **Pinyin melody**
+for simplified Chinese. A layout chosen manually is saved locally and keeps
+its priority over the language default.
+
+- **OpusWeave default** remains available as the chromatic two-octave piano
+  layout.
 - **English word melody** maps every letter through constrained C-major
   pentatonic motion; spaces and punctuation create tonic cadences.
 - **Pinyin melody** maps Pinyin letters through pentatonic motion; spaces and
@@ -182,9 +196,10 @@ live keystrokes. The selected layout is saved locally.
   canonical `data/freepiano.map`: the full main section, navigation cluster,
   arrow keys and numeric keypad span B1 through A6.
 
-In the default layout, A/K change octave and F/4 change velocity. In the word
-and Pinyin layouts A/K/F become ordinary notes but the number keys are not notes;
-in the FreePiano layout every mapped key, including `4`, is a note.
+In the OpusWeave default layout, A/K change octave and F/4 change velocity.
+In the word and Pinyin layouts A/K/F become ordinary notes but the number keys
+are not notes; in the FreePiano layout every mapped key, including `4`, is a
+note.
 
 `ComputerKeyboardLayout` is a public domain contract accepted by
 `MappingEngine.setComputerLayout`, so a future layout editor can install user

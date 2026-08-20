@@ -219,6 +219,30 @@ describe('OWT AI client', () => {
     }, { fetcher })).resolves.toBe('invalid\n')
     expect(calls).toBe(1)
   })
+
+  test('auto repair with retry count zero does not add extra attempts', async () => {
+    let calls = 0
+    const fetcher = (async (_input: URL | RequestInfo, _init?: RequestInit) => {
+      calls++
+      return Response.json({ choices: [{ message: { content: 'invalid' } }] })
+    }) as typeof fetch
+    await expect(createOwtWithAi({ baseUrl: 'http://model.test', model: 'test', autoRepair: true, retryCount: 0 }, {
+      task: 'prompt', instruction: 'test', currentOwt: validAiOwt,
+    }, { fetcher })).resolves.toBe('invalid\n')
+    expect(calls).toBe(1)
+  })
+
+  test('auto repair with retry count sends invalid OWT back to the model', async () => {
+    let calls = 0
+    const fetcher = (async (_input: URL | RequestInfo, _init?: RequestInit) => {
+      calls++
+      return Response.json({ choices: [{ message: { content: 'invalid' } }] })
+    }) as typeof fetch
+    await expect(createOwtWithAi({ baseUrl: 'http://model.test', model: 'test', autoRepair: true, retryCount: 1 }, {
+      task: 'prompt', instruction: 'test', currentOwt: validAiOwt,
+    }, { fetcher })).resolves.toBe('invalid\n')
+    expect(calls).toBe(2)
+  })
 })
 
 describe('recent performance capture', () => {

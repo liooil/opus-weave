@@ -114,6 +114,26 @@ describe('OWT semantic objects', () => {
     })
   })
 
+  test('carries full diagnostic details on OWT diagnostic ranges', () => {
+    const index = buildOwtSyntaxIndex('owt 0.1 score\n', [{
+      line: 1,
+      column: 1,
+      severity: 'error',
+      code: 'document.header.invalid',
+      message: 'expected: owt 0.1 score',
+    }])
+    expect(index.diagnostics[0]).toMatchObject({
+      kind: 'diagnostic',
+      start: 0,
+      end: 3,
+      severity: 'error',
+      code: 'document.header.invalid',
+      message: 'expected: owt 0.1 score',
+      line: 1,
+      column: 1,
+    })
+  })
+
   test('changes selected events to rests but removes measures and tracks', () => {
     const index = buildOwtSyntaxIndex(scoreText)
     const event = index.events[1]!

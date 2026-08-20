@@ -488,3 +488,15 @@ export function parseOwtOrThrow(text: string, options: OwtParseOptions = {}): Ow
   if (!result.document) throw new OwtSyntaxError(result.diagnostics)
   return result.document
 }
+
+/**
+ * Parse OWT leniently for streaming/live use. When the document has syntax
+ * errors (for example an unfinished measure while notes are still arriving),
+ * `parseOwt` still produces a best-effort `partialDocument`. This helper
+ * returns that tree so live updates and AI streaming can continue instead of
+ * being blocked by transient validation errors.
+ */
+export function parseOwtLoose(text: string, options: OwtParseOptions = {}): OwtDocument | null {
+  const result = parseOwt(text, options)
+  return result.document ?? result.partialDocument ?? null
+}

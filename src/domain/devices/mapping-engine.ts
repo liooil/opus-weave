@@ -168,8 +168,9 @@ export class MappingEngine {
     this.channel = Math.max(0, Math.min(15, ch))
   }
 
-  keyDownMessages(key: string): Uint8Array[] {
-    return this.resolveKeyPitches(key.toLowerCase(), true).map((note) => new Uint8Array([0x90 | this.channel, note, this.velocity]))
+  keyDownMessages(key: string, velocity: number = this.velocity): Uint8Array[] {
+    const v = Math.max(1, Math.min(127, Math.round(velocity)))
+    return this.resolveKeyPitches(key.toLowerCase(), true).map((note) => new Uint8Array([0x90 | this.channel, note, v]))
   }
 
   keyDownMessage(key: string): Uint8Array | null {

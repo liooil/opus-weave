@@ -104,6 +104,12 @@ describe('MappingEngine (computer keyboard)', () => {
     expect(m.keyDownMessage('z')![2]).toBe(127)
   })
 
+  it('accepts an explicit per-press velocity without changing the default', () => {
+    const m = new MappingEngine({ baseNote: 48, velocity: 33 })
+    expect(m.keyDownMessages('z', 77)[0]![2]).toBe(77)
+    expect(m.keyDownMessage('z')![2]).toBe(33)
+  })
+
   it('returns null for unmapped keys', () => {
     const m = new MappingEngine()
     expect(m.keyToNote('`')).toBeNull()

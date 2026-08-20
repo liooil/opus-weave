@@ -4,6 +4,7 @@
  * spessasynth classes directly (the engine wraps them).
  */
 import { SpessaSynthEngine } from '../audio/spessa-synth-engine.ts'
+import { renderMidiToWavBlob } from '../audio/offline-wav-renderer.ts'
 import { selectAudioOutputDevice, type AudioOutputDevice, type SavedAudioOutput } from '../audio/audio-output.ts'
 import { WebMidiManager, type MidiManagerState } from '../midi/web-midi-manager.ts'
 import { MidiRecorder, type RecordedTake } from '../domain/midi/midi-recorder.ts'
@@ -12,19 +13,22 @@ import { MidiLearn } from '../domain/midi-learn.ts'
 import { findProfileForPort, overrideControl, type DeviceProfile } from '../domain/devices/device-profile.ts'
 import { midiplusTinyPlusProfile } from '../domain/devices/midiplus-tiny-plus.ts'
 import { VirtualKeyboard } from './components/virtual-keyboard.ts'
+import { isPressureSensitive, pressureToVelocity } from './pointer-pressure.ts'
+import { modelDirectory, type ModelDirectoryModel, type ModelDirectoryProvider } from './models-directory.ts'
 import { enableHorizontalPointerScroll } from './components/horizontal-pointer-scroll.ts'
 import { getLocale, resolveLocale, setLocale, t, translateDocument, type Locale, type TranslationValues } from './i18n.ts'
 import { compileScoreText, extractMelodyFromMidi, extractMelodyFromRecording, type MelodyExtractionResult, type MelodyVoiceStrategy } from '../domain/owt/integration.ts'
-import { parseOwt } from '../domain/owt/parser.ts'
+import { parseOwt, parseOwtLoose } from '../domain/owt/parser.ts'
 import { parseRational, rational, rationalToNumber } from '../domain/owt/rational.ts'
 import { serializeOwt } from '../domain/owt/serializer.ts'
 import { appendOwtUserTrack } from '../domain/owt/streaming.ts'
+import { LiveOwtTranscriber } from '../domain/owt/live-transcription.ts'
 import { buildOwt01Reference } from '../domain/owt/reference.ts'
-import type { OwtDocument, OwtScoreTrack } from '../domain/owt/ast.ts'
+import type { OwtDiagnostic, OwtDocument, OwtScoreTrack } from '../domain/owt/ast.ts'
 import { activeOwtPlaybackIds, activeOwtSourceRanges, buildOwtPlaybackMap, cursorOwtPlaybackTokens, playbackStartForSourceRanges, type OwtPlaybackToken, type OwtSourceRange } from '../domain/owt/playback-map.ts'
 import { owtLexicalRanges, renderOwtHighlight, type OwtDecoration, type OwtLexicalRange } from './components/owt-highlighter.ts'
 import { ModalOwtEditor, normalizedSelection, owtMotionDestinations, type ModalEditorViewState, type OwtMotionDestination } from './editor/modal-editor.ts'
-import { buildOwtSyntaxIndex, objectContaining, replaceOwtEventPitch, semanticDeletionEdits, type OwtTextObject } from './editor/owt-objects.ts'
+import { buildOwtSyntaxIndex, objectContaining, replaceOwtEventPitch, semanticDeletionEdits, type OwtDiagnosticRange, type OwtTextObject } from './editor/owt-objects.ts'
 import { buildPracticePrompts, PracticeSession } from '../domain/owt/practice-session.ts'
 import { BUILTIN_OWT_EXAMPLES, builtinOwtExample } from '../domain/owt/builtin-examples.ts'
 import { buildScoreViewModel, type ScoreViewModel } from '../domain/owt/score-views.ts'
@@ -81,8 +85,9 @@ function renderThemePreference(): void {
     'content',
     effectiveTheme === 'dark' ? '#0b0c10' : '#f4f5ef',
   )
-  const settingsTheme = document.querySelector<HTMLSelectElement>('#settings-theme')
-  if (settingsTheme) settingsTheme.value = themePreference
+  for (const radio of document.querySelectorAll<HTMLInputElement>('input[name="settings-theme"]')) {
+    radio.checked = radio.value === themePreference
+  }
 }
 
 
@@ -202,14 +207,19 @@ function markSettingsSaved(): void {
   renderSettingsSaveState('settings.saved', 'is-saved')
 }
 
-$<HTMLSelectElement>('settings-theme').value = themePreference
+for (const radio of document.querySelectorAll<HTMLInputElement>('input[name="settings-theme"]')) {
+  radio.checked = radio.value === themePreference
+}
 $<HTMLSelectElement>('settings-language').value = getLocale()
-$<HTMLSelectElement>('settings-theme').addEventListener('change', (event) => {
-  themePreference = (event.target as HTMLSelectElement).value as ThemePreference
-  window.localStorage.setItem('opusweave.theme', themePreference)
-  renderThemePreference()
-  markSettingsSaved()
-})
+for (const radio of document.querySelectorAll<HTMLInputElement>('input[name="settings-theme"]')) {
+  radio.addEventListener('change', () => {
+    if (!radio.checked) return
+    themePreference = radio.value as ThemePreference
+    window.localStorage.setItem('opusweave.theme', themePreference)
+    renderThemePreference()
+    markSettingsSaved()
+  })
+}
 $<HTMLSelectElement>('settings-language').addEventListener('change', (event) => {
   if ((event.target as HTMLSelectElement).value !== getLocale()) localeButton.click()
 })
@@ -233,11 +243,15 @@ function downloadBuffer(buf: ArrayBuffer, name: string, mime: string): void {
 
 function downloadText(text: string, name: string): void {
   const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
+  downloadBlob(blob, name)
+}
+
+function downloadBlob(blob: Blob, name: string): void {
   const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = name
-  anchor.click()
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name
+  a.click()
   setTimeout(() => URL.revokeObjectURL(url), 5000)
 }
 
@@ -317,7 +331,7 @@ function scheduleOwtValidation(): void {
     }
   }, 180)
 }
-let owtDiagnostics: Array<{ line: number; column: number }> = []
+let owtDiagnostics: OwtDiagnostic[] = []
 let owtHasErrors = false
 let selectionPlaybackTimer: number | undefined
 type ScoreViewId = 'owt' | 'timeline' | 'staff' | 'jianpu'
@@ -499,6 +513,8 @@ function syncOwtHighlightScroll(): void {
   owtHighlight.scrollTop = owtEditor.scrollTop
   owtHighlight.scrollLeft = owtEditor.scrollLeft
   if (owtModalView?.selections[owtModalView.primary]) renderMotionDestinations(owtMotionDestinations(owtSyntaxIndex, owtModalView.selections[owtModalView.primary]!))
+  renderOwtDiagnosticLines()
+  hideOwtDiagnosticTooltip()
 }
 
 function modalDecorations(): OwtDecoration[] {
@@ -532,20 +548,62 @@ function motionDestinationDecorations(): OwtDecoration[] {
   return [...unique.values()]
 }
 
+function owtEditorMetrics(): { lineHeight: number; paddingTop: number; paddingLeft: number } {
+  const style = getComputedStyle(owtEditor)
+  return {
+    lineHeight: Number.parseFloat(style.lineHeight) || 19,
+    paddingTop: Number.parseFloat(style.paddingTop) || 0,
+    paddingLeft: Number.parseFloat(style.paddingLeft) || 0,
+  }
+}
+
+function sourceLineEnds(text: string): number[] {
+  const ends: number[] = []
+  let cursor = 0
+  while (true) {
+    const newline = text.indexOf('\n', cursor)
+    ends.push(newline < 0 ? text.length : newline)
+    if (newline < 0) break
+    cursor = newline + 1
+  }
+  return ends
+}
+
 function positionForSourceOffset(offset: number): { left: number; top: number } {
   const before = owtEditor.value.slice(0, offset).split('\n')
   const line = before.length - 1
   const column = before.at(-1)?.length ?? 0
   const style = getComputedStyle(owtEditor)
-  const lineHeight = Number.parseFloat(style.lineHeight) || 19
-  const paddingTop = Number.parseFloat(style.paddingTop) || 0
-  const paddingLeft = Number.parseFloat(style.paddingLeft) || 0
+  const metrics = owtEditorMetrics()
   const ruler = document.createElement('canvas').getContext('2d')!
   ruler.font = style.font
   return {
-    left: paddingLeft + ruler.measureText(owtEditor.value.slice(offset - column, offset)).width - owtEditor.scrollLeft,
-    top: paddingTop + line * lineHeight - owtEditor.scrollTop,
+    left: metrics.paddingLeft + ruler.measureText(owtEditor.value.slice(offset - column, offset)).width - owtEditor.scrollLeft,
+    top: metrics.paddingTop + line * metrics.lineHeight - owtEditor.scrollTop,
   }
+}
+
+function sourceOffsetForClientPoint(clientX: number, clientY: number): number {
+  const text = owtEditor.value
+  const lineEnds = sourceLineEnds(text)
+  const metrics = owtEditorMetrics()
+  const rect = owtEditor.getBoundingClientRect()
+  const ruler = document.createElement('canvas').getContext('2d')!
+  ruler.font = getComputedStyle(owtEditor).font
+  const x = clientX - rect.left + owtEditor.scrollLeft - metrics.paddingLeft
+  const y = clientY - rect.top + owtEditor.scrollTop - metrics.paddingTop
+  const line = Math.max(0, Math.min(lineEnds.length - 1, Math.floor(y / metrics.lineHeight)))
+  const lineStart = line === 0 ? 0 : lineEnds[line - 1]! + 1
+  const lineEnd = lineEnds[line]!
+  const lineText = text.slice(lineStart, lineEnd)
+  let low = 0
+  let high = lineText.length
+  while (low < high) {
+    const mid = (low + high + 1) >> 1
+    if (ruler.measureText(lineText.slice(0, mid)).width <= x) low = mid
+    else high = mid - 1
+  }
+  return lineStart + low
 }
 
 function renderMotionDestinations(destinations: readonly OwtMotionDestination[]): void {
@@ -618,6 +676,21 @@ function revealOwtSourceRange(range: OwtSourceRange): void {
   }
 }
 
+function selectedPlaybackTrackIndex(): number {
+  const selection = owtModalView?.selections[owtModalView.primary]
+  if (!selection) return 0
+  const range = normalizedSelection(selection)
+  const token = owtPlaybackTokens.find((candidate) => candidate.start < range.end && candidate.end > range.start)
+  return token ? Number(token.playbackId.split(':', 1)[0]) : 0
+}
+
+function primaryOwtPlaybackRange(): OwtSourceRange | undefined {
+  const primaryTrack = selectedPlaybackTrackIndex()
+  const primaryToken = scoreCursorTokens.find((token) => token.playbackId.startsWith(`${primaryTrack}:`))
+    ?? scoreCursorTokens[0]
+  return primaryToken ? { start: primaryToken.start, end: primaryToken.end } : undefined
+}
+
 function updateOwtPlaybackHighlight(seconds: number, duration: number): void {
   if (duration > 0) setScoreCursor(seconds)
   updateNotationPlaybackHighlight(duration > 0 ? seconds : -1)
@@ -635,7 +708,10 @@ function updateOwtPlaybackHighlight(seconds: number, duration: number): void {
   owtActiveRangeKey = key
   owtPlaybackRanges = ranges
   renderOwtEditorHighlight()
-  if (ranges[0]) revealOwtSourceRange(ranges[0])
+  if (ranges.length > 0) {
+    const primaryRange = primaryOwtPlaybackRange()
+    if (primaryRange) revealOwtSourceRange(primaryRange)
+  }
 }
 
 function updateNotationPlaybackHighlight(seconds: number): void {
@@ -719,6 +795,8 @@ const modalEditor = new ModalOwtEditor(
 )
 
 owtEditor.addEventListener('scroll', syncOwtHighlightScroll)
+owtEditor.addEventListener('mousemove', handleOwtEditorMouseMove)
+owtEditor.addEventListener('mouseleave', hideOwtDiagnosticTooltip)
 
 type SemanticEditMode = 'replace' | 'insert-before' | 'insert-after'
 let semanticEditMode: SemanticEditMode | null = null
@@ -842,6 +920,7 @@ $('btn-owt-insert-after').addEventListener('click', () => armSemanticPerformance
 
 const recorder = new MidiRecorder()
 const improvSession = new ConversationalImprovSession()
+const liveOwtTranscriber = new LiveOwtTranscriber()
 let improvPhraseTimer: number | undefined
 let improvAbortController: AbortController | undefined
 let improvRequestSequence = 0
@@ -892,7 +971,7 @@ interface MediaDevicesWithOutputSelection extends MediaDevices {
 const keyboard = new VirtualKeyboard($('virtual-keyboard'), {
   minNote: 0,
   maxNote: 127,
-  onNoteOn: (note) => handleMidiMessage(new Uint8Array([0x90, note, mapping.fixedVelocity]), performance.now()),
+  onNoteOn: (note, velocity) => handleMidiMessage(new Uint8Array([0x90, note, velocity ?? mapping.fixedVelocity]), performance.now()),
   onNoteOff: (note) => handleMidiMessage(new Uint8Array([0x80, note, 0x40]), performance.now()),
 })
 
@@ -1800,24 +1879,95 @@ $('btn-return-to-start').addEventListener('click', returnToBeginning)
 
 // ─── OpusWeave Text workspace ────────────────────────────────────────────────
 
-function renderOwtDiagnostics(diagnostics: Array<{ line: number; column: number; severity: string; code: string; message: string }>): void {
-  owtDiagnostics = diagnostics.map(({ line, column }) => ({ line, column }))
+function renderOwtDiagnostics(diagnostics: OwtDiagnostic[]): void {
+  owtDiagnostics = diagnostics
   owtHasErrors = diagnostics.some((diagnostic) => diagnostic.severity === 'error')
   $<HTMLButtonElement>('btn-owt-repair').hidden = !owtHasErrors
   $<HTMLLabelElement>('owt-repair-options').hidden = !owtHasErrors || !diagnostics.some((diagnostic) => diagnostic.code === 'score.bar.misaligned')
   owtSyntaxIndex = buildOwtSyntaxIndex(owtEditor.value, owtDiagnostics)
-  const box = $('owt-diagnostics')
-  box.innerHTML = ''
-  for (const diagnostic of diagnostics) {
-    const row = document.createElement('div')
-    row.className = `owt-diagnostic${diagnostic.severity === 'warning' ? ' warning' : ''}`
-    row.textContent = `${diagnostic.line}:${diagnostic.column} [${diagnostic.code}] ${diagnostic.message}`
-
-    box.appendChild(row)
-  }
+  $('owt-diagnostics').textContent = diagnostics
+    .map((diagnostic) => `${diagnostic.line}:${diagnostic.column} [${diagnostic.code}] ${diagnostic.message}`)
+    .join(' · ')
+  hideOwtDiagnosticTooltip()
   renderOwtEditorHighlight()
 }
-function owtFileName(document: OwtDocument, extension: 'owt' | 'mid'): string {
+
+function renderOwtDiagnosticLines(): void {
+  const root = $('owt-diagnostic-lines')
+  root.replaceChildren()
+  if (owtDiagnostics.length === 0) return
+  const metrics = owtEditorMetrics()
+  const lineEnds = sourceLineEnds(owtEditor.value)
+  const groups = new Map<number, OwtDiagnosticRange[]>()
+  for (const diagnostic of owtSyntaxIndex.diagnostics) {
+    const line = groups.get(diagnostic.line) ?? []
+    line.push(diagnostic)
+    groups.set(diagnostic.line, line)
+  }
+  for (const [lineNumber, diagnostics] of groups) {
+    const lineEnd = lineEnds[lineNumber - 1] ?? owtEditor.value.length
+    const position = positionForSourceOffset(lineEnd)
+    const row = document.createElement('div')
+    row.className = 'owt-diagnostic-line'
+    row.style.left = `${position.left + 10}px`
+    row.style.top = `${position.top}px`
+    row.style.height = `${metrics.lineHeight}px`
+    for (const diagnostic of diagnostics) {
+      const chip = document.createElement('span')
+      chip.className = `owt-diagnostic-chip ${diagnostic.severity}`
+      chip.textContent = `[${diagnostic.code}] ${diagnostic.message}`
+      chip.addEventListener('mouseenter', () => {
+        const chipRect = chip.getBoundingClientRect()
+        const shellRect = owtEditorShell.getBoundingClientRect()
+        showOwtDiagnosticTooltip(diagnostic, {
+          left: chipRect.left - shellRect.left - owtEditorShell.clientLeft,
+          top: chipRect.top - shellRect.top - owtEditorShell.clientTop,
+        })
+      })
+      chip.addEventListener('mouseleave', hideOwtDiagnosticTooltip)
+      row.appendChild(chip)
+    }
+    root.appendChild(row)
+  }
+}
+
+function showOwtDiagnosticTooltip(diagnostic: OwtDiagnosticRange, anchor?: { left: number; top: number }): void {
+  const tooltip = $<HTMLElement>('owt-diagnostic-tooltip')
+  tooltip.textContent = `${diagnostic.line}:${diagnostic.column} [${diagnostic.code}] ${diagnostic.message}`
+  tooltip.className = `owt-diagnostic-tooltip ${diagnostic.severity}`
+  tooltip.hidden = false
+  positionOwtDiagnosticTooltip(diagnostic, anchor)
+}
+
+function positionOwtDiagnosticTooltip(diagnostic: OwtDiagnosticRange, anchor?: { left: number; top: number }): void {
+  const tooltip = $<HTMLElement>('owt-diagnostic-tooltip')
+  const metrics = owtEditorMetrics()
+  const position = anchor ?? positionForSourceOffset(diagnostic.start)
+  const shellWidth = owtEditorShell.clientWidth
+  const shellHeight = owtEditorShell.clientHeight
+  const width = tooltip.offsetWidth
+  const height = tooltip.offsetHeight
+  const left = Math.max(4, Math.min(position.left, shellWidth - width - 4))
+  const below = position.top + metrics.lineHeight + 5
+  const above = position.top - height - 5
+  tooltip.style.left = `${left}px`
+  tooltip.style.top = `${above >= 4 || below + height > shellHeight - 4 ? above : below}px`
+}
+
+function hideOwtDiagnosticTooltip(): void {
+  const tooltip = $<HTMLElement>('owt-diagnostic-tooltip')
+  tooltip.hidden = true
+  tooltip.className = 'owt-diagnostic-tooltip'
+}
+
+function handleOwtEditorMouseMove(event: MouseEvent): void {
+  const offset = sourceOffsetForClientPoint(event.clientX, event.clientY)
+  const diagnostic = owtSyntaxIndex.diagnostics.find((item) => item.start <= offset && item.end > offset)
+  if (diagnostic) showOwtDiagnosticTooltip(diagnostic)
+  else hideOwtDiagnosticTooltip()
+}
+
+function owtFileName(document: OwtDocument, extension: 'owt' | 'mid' | 'wav'): string {
   const title = document.title?.trim() || 'opusweave-melody'
   const safe = title.replace(/[^\p{L}\p{N}._-]+/gu, '-').replace(/^-+|-+$/g, '') || 'opusweave-melody'
   return `${safe}.${extension}`
@@ -1966,6 +2116,7 @@ const GLOBAL_CTRL_SHORTCUTS: Readonly<Record<string, () => void>> = {
   N: () => $('btn-owt-new-score').click(),
   S: () => $('btn-owt-save').click(),
   E: () => $('btn-owt-export-midi').click(),
+  'Shift+E': () => $('btn-owt-export-wav').click(),
   '/': () => $('btn-owt-reference').click(),
   '1': () => document.querySelector<HTMLButtonElement>('[data-score-view-target="owt"]')?.click(),
   '2': () => document.querySelector<HTMLButtonElement>('[data-score-view-target="timeline"]')?.click(),
@@ -2049,6 +2200,38 @@ $('btn-owt-export-midi').addEventListener('click', () => {
   }
 })
 
+$('btn-owt-export-wav').addEventListener('click', async () => {
+  const document = parseEditorOwt()
+  if (!document) return
+  const button = $<HTMLButtonElement>('btn-owt-export-wav')
+  button.disabled = true
+  try {
+    const midi = compileScoreText($<HTMLTextAreaElement>('owt-editor').value).midi
+    const [piano, gm] = await Promise.all([
+      fetch(freePianoSoundFontUrl).then(async (response) => {
+        if (!response.ok) throw new Error(`mda Piano: HTTP ${response.status}`)
+        return response.arrayBuffer()
+      }),
+      fetch(builtInGmSoundFontUrl).then(async (response) => {
+        if (!response.ok) throw new Error(`FluidR3Mono GM: HTTP ${response.status}`)
+        return response.arrayBuffer()
+      }),
+    ])
+    const blob = await renderMidiToWavBlob({
+      midi,
+      soundFonts: [piano, gm],
+      workletUrl: new URL('./spessasynth_processor.min.js', globalThis.document.baseURI).href,
+    })
+    const fileName = owtFileName(document, 'wav')
+    downloadBlob(blob, fileName)
+    setTranslatedStatus('owt-status', 'owt.exported', { file: fileName }, 'ok')
+  } catch (err) {
+    setTranslatedStatus('owt-status', 'owt.error', { error: err instanceof Error ? err.message : String(err) }, 'err')
+  } finally {
+    button.disabled = false
+  }
+})
+
 $('btn-owt-save').addEventListener('click', () => {
   const document = parseEditorOwt()
   if (!document) return
@@ -2067,7 +2250,9 @@ $('btn-owt-new-score').addEventListener('click', () => {
 const fileMenu = document.querySelector<HTMLDetailsElement>('.file-menu')!
 for (const action of fileMenu.querySelectorAll('button')) action.addEventListener('click', () => { fileMenu.open = false })
 fileMenu.addEventListener('toggle', () => {
-  if (!fileMenu.open) fileMenu.querySelector<HTMLDetailsElement>('.file-submenu')!.open = false
+  if (!fileMenu.open) {
+    for (const submenu of fileMenu.querySelectorAll<HTMLDetailsElement>('.file-submenu')) submenu.open = false
+  }
 })
 
 // ─── Built-in examples, keyboard layouts and AI composition ─────────────────
@@ -2201,7 +2386,8 @@ function renderAiConfig(config: OwtAiConfig): void {
   $<HTMLInputElement>('ai-max-tokens').value = String(config.maxTokens ?? DEFAULT_OWT_AI_CONFIG.maxTokens)
   $<HTMLInputElement>('ai-thinking-budget').value = String(config.thinkingBudgetTokens ?? DEFAULT_OWT_AI_CONFIG.thinkingBudgetTokens)
   $<HTMLInputElement>('ai-retry-count').value = String(config.retryCount ?? DEFAULT_OWT_AI_CONFIG.retryCount)
-  $<HTMLInputElement>('ai-auto-repair').checked = config.autoRepair !== false
+  $<HTMLInputElement>('ai-auto-repair-on').checked = config.autoRepair !== false
+  $<HTMLInputElement>('ai-auto-repair-off').checked = config.autoRepair === false
   const templates = { ...defaultOwtAiPromptTemplates(config.locale ?? getLocale()), ...config.promptTemplates }
   $<HTMLTextAreaElement>('ai-template-system').value = templates.system
   $<HTMLTextAreaElement>('ai-template-prompt').value = templates.prompt
@@ -2209,6 +2395,7 @@ function renderAiConfig(config: OwtAiConfig): void {
   $<HTMLTextAreaElement>('ai-template-improvise').value = templates.improvise
   $<HTMLTextAreaElement>('ai-template-full-plan').value = templates.fullCompositionPlan
   $<HTMLTextAreaElement>('ai-template-full-section').value = templates.fullCompositionSection
+  applyModelMetadataFromCurrent()
 }
 
 function optionalAiNumber(id: string, minimum: number, maximum: number): number | undefined {
@@ -2241,10 +2428,10 @@ function currentAiConfig(): OwtAiConfig {
     reasoningEffort: reasoningEffort ? reasoningEffort as NonNullable<OwtAiConfig['reasoningEffort']> : undefined,
     temperature: optionalAiNumber('ai-temperature', 0, 2),
     topP: optionalAiNumber('ai-top-p', 0, 1),
-    maxTokens: Math.trunc(optionalAiNumber('ai-max-tokens', 1, 1_000_000) ?? 4096),
+    maxTokens: Math.trunc(optionalAiNumber('ai-max-tokens', 1, Number($<HTMLInputElement>('ai-max-tokens').max) || 1_000_000) ?? 4096),
     thinkingBudgetTokens: Math.trunc(optionalAiNumber('ai-thinking-budget', 1024, 1_000_000) ?? 2048),
     retryCount: Math.max(0, Math.min(10, Math.trunc($<HTMLInputElement>('ai-retry-count').valueAsNumber || 0))),
-    autoRepair: $<HTMLInputElement>('ai-auto-repair').checked,
+    autoRepair: $<HTMLInputElement>('ai-auto-repair-on').checked,
     promptTemplates: currentAiPromptTemplates(),
   }
 }
@@ -2298,6 +2485,7 @@ async function refreshAiModels(): Promise<void> {
     if (!config.model || !discovery.models.some((item) => item.id === config.model)) model.value = discovery.models[0]?.id ?? ''
     if ((config.protocol ?? 'auto') === 'auto') $<HTMLSelectElement>('ai-protocol').value = discovery.protocol
     persistAiConfig()
+    applyModelMetadataFromCurrent()
     setTranslatedStatus('ai-status', 'ai.modelsLoaded', { count: discovery.models.length, provider: discovery.provider }, 'ok')
   } catch (error) {
     setTranslatedStatus('ai-status', 'ai.modelsError', { error: error instanceof Error ? error.message : String(error) }, 'err')
@@ -2311,6 +2499,246 @@ async function refreshAiModels(): Promise<void> {
 function scheduleAiModelDiscovery(): void {
   window.clearTimeout(aiDiscoveryTimer)
   aiDiscoveryTimer = window.setTimeout(() => void refreshAiModels(), 500)
+}
+
+// ─── Built-in model directory (models.dev snapshot) ─────────────────────────
+
+function directoryProviderChoice(providerId: string): AiProviderChoice {
+  switch (providerId) {
+    case 'openai': return 'openai'
+    case 'anthropic': return 'anthropic'
+    case 'deepseek': return 'deepseek'
+    case 'openrouter': return 'openrouter'
+    default: return 'custom'
+  }
+}
+
+function normalizeDirectoryUrl(url: string): string {
+  return url.trim().toLowerCase().replace(/\/+$/, '')
+}
+
+function findDirectoryModel(config?: OwtAiConfig): { provider: ModelDirectoryProvider; model: ModelDirectoryModel } | undefined {
+  const current = config ?? currentAiConfig()
+  if (!current.baseUrl || !current.model) return undefined
+  const base = normalizeDirectoryUrl(current.baseUrl)
+  const provider = modelDirectory.find((entry) => normalizeDirectoryUrl(entry.api) === base)
+  if (!provider) return undefined
+  const model = provider.models.find((entry) => entry.id === current.model)
+  return model ? { provider, model } : undefined
+}
+
+function applyModelMetadata(meta?: ModelDirectoryModel, provider?: ModelDirectoryProvider): void {
+  const effort = $<HTMLSelectElement>('ai-reasoning-effort')
+  const thinking = $<HTMLSelectElement>('ai-thinking-mode')
+  const tempInput = $<HTMLInputElement>('ai-temperature')
+  const tempLabel = tempInput.closest('label')
+  const maxInput = $<HTMLInputElement>('ai-max-tokens')
+
+  // Reset to defaults before applying model-specific constraints.
+  effort.disabled = false
+  thinking.disabled = false
+  if (tempLabel) {
+    tempLabel.hidden = false
+    tempInput.disabled = false
+  }
+  maxInput.max = '1000000'
+
+  if (meta) {
+    if (meta.reasoning === false) {
+      effort.value = ''
+      thinking.value = ''
+      effort.disabled = true
+      thinking.disabled = true
+    } else {
+      const allEfforts = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
+      let efforts = allEfforts
+      if (meta.reasoningOptions && meta.reasoningOptions.length > 0) {
+        if (meta.reasoningOptions.includes('toggle')) {
+          efforts = []
+        } else {
+          const allowed = meta.reasoningOptions.filter((value) => allEfforts.includes(value))
+          if (allowed.length > 0) efforts = allowed
+        }
+      }
+      const previous = effort.value
+      effort.replaceChildren()
+      const placeholder = document.createElement('option')
+      placeholder.value = ''
+      placeholder.textContent = t('ai.providerDefault')
+      effort.appendChild(placeholder)
+      for (const value of efforts) {
+        const option = document.createElement('option')
+        option.value = value
+        option.textContent = value
+        effort.appendChild(option)
+      }
+      effort.value = [...effort.options].some((option) => option.value === previous) ? previous : ''
+      effort.disabled = efforts.length === 0
+    }
+
+    if (meta.temperature === false && tempLabel) {
+      tempLabel.hidden = true
+      tempInput.disabled = true
+      tempInput.value = ''
+    }
+
+    if (meta.output && meta.output > 0) {
+      const max = Math.min(meta.output, 1_000_000)
+      maxInput.max = String(max)
+      const current = Number(maxInput.value)
+      if (Number.isFinite(current) && current > max) maxInput.value = String(max)
+    }
+  }
+
+  const metaEl = $<HTMLDivElement>('ai-model-meta')
+  if (!meta || !provider) {
+    metaEl.hidden = true
+    metaEl.textContent = ''
+    return
+  }
+  metaEl.hidden = false
+  metaEl.textContent = ''
+  const line1 = document.createElement('div')
+  line1.append(`${provider.name} · ${meta.name} (${meta.id})`)
+  metaEl.appendChild(line1)
+  const details: string[] = []
+  if (meta.context) details.push(`ctx ${meta.context.toLocaleString()}`)
+  if (meta.output) details.push(`out ${meta.output.toLocaleString()}`)
+  if (meta.cost?.input != null || meta.cost?.output != null) {
+    const input = meta.cost.input != null ? `$${meta.cost.input}/M in` : ''
+    const output = meta.cost.output != null ? `$${meta.cost.output}/M out` : ''
+    details.push([input, output].filter(Boolean).join(' · '))
+  }
+  const line2 = document.createElement('div')
+  line2.textContent = details.join(' · ')
+  metaEl.appendChild(line2)
+  const tags: string[] = []
+  if (meta.attachment) tags.push('image/PDF')
+  if (meta.reasoning) tags.push('reasoning')
+  if (meta.toolCall) tags.push('tools')
+  if (meta.structuredOutput) tags.push('structured output')
+  if (tags.length > 0) {
+    const line3 = document.createElement('div')
+    for (const tag of tags) {
+      const span = document.createElement('span')
+      span.className = 'tag'
+      span.textContent = tag
+      line3.appendChild(span)
+    }
+    metaEl.appendChild(line3)
+  }
+}
+
+function applyModelMetadataFromCurrent(): void {
+  const directory = findDirectoryModel()
+  applyModelMetadata(directory?.model, directory?.provider)
+}
+
+function fillDirectoryProviders(): void {
+  const select = $<HTMLSelectElement>('ai-directory-provider')
+  select.replaceChildren()
+  const all = document.createElement('option')
+  all.value = ''
+  all.textContent = t('ai.directoryAllProviders')
+  select.appendChild(all)
+  for (const provider of modelDirectory) {
+    const option = document.createElement('option')
+    option.value = provider.id
+    option.textContent = provider.name
+    select.appendChild(option)
+  }
+}
+
+function renderDirectoryModels(): void {
+  const search = $<HTMLInputElement>('ai-directory-search').value.trim().toLowerCase()
+  const providerId = $<HTMLSelectElement>('ai-directory-provider').value
+  const select = $<HTMLSelectElement>('ai-directory-model')
+  const detail = $<HTMLDivElement>('ai-directory-detail')
+  select.replaceChildren()
+  detail.hidden = true
+  detail.textContent = ''
+  let count = 0
+  for (const provider of modelDirectory) {
+    if (providerId && provider.id !== providerId) continue
+    for (const model of provider.models) {
+      if (search && !model.id.toLowerCase().includes(search) && !model.name.toLowerCase().includes(search)) continue
+      const option = document.createElement('option')
+      option.textContent = `${provider.name} — ${model.name} (${model.id})`
+      option.dataset.provider = provider.id
+      option.dataset.model = model.id
+      select.appendChild(option)
+      if (++count >= 500) break
+    }
+    if (count >= 300) break
+  }
+}
+
+function renderDirectoryDetail(): void {
+  const option = $<HTMLSelectElement>('ai-directory-model').selectedOptions[0]
+  const providerId = option?.dataset.provider
+  const modelId = option?.dataset.model
+  const detail = $<HTMLDivElement>('ai-directory-detail')
+  if (!providerId || !modelId) {
+    detail.hidden = true
+    detail.textContent = ''
+    return
+  }
+  const provider = modelDirectory.find((entry) => entry.id === providerId)
+  const model = provider?.models.find((entry) => entry.id === modelId)
+  if (!provider || !model) {
+    detail.hidden = true
+    detail.textContent = ''
+    return
+  }
+  detail.hidden = false
+  detail.textContent = ''
+  const parts: string[] = [`${provider.name} · ${model.name}`]
+  if (model.context) parts.push(`Context: ${model.context.toLocaleString()}`)
+  if (model.output) parts.push(`Max output: ${model.output.toLocaleString()}`)
+  if (model.cost?.input != null) parts.push(`Input $${model.cost.input}/M`)
+  if (model.cost?.output != null) parts.push(`Output $${model.cost.output}/M`)
+  if (model.modalities && model.modalities.length > 0) parts.push(`Input: ${model.modalities.join(', ')}`)
+  detail.textContent = parts.join(' · ')
+}
+
+function applyDirectorySelection(): void {
+  const option = $<HTMLSelectElement>('ai-directory-model').selectedOptions[0]
+  const providerId = option?.dataset.provider
+  const modelId = option?.dataset.model
+  if (!providerId || !modelId) return
+  const provider = modelDirectory.find((entry) => entry.id === providerId)
+  const model = provider?.models.find((entry) => entry.id === modelId)
+  if (!provider || !model) return
+  const choice = directoryProviderChoice(provider.id)
+  $<HTMLSelectElement>('ai-provider').value = choice
+  renderAiProviderUi(choice)
+  $<HTMLInputElement>('ai-endpoint').value = provider.api
+  $<HTMLSelectElement>('ai-protocol').value = provider.protocol
+  $<HTMLInputElement>('ai-model').value = model.id
+  persistAiConfig()
+  applyModelMetadata(model, provider)
+  updateConversationalImprovUi()
+  $<HTMLDialogElement>('ai-model-directory-dialog').close()
+}
+
+function updateAiMediaModelWarning(): void {
+  const warning = $<HTMLElement>('ai-media-model-warning')
+  const directory = findDirectoryModel()
+  const meta = directory?.model
+  if (!meta) {
+    warning.hidden = true
+    warning.textContent = ''
+    return
+  }
+  const supportsMedia = meta.attachment !== false
+    && (!meta.modalities || meta.modalities.some((modality) => modality === 'image' || modality === 'pdf'))
+  if (supportsMedia) {
+    warning.hidden = true
+    warning.textContent = ''
+  } else {
+    warning.textContent = t('ai.mediaModelNoImage', { model: meta.name })
+    warning.hidden = false
+  }
 }
 
 type AiComposeState = 'idle' | 'working' | 'success' | 'error'
@@ -2550,7 +2978,7 @@ function updateConversationalImprovUi(): void {
   } as const
   const active = improvSession.active
   const configured = hasConfiguredAiApi(currentAiConfig())
-  const unavailable = !active && !configured
+  const unavailable = false
   const actionKey = active ? 'ai.improviseStop' : 'ai.improviseStart'
   workspaceStore.update({ improv: improvSession.state === 'off' ? { kind: 'off' } : { kind: improvSession.state } })
   const accessibleCopy = unavailable ? t('ai.improviseNeedsModel') : t(actionKey)
@@ -2577,6 +3005,7 @@ function stopConversationalImprov(showStatus = true): void {
   improvRequestSequence++
   improvResponseStreaming = false
   clearAiReasoningStream()
+  liveOwtTranscriber.stop(performance.now())
   improvScoreText = ''
   if (improvSession.state === 'responding') {
     engine?.stop()
@@ -2589,11 +3018,6 @@ function stopConversationalImprov(showStatus = true): void {
 }
 
 function startConversationalImprov(): void {
-  if (!hasConfiguredAiApi(currentAiConfig())) {
-    updateConversationalImprovUi()
-    setTranslatedStatus('ai-status', 'ai.improviseNeedsModel', {}, 'warn')
-    return
-  }
   persistAiConfig()
   improvScoreText = emptyImprovScoreText()
   improvResponseStreaming = false
@@ -2602,6 +3026,7 @@ function startConversationalImprov(): void {
   clearOwtPlaybackContext()
   setOwtEditorText(improvScoreText, true)
   renderOwtDiagnostics([])
+  liveOwtTranscriber.start(performance.now())
   improvSession.start()
   workspaceStore.update({ activity: { kind: 'improv' } })
   updateConversationalImprovUi()
@@ -2637,7 +3062,7 @@ function improvPhraseDocument(take: RecordedTake): OwtDocument | null {
     voiceStrategy: 'continuous',
   }).text
   const repaired = repairCommonOwtErrors(extraction, { splitCrossBoundaryEvents: true })
-  return parseOwt(repaired.valid ? repaired.text : extraction).document ?? null
+  return parseOwtLoose(repaired.valid ? repaired.text : extraction)
 }
 
 function scheduleConversationalImprovTurn(): void {
@@ -2652,7 +3077,7 @@ function scheduleConversationalImprovLive(timestampMs: number): void {
     improvLiveFrame = undefined
     const take = improvSession.preview(improvLivePreviewAt)
     if (!take) return
-    const base = parseOwt(improvScoreText).document
+    const base = parseOwtLoose(improvScoreText)
     const phrase = improvPhraseDocument(take)
     if (!base || !phrase) return
     const scrollTop = owtEditor.scrollTop
@@ -2663,9 +3088,26 @@ function scheduleConversationalImprovLive(timestampMs: number): void {
   })
 }
 
+function flushLiveOwtPreview(): void {
+  if (!improvSession.active) return
+  const document = parseOwtLoose(improvScoreText)
+  if (!document || document.tracks.length === 0) return
+  const human = document.tracks[0]!
+  human.events = liveOwtTranscriber.snapshot()
+  const text = serializeOwt(document)
+  improvScoreText = text
+  const scrollTop = owtEditor.scrollTop
+  const scrollLeft = owtEditor.scrollLeft
+  modalEditor.setText(text, false)
+  owtEditor.scrollTop = scrollTop
+  owtEditor.scrollLeft = scrollLeft
+}
+
 function handleConversationalImprovInput(data: Uint8Array, timestampMs: number): void {
   const result = improvSession.push(data, timestampMs)
   if (!result.accepted) return
+  liveOwtTranscriber.push(data, timestampMs)
+  flushLiveOwtPreview()
   if (result.interruptedAi) {
     improvAbortController?.abort()
     improvAbortController = undefined
@@ -2684,9 +3126,15 @@ function handleConversationalImprovInput(data: Uint8Array, timestampMs: number):
 function finishConversationalImprovPhrase(): void {
   const phrase = improvSession.poll(performance.now())
   if (!phrase) return
-  updateConversationalImprovUi()
-  setTranslatedStatus('ai-status', 'ai.improvThinking', {}, 'warn')
-  void requestConversationalImprovResponse(phrase)
+  if (hasConfiguredAiApi(currentAiConfig())) {
+    updateConversationalImprovUi()
+    setTranslatedStatus('ai-status', 'ai.improvThinking', {}, 'warn')
+    void requestConversationalImprovResponse()
+  } else {
+    improvSession.markListening()
+    updateConversationalImprovUi()
+    setTranslatedStatus('ai-status', 'ai.improvListening', {}, 'ok')
+  }
 }
 
 function sameTrackContent(left: OwtScoreTrack, right: OwtScoreTrack): boolean {
@@ -2694,24 +3142,18 @@ function sameTrackContent(left: OwtScoreTrack, right: OwtScoreTrack): boolean {
   return signature(left) === signature(right)
 }
 
-async function requestConversationalImprovResponse(phrase: RecordedTake): Promise<void> {
+async function requestConversationalImprovResponse(): Promise<void> {
   const requestSequence = ++improvRequestSequence
   const controller = new AbortController()
   improvAbortController = controller
   improvResponseStreaming = true
   const reasoningStream = beginAiReasoningStream()
   try {
-    const phraseDocument = improvPhraseDocument(phrase)
-    if (!phraseDocument || phraseDocument.tracks.length !== 1) throw new Error('Recorded phrase could not be converted to a single-track OWT')
-    const previousDocument = parseOwt(improvScoreText).document
+    const previousDocument = parseOwtLoose(improvScoreText)
     if (!previousDocument || previousDocument.tracks.length < 2) throw new Error('Improvisation score must contain a human track and an AI track')
-    const turnDocument = appendOwtUserTrack(previousDocument, phraseDocument)
-    const turnHumanTrack = turnDocument.tracks[0]!
-    const existingAiTrack = turnDocument.tracks[1]!
-    const turnOwt = serializeOwt(turnDocument)
-    improvScoreText = turnOwt
-    setOwtEditorText(turnOwt, true)
-    renderOwtDiagnostics([])
+    const turnHumanTrack = previousDocument.tracks[0]!
+    const existingAiTrack = previousDocument.tracks[1]!
+    const turnOwt = improvScoreText
     const text = await createOwtWithAi(currentAiConfig(), {
       task: 'improvise',
       instruction: '',
@@ -2725,7 +3167,7 @@ async function requestConversationalImprovResponse(phrase: RecordedTake): Promis
     })
     if (requestSequence !== improvRequestSequence || (improvSession.state !== 'thinking' && improvSession.state !== 'responding')) return
 
-    const responseDocument = parseOwt(text, { lenientBars: true }).document
+    const responseDocument = parseOwtLoose(text, { lenientBars: true })
     if (!responseDocument) {
       setOwtEditorText(text, true)
       validateEditorOwt()
@@ -2746,7 +3188,7 @@ async function requestConversationalImprovResponse(phrase: RecordedTake): Promis
     if (!aiResponseTrack.events.some((event) => event.kind === 'note')) throw new Error('AI improvisation must write notes to the second track')
 
     let merged = serializeOwt(responseDocument)
-    if (!parseOwt(merged).document) {
+    if (!parseOwtLoose(merged)) {
       const repairedMerged = repairCommonOwtErrors(merged, { splitCrossBoundaryEvents: true })
       if (!repairedMerged.valid) throw new Error('AI OWT validation failed')
       merged = repairedMerged.text
@@ -2754,7 +3196,7 @@ async function requestConversationalImprovResponse(phrase: RecordedTake): Promis
     improvScoreText = merged
     setOwtEditorText(merged, true)
     renderOwtDiagnostics([])
-    if (!validateEditorOwt()) throw new Error('AI OWT validation failed')
+    validateEditorOwt()
     improvSession.markResponding()
     updateConversationalImprovUi()
     setTranslatedStatus('ai-status', 'ai.improvResponding', {}, 'ok')
@@ -2783,15 +3225,18 @@ renderAiConfig(initialAiConfig)
 updateAiSettingsState()
 updateConversationalImprovUi()
 renderAiComposeButton()
-for (const id of ['ai-model', 'ai-protocol', 'ai-thinking-mode', 'ai-reasoning-effort', 'ai-retry-count', 'ai-auto-repair']) {
-  $(id).addEventListener('change', () => { persistAiConfig(); updateConversationalImprovUi() })
+for (const id of ['ai-model', 'ai-protocol', 'ai-thinking-mode', 'ai-reasoning-effort', 'ai-retry-count']) {
+  $(id).addEventListener('change', () => { persistAiConfig(); updateConversationalImprovUi(); applyModelMetadataFromCurrent() })
 }
-$('ai-model').addEventListener('input', () => { persistAiConfig(); updateConversationalImprovUi() })
+for (const id of ['ai-auto-repair-on', 'ai-auto-repair-off']) {
+  $(id).addEventListener('change', () => { persistAiConfig(); updateConversationalImprovUi(); applyModelMetadataFromCurrent() })
+}
+$('ai-model').addEventListener('input', () => { persistAiConfig(); updateConversationalImprovUi(); applyModelMetadataFromCurrent() })
 for (const id of ['ai-temperature', 'ai-top-p', 'ai-max-tokens', 'ai-thinking-budget']) {
   $(id).addEventListener('input', persistAiConfig)
 }
 for (const id of ['ai-endpoint', 'ai-api-key']) {
-  $(id).addEventListener('input', () => { persistAiConfig(); updateConversationalImprovUi(); scheduleAiModelDiscovery() })
+  $(id).addEventListener('input', () => { persistAiConfig(); updateConversationalImprovUi(); scheduleAiModelDiscovery(); applyModelMetadataFromCurrent() })
 }
 for (const id of ['ai-template-system', 'ai-template-prompt', 'ai-template-media', 'ai-template-improvise', 'ai-template-full-plan', 'ai-template-full-section']) {
   $(id).addEventListener('input', persistAiConfig)
@@ -2808,6 +3253,7 @@ $<HTMLSelectElement>('ai-provider').addEventListener('change', (event) => {
   persistAiConfig()
   updateConversationalImprovUi()
   scheduleAiModelDiscovery()
+  applyModelMetadataFromCurrent()
 })
 
 $('btn-ai-key-visibility').addEventListener('click', () => {
@@ -2926,6 +3372,22 @@ $('btn-ai-test-templates').addEventListener('click', () => {
   })
 })
 $('btn-ai-prompt-test-close').addEventListener('click', () => aiPromptTestDialog.close())
+const aiModelDirectoryDialog = $<HTMLDialogElement>('ai-model-directory-dialog')
+$('btn-ai-model-directory').addEventListener('click', () => {
+  fillDirectoryProviders()
+  $<HTMLInputElement>('ai-directory-search').value = ''
+  $<HTMLSelectElement>('ai-directory-provider').value = ''
+  renderDirectoryModels()
+  aiModelDirectoryDialog.showModal()
+})
+$('btn-ai-directory-cancel').addEventListener('click', () => aiModelDirectoryDialog.close())
+$('btn-ai-directory-apply').addEventListener('click', applyDirectorySelection)
+$('ai-directory-search').addEventListener('input', renderDirectoryModels)
+$('ai-directory-provider').addEventListener('change', renderDirectoryModels)
+$('ai-directory-model').addEventListener('change', renderDirectoryDetail)
+aiModelDirectoryDialog.addEventListener('click', (event) => {
+  if (event.target === aiModelDirectoryDialog) aiModelDirectoryDialog.close()
+})
 $('btn-ai-refresh-models').addEventListener('click', () => void refreshAiModels())
 $('btn-ai-test').addEventListener('click', () => {
   const config = currentAiConfig()
@@ -3336,6 +3798,7 @@ function requestAiMediaImport(file: File): void {
   aiMediaFramesField.hidden = !isMp4File(file)
   aiMediaPrompt.value = t('ai.mediaPromptDefault')
   aiMediaPrompt.setCustomValidity('')
+  updateAiMediaModelWarning()
   if (!aiMediaImportDialog.open) aiMediaImportDialog.showModal()
   requestAnimationFrame(() => aiMediaPrompt.focus())
 }
@@ -3543,6 +4006,8 @@ function renderComputerKeyMap(): void {
     }
     root.appendChild(section)
   }
+  keyboard.setComputerKeyLabels(buildComputerKeyLabels())
+  keyboard.setMappedNotes(new Set(mapping.listComputerKeyAssignments().map((assignment) => assignment.note)))
   scheduleKeyboardLinks()
 }
 
@@ -3579,11 +4044,20 @@ function updateKeyboardLinks(): void {
   }
 }
 
+function buildComputerKeyLabels(): Map<number, string[]> {
+  const labels = new Map<number, string[]>()
+  for (const assignment of mapping.listComputerKeyAssignments()) {
+    const list = labels.get(assignment.note) ?? []
+    list.push(computerKeyLabel(assignment.key))
+    labels.set(assignment.note, list)
+  }
+  return labels
+}
+
 function syncPianoToComputerMap(behavior: ScrollBehavior): void {
   const assignments = mapping.listComputerKeyAssignments()
   const minNote = assignments[0]!.note
   const maxNote = assignments[assignments.length - 1]!.note
-  keyboard.setMappedRange(minNote, maxNote)
   requestAnimationFrame(() => {
     keyboard.scrollToRange(minNote, maxNote, behavior)
     scheduleKeyboardLinks()
@@ -3635,8 +4109,9 @@ function changeKeyboardVelocity(delta: number): void {
   setKeyboardVelocity(mapping.fixedVelocity + delta)
 }
 
-function startComputerPointerNote(key: string): (() => void) | undefined {
-  const messages = mapping.keyDownMessages(key)
+function startComputerPointerNote(key: string, event?: PointerEvent): (() => void) | undefined {
+  const velocity = event && isPressureSensitive(event) ? pressureToVelocity(event.pressure) : undefined
+  const messages = mapping.keyDownMessages(key, velocity)
   if (messages.length === 0) return undefined
   renderComputerKeyMap()
   if (messages.length > 1) {
@@ -3736,11 +4211,11 @@ window.addEventListener('resize', scheduleKeyboardLinks)
 
 enableHorizontalPointerScroll($<HTMLDivElement>('computer-key-map'), {
   targetSelector: '.computer-keycap',
-  onHoldStart: (target) => startComputerPointerNote(target.dataset.key ?? ''),
-  onTap: (target) => {
+  onHoldStart: (target, event) => startComputerPointerNote(target.dataset.key ?? '', event),
+  onTap: (target, _event, startEvent) => {
     const key = target.dataset.key ?? ''
     if (activateComputerMapControl(key)) return
-    const release = startComputerPointerNote(key)
+    const release = startComputerPointerNote(key, startEvent)
     if (release) window.setTimeout(release, 160)
   },
 })

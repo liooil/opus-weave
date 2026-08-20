@@ -294,6 +294,16 @@ export const DEFAULT_OWT_AI_CONFIG: OwtAiConfig = {
   autoRepair: false,
 }
 
+/**
+ * Number of times an invalid AI OWT response is sent back to the model.
+ * `autoRepair: false` disables this retry/repair loop entirely; when enabled,
+ * the retry count controls how many regeneration attempts are allowed.
+ */
+export function aiRepairRetryCount(config: Pick<OwtAiConfig, 'autoRepair' | 'retryCount'>): number {
+  if (config.autoRepair === false) return 0
+  return Math.max(0, Math.min(10, Math.trunc(config.retryCount ?? 0)))
+}
+
 export function hasConfiguredAiApi(config: Pick<OwtAiConfig, 'baseUrl' | 'model'>): boolean {
   return config.baseUrl.trim().length > 0 && config.model.trim().length > 0
 }
@@ -457,7 +467,7 @@ export async function createOwtWithAi(config: OwtAiConfig, request: OwtAiRequest
   }
   if (!body.model) throw new Error('AI model is required')
   let content = await postChat(config, body, options)
-  const retryCount = config.autoRepair === false ? 0 : Math.max(0, Math.min(10, Math.trunc(config.retryCount ?? 0)))
+  const retryCount = aiRepairRetryCount(config)
   for (let attempt = 0; attempt <= retryCount; attempt++) {
     const text = extractOwtFromAiResponse(content)
     if (retryCount === 0) return text

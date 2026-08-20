@@ -253,9 +253,9 @@ editor.
 AI requests are sent directly from the browser to the configured provider
 endpoint. Generation is one-shot by default and is considered complete as soon
 as the model returns content; OWT syntax conformance is reported by the editor
-diagnostics, not treated as a generation failure. The optional **Automatically
-repair invalid AI OWT** setting can be enabled to return parser diagnostics to
-the model for a bounded number of repair attempts.
+diagnostics, not treated as a generation failure. The optional **Ask the
+model to repair invalid AI OWT** setting can be enabled to return parser
+diagnostics to the model for a bounded number of retries.
 
 ## Lossy MIDI import
 

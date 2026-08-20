@@ -1,3 +1,4 @@
+import type { OwtDiagnostic } from '../../domain/owt/ast.ts'
 import { owtLexicalRanges } from '../components/owt-highlighter.ts'
 
 export type OwtObjectKind = 'document' | 'track' | 'measure' | 'event' | 'note' | 'rest' | 'pitch' | 'duration' | 'directive' | 'diagnostic'
@@ -7,6 +8,14 @@ export interface OwtTextObject {
   start: number
   end: number
   value?: string
+}
+
+export interface OwtDiagnosticRange extends OwtTextObject {
+  severity: 'error' | 'warning'
+  code: string
+  message: string
+  line: number
+  column: number
 }
 
 export type OwtSelectionLevel = 'event' | 'measure' | 'track'
@@ -28,7 +37,7 @@ export interface OwtSyntaxIndex {
   pitches: OwtTextObject[]
   durations: OwtTextObject[]
   directives: OwtTextObject[]
-  diagnostics: OwtTextObject[]
+  diagnostics: OwtDiagnosticRange[]
 }
 
 function lines(text: string): Array<{ start: number; end: number; text: string }> {
@@ -41,7 +50,7 @@ function lines(text: string): Array<{ start: number; end: number; text: string }
   return output
 }
 
-export function buildOwtSyntaxIndex(text: string, diagnostics: Array<{ line: number; column: number }> = []): OwtSyntaxIndex {
+export function buildOwtSyntaxIndex(text: string, diagnostics: readonly OwtDiagnostic[] = []): OwtSyntaxIndex {
   const lexical = owtLexicalRanges(text)
   const sourceLines = lines(text)
   const notes: OwtTextObject[] = []
@@ -98,13 +107,22 @@ export function buildOwtSyntaxIndex(text: string, diagnostics: Array<{ line: num
     }
   }
 
-  const diagnosticObjects = diagnostics.flatMap((diagnostic) => {
+  const diagnosticObjects: OwtDiagnosticRange[] = diagnostics.flatMap((diagnostic) => {
     const line = sourceLines[diagnostic.line - 1]
     if (!line) return []
     const start = Math.min(line.end, line.start + Math.max(0, diagnostic.column - 1))
     let end = start
     while (end < line.end && !/\s|\|/.test(text[end]!)) end++
-    return [{ kind: 'diagnostic' as const, start, end: Math.max(start + 1, end) }]
+    return [{
+      kind: 'diagnostic' as const,
+      start,
+      end: Math.max(start + 1, end),
+      severity: diagnostic.severity,
+      code: diagnostic.code,
+      message: diagnostic.message,
+      line: diagnostic.line,
+      column: diagnostic.column,
+    }]
   })
 
   return {

@@ -1,6 +1,6 @@
 import { aiRequestEndpoint, aiRequestHeaders, readAiTextResponse, resolvedAiProtocol, sendAiProviderRequest } from '../../domain/ai/providers.ts'
 import { FullCompositionWorkflow, type FullCompositionStage, type FullCompositionStreamUpdate } from '../../domain/ai/full-composition.ts'
-import { applyOwtAiReasoningParameters, buildOwtAiMessages, type OwtAiConfig, type OwtAiTransportOptions } from '../../domain/ai/owt-ai.ts'
+import { aiRepairRetryCount, applyOwtAiReasoningParameters, buildOwtAiMessages, type OwtAiConfig, type OwtAiTransportOptions } from '../../domain/ai/owt-ai.ts'
 
 
 export function createFullCompositionWorkflow(
@@ -29,5 +29,5 @@ export function createFullCompositionWorkflow(
       return readAiTextResponse(response, protocol, onUpdate, onReasoningUpdate)
     }
     return read(body)
-  }, onStage, onStream, config.autoRepair === false ? 0 : Math.max(0, Math.min(10, Math.trunc(config.retryCount ?? 0))), config.promptTemplates)
+  }, onStage, onStream, aiRepairRetryCount(config), config.promptTemplates)
 }

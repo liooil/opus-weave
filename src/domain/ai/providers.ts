@@ -202,6 +202,29 @@ function extractAiResponseReasoning(protocol: Exclude<AiProtocol, 'auto'>, paylo
   return typeof reasoning === 'string' ? reasoning : ''
 }
 
+function extractAiStreamStopReason(protocol: Exclude<AiProtocol, 'auto'>, payload: Record<string, unknown>): string | undefined {
+  if (protocol === 'openai-responses') {
+    const response = payload.response as { incomplete_reason?: unknown; status?: unknown } | undefined
+    if (payload.type === 'response.completed' && response && typeof response.incomplete_reason === 'string') {
+      return response.incomplete_reason
+    }
+    return undefined
+  }
+  if (protocol === 'anthropic-messages') {
+    const delta = payload.delta as { stop_reason?: unknown } | undefined
+    return typeof delta?.stop_reason === 'string' ? delta.stop_reason : undefined
+  }
+  if (protocol === 'ollama-native') {
+    return typeof payload.done_reason === 'string' ? payload.done_reason : undefined
+  }
+  const choice = (payload.choices as Array<{ finish_reason?: unknown }> | undefined)?.[0]
+  return typeof choice?.finish_reason === 'string' ? choice.finish_reason : undefined
+}
+
+function isMaxTokensStopReason(stopReason: string | undefined): boolean {
+  return stopReason === 'length' || stopReason === 'max_tokens' || stopReason === 'max_output_tokens' || stopReason === 'MAX_TOKENS'
+}
+
 export async function readAiTextResponse(
   response: Response,
   protocol: Exclude<AiProtocol, 'auto'>,
@@ -230,6 +253,7 @@ export async function readAiTextResponse(
   let text = ''
   let reasoning = ''
   let finalPayload: Record<string, unknown> | undefined
+  let stopReason: string | undefined
   let sawReasoning = false
   const consume = (line: string): void => {
     const trimmed = line.trim()
@@ -238,6 +262,8 @@ export async function readAiTextResponse(
     if (!data || data === '[DONE]') return
     let payload: Record<string, unknown>
     try { payload = JSON.parse(data) as Record<string, unknown> } catch { return }
+    const currentStopReason = extractAiStreamStopReason(protocol, payload)
+    if (currentStopReason) stopReason = currentStopReason
     const reasoningDelta = extractAiStreamReasoningDelta(protocol, payload)
     if (reasoningDelta) {
       sawReasoning = true
@@ -272,8 +298,13 @@ export async function readAiTextResponse(
     }
   }
   if (!text) {
-    if (sawReasoning) throw new Error('AI stream returned reasoning but no final message content')
-    throw new Error('AI stream returned no message content')
+    const stopHint = stopReason
+      ? isMaxTokensStopReason(stopReason)
+        ? ` (stop_reason=${stopReason}; max output tokens reached)`
+        : ` (stop_reason=${stopReason})`
+      : ''
+    if (sawReasoning) throw new Error(`AI stream returned reasoning but no final message content${stopHint}`)
+    throw new Error(`AI stream returned no message content${stopHint}`)
   }
   return text
 }

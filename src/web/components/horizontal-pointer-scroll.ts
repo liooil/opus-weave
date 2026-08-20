@@ -3,7 +3,7 @@ export interface HorizontalPointerScrollOptions {
   holdDelayMs?: number
   movementThreshold?: number
   onHoldStart?: (target: HTMLElement, event: PointerEvent) => (() => void) | void
-  onTap?: (target: HTMLElement, event: PointerEvent) => void
+  onTap?: (target: HTMLElement, event: PointerEvent, startEvent: PointerEvent) => void
 }
 
 /**
@@ -25,6 +25,7 @@ export function enableHorizontalPointerScroll(
   let releaseAction: (() => void) | undefined
   let holdTimer: number | undefined
   let startEvent: PointerEvent | null = null
+  let lastEvent: PointerEvent | null = null
 
   const cancelHoldTimer = () => {
     if (holdTimer !== undefined) window.clearTimeout(holdTimer)
@@ -43,6 +44,7 @@ export function enableHorizontalPointerScroll(
     pointerId = null
     target = null
     startEvent = null
+    lastEvent = null
     dragging = false
   }
 
@@ -55,13 +57,14 @@ export function enableHorizontalPointerScroll(
     startScrollLeft = element.scrollLeft
     dragging = false
     startEvent = event
+    lastEvent = event
     element.setPointerCapture(event.pointerId)
 
     if (target && options.onHoldStart) {
       holdTimer = window.setTimeout(() => {
         holdTimer = undefined
         if (!dragging && target && startEvent) {
-          releaseAction = options.onHoldStart?.(target, startEvent) ?? undefined
+          releaseAction = options.onHoldStart?.(target, lastEvent ?? startEvent) ?? undefined
         }
       }, holdDelayMs)
     }
@@ -69,6 +72,7 @@ export function enableHorizontalPointerScroll(
 
   const onPointerMove = (event: PointerEvent) => {
     if (event.pointerId !== pointerId) return
+    lastEvent = event
     const delta = event.clientX - startX
     if (!dragging && Math.abs(delta) >= movementThreshold) {
       dragging = true
@@ -86,7 +90,7 @@ export function enableHorizontalPointerScroll(
     cancelHoldTimer()
     if (!dragging && target) {
       if (releaseAction) releaseHeldAction()
-      else options.onTap?.(target, event)
+      else if (startEvent) options.onTap?.(target, event, startEvent)
     }
     if (element.hasPointerCapture(event.pointerId)) element.releasePointerCapture(event.pointerId)
     reset()

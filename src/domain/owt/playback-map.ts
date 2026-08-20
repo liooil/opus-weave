@@ -95,13 +95,15 @@ export function cursorOwtPlaybackTokens(tokens: readonly OwtPlaybackToken[], sec
     const track = token.playbackId.split(':', 1)[0]!
     tracks.set(track, [...(tracks.get(track) ?? []), token])
   }
-  return [...tracks.values()].flatMap((trackTokens) => {
-    const ordered = trackTokens.slice().sort((left, right) => left.startSeconds - right.startSeconds)
-    const token = ordered.find((item) => seconds >= item.startSeconds && seconds < item.endSeconds)
-      ?? ordered.find((item) => item.startSeconds >= seconds)
-      ?? ordered.at(-1)
-    return token ? [token] : []
-  })
+  return [...tracks.entries()]
+    .sort(([left], [right]) => Number(left) - Number(right))
+    .flatMap(([, trackTokens]) => {
+      const ordered = trackTokens.slice().sort((left, right) => left.startSeconds - right.startSeconds)
+      const token = ordered.find((item) => seconds >= item.startSeconds && seconds < item.endSeconds)
+        ?? ordered.find((item) => item.startSeconds >= seconds)
+        ?? ordered.at(-1)
+      return token ? [token] : []
+    })
 }
 
 export function playbackStartForSourceRanges(tokens: readonly OwtPlaybackToken[], ranges: readonly OwtSourceRange[]): number {

@@ -5,14 +5,15 @@
  */
 import { noteName } from '../../domain/devices/mapping-engine.ts'
 import { enableHorizontalPointerScroll } from './horizontal-pointer-scroll.ts'
+import { isPressureSensitive, pressureToVelocity } from '../pointer-pressure.ts'
 
 export interface VirtualKeyboardOptions {
   /** Lowest MIDI note to render. */
   minNote: number
   /** Highest MIDI note to render (inclusive). */
   maxNote: number
-  /** Called on key pointer-down with the MIDI note. */
-  onNoteOn?: (note: number) => void
+  /** Called on key pointer-down with the MIDI note and optional pressure-based velocity. */
+  onNoteOn?: (note: number, velocity?: number) => void
   /** Called on key pointer-up / leave with the MIDI note. */
   onNoteOff?: (note: number) => void
 }
@@ -26,15 +27,16 @@ export class VirtualKeyboard {
   private readonly root: HTMLElement
   private readonly keys = new Map<number, HTMLElement>()
   private readonly expected = new Set<number>()
+  private readonly computerLabels = new Map<number, string[]>()
 
   constructor(container: HTMLElement, private readonly opts: VirtualKeyboardOptions) {
     this.root = container
     this.render()
     enableHorizontalPointerScroll(this.root, {
       targetSelector: '.vk-key',
-      onHoldStart: (target) => this.startPointerNote(target),
-      onTap: (target) => {
-        const release = this.startPointerNote(target)
+      onHoldStart: (target, event) => this.startPointerNote(target, event),
+      onTap: (target, _event, startEvent) => {
+        const release = this.startPointerNote(target, startEvent)
         if (release) window.setTimeout(release, 160)
       },
     })
@@ -52,15 +54,24 @@ export class VirtualKeyboard {
       label.className = 'vk-label'
       label.textContent = noteName(note)
       el.appendChild(label)
+      const computerLabel = document.createElement('span')
+      computerLabel.className = 'vk-computer-key'
+      el.appendChild(computerLabel)
       this.root.appendChild(el)
       this.keys.set(note, el)
+      this.updateComputerKeyLabel(note, el)
     }
   }
 
-  private startPointerNote(target: HTMLElement): (() => void) | undefined {
+  private pointerVelocity(event: PointerEvent | undefined): number | undefined {
+    if (!event || !isPressureSensitive(event)) return undefined
+    return pressureToVelocity(event.pressure)
+  }
+
+  private startPointerNote(target: HTMLElement, event?: PointerEvent): (() => void) | undefined {
     const note = Number(target.dataset.note)
     if (!Number.isInteger(note)) return undefined
-    this.opts.onNoteOn?.(note)
+    this.opts.onNoteOn?.(note, this.pointerVelocity(event))
     let released = false
     return () => {
       if (released) return
@@ -85,10 +96,27 @@ export class VirtualKeyboard {
     for (const [note, el] of this.keys) el.classList.toggle('expected', this.expected.has(note))
   }
 
-  /** Mark the notes currently reachable from the computer keyboard. */
-  setMappedRange(minNote: number, maxNote: number): void {
+  /** Mark the exact notes currently reachable from the computer keyboard. */
+  setMappedNotes(notes: ReadonlySet<number>): void {
     for (const [note, el] of this.keys) {
-      el.classList.toggle('mapped', note >= minNote && note <= maxNote)
+      el.classList.toggle('mapped', notes.has(note))
+    }
+  }
+
+  /** Show computer-key labels on the mapped piano keys. */
+  setComputerKeyLabels(labels: ReadonlyMap<number, readonly string[]>): void {
+    this.computerLabels.clear()
+    for (const [note, keys] of labels) this.computerLabels.set(note, [...keys])
+    for (const [note, el] of this.keys) this.updateComputerKeyLabel(note, el)
+  }
+
+  private updateComputerKeyLabel(note: number, el: HTMLElement): void {
+    const computer = el.querySelector<HTMLElement>('.vk-computer-key')
+    const labels = this.computerLabels.get(note)
+    if (computer) {
+      computer.textContent = labels && labels.length > 0
+        ? labels.length > 3 ? `${labels.slice(0, 3).join('/')}…` : labels.join('/')
+        : ''
     }
   }
 

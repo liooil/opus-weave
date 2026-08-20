@@ -196,4 +196,24 @@ describe('AI protocol adapters', () => {
     await expect(createOwtWithAi({ baseUrl: 'https://api.deepseek.com', model: 'deepseek-v4-flash', thinkingMode: 'enabled' }, request, { fetcher, onReasoningUpdate: (text) => reasoning.push(text) })).resolves.toBe(validOwt)
     expect(reasoning).toEqual(['Thinking through the score...'])
   })
+
+  test('reports when a reasoning-only stream hits the max output token limit', async () => {
+    const encoder = new TextEncoder()
+    const streamResponse = (events: string[]): Response => new Response(new ReadableStream({
+      start(controller) {
+        for (const event of events) controller.enqueue(encoder.encode(`data: ${event}\n\n`))
+        controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+        controller.close()
+      },
+    }), { headers: { 'content-type': 'text/event-stream' } })
+    const fetcher = (async (_input: URL | RequestInfo, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+      expect(body).toHaveProperty('stream', true)
+      return streamResponse([
+        JSON.stringify({ choices: [{ delta: { reasoning_content: 'Thinking through the score...' } }] }),
+        JSON.stringify({ choices: [{ delta: {}, finish_reason: 'length' }] }),
+      ])
+    }) as typeof fetch
+    await expect(createOwtWithAi({ baseUrl: 'https://api.deepseek.com', model: 'deepseek-v4-flash', thinkingMode: 'enabled' }, request, { fetcher })).rejects.toThrow('max output tokens reached')
+  })
 })

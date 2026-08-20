@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { MIDIBuilder } from 'spessasynth_core'
 import { compileScoreText, extractMelodyFromMidi } from '../domain/owt/integration.ts'
-import { parseNoteName, parseOwt, parseOwtOrThrow } from '../domain/owt/parser.ts'
+import { parseNoteName, parseOwt, parseOwtLoose, parseOwtOrThrow } from '../domain/owt/parser.ts'
 import { rational } from '../domain/owt/rational.ts'
 import { serializeOwt, serializeScore } from '../domain/owt/serializer.ts'
 
@@ -110,6 +110,22 @@ end
     expect(lenient.document).toBeDefined()
     expect(lenient.diagnostics.some((item) => item.code === 'score.bar.misaligned')).toBe(false)
     expect(lenient.diagnostics.some((item) => item.code === 'score.track.incompleteMeasure')).toBe(false)
+  })
+
+  test('loose parsing returns the best-effort tree for incomplete live documents', () => {
+    const incomplete = `owt 0.1 score
+meter 1:1 4/4
+track "Human" channel=1 program=0 velocity=88
+| C4:1 D4:1 E4:1 F4:1 |
+| G4:1
+end
+`
+    const strict = parseOwt(incomplete)
+    expect(strict.document).toBeUndefined()
+    expect(strict.diagnostics.map((item) => item.code)).toContain('score.track.incompleteMeasure')
+    const loose = parseOwtLoose(incomplete)
+    expect(loose).not.toBeNull()
+    expect(loose?.tracks[0]?.events.filter((event) => event.kind === 'note')).toHaveLength(5)
   })
 
   test('warns only when shared MIDI channels have conflicting programs', () => {

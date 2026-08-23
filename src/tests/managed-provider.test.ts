@@ -3,12 +3,13 @@ import { AiProviderHttpError } from '../domain/ai/providers.ts'
 import { defaultManagedConnectionWhenUnset, isManagedProviderBaseUrl, isManagedQuotaExceededError, managedQuotaFromHeaders, MANAGED_PROVIDER, MANAGED_PROVIDER_ID } from '../web/managed-provider.ts'
 
 describe('OpusWeave managed AI provider', () => {
-  test('defines the fixed managed endpoint, protocol, and model', () => {
+  test('defines the fixed managed endpoint and protocol with a selectable default model', () => {
     expect(MANAGED_PROVIDER).toMatchObject({
       id: MANAGED_PROVIDER_ID,
       api: 'https://ai.xiteng.site/v1',
       protocol: 'openai-chat-completions',
-      modelId: 'deepseek-v4-flash',
+      defaultModelId: 'deepseek-v4-flash-vision-exp',
+      defaultThinkingMode: 'disabled',
     })
     expect(isManagedProviderBaseUrl('https://ai.xiteng.site/v1/')).toBeTrue()
     expect(isManagedProviderBaseUrl('https://api.deepseek.com')).toBeFalse()
@@ -17,11 +18,17 @@ describe('OpusWeave managed AI provider', () => {
   test('defaults new and completely empty profiles to managed AI', () => {
     const expected = {
       baseUrl: MANAGED_PROVIDER.api,
-      model: MANAGED_PROVIDER.modelId,
+      model: MANAGED_PROVIDER.defaultModelId,
       protocol: MANAGED_PROVIDER.protocol,
+      thinkingMode: 'disabled' as const,
     }
     expect(defaultManagedConnectionWhenUnset({})).toEqual(expected)
     expect(defaultManagedConnectionWhenUnset({ baseUrl: '  ', model: '' })).toEqual(expected)
+    expect(defaultManagedConnectionWhenUnset({ thinkingMode: 'enabled' })).toEqual({
+      baseUrl: MANAGED_PROVIDER.api,
+      model: MANAGED_PROVIDER.defaultModelId,
+      protocol: MANAGED_PROVIDER.protocol,
+    })
   })
 
   test('does not replace an existing provider or model choice', () => {

@@ -154,11 +154,14 @@ The public GitHub Pages client and the open-source desktop client call the
 managed AI endpoint without a token or `Authorization` header. A credential
 embedded in either client would be public and would not provide a meaningful
 security boundary. New and completely empty UI profiles default to the managed
-endpoint and its fixed model; existing BYOK, custom, and local provider settings
-are preserved. The managed service instead enforces one shared daily cost limit
-and reports it through quota response headers; HTTP 429 indicates that the
-shared daily limit is exhausted. BYOK providers continue to use the API key
-entered by the user.
+endpoint, `deepseek-v4-flash-vision-exp`, and disabled thinking. The model is a
+default rather than a restriction: clients can enter another model ID and can
+refresh a standard model list when the managed service exposes one. Existing
+BYOK, custom, and local provider settings are preserved. The managed service
+allows every model returned by its DeepSeek model list, enforces one shared
+daily CNY 1 cost limit, and reports it through quota response headers; HTTP 429
+indicates that the shared daily limit is exhausted. BYOK providers continue to
+use the API key entered by the user.
 
 ### Errors are typed
 

@@ -4,11 +4,12 @@ export const MANAGED_PROVIDER_ID = 'opusweave-managed'
 
 export const MANAGED_PROVIDER = {
   id: MANAGED_PROVIDER_ID,
-  name: 'OpusWeave 托管（DeepSeek V4 Flash · 每日共享免费额度）',
+  name: 'OpusWeave 托管（每日共享免费额度）',
   api: 'https://ai.xiteng.site/v1',
   protocol: 'openai-chat-completions' satisfies AiProtocol,
-  modelId: 'deepseek-v4-flash',
-  modelName: 'DeepSeek V4 Flash（托管）',
+  defaultModelId: 'deepseek-v4-flash-vision-exp',
+  defaultModelName: 'DeepSeek V4 Flash Vision Exp（默认）',
+  defaultThinkingMode: 'disabled',
 } as const
 
 export interface ManagedQuota {
@@ -21,19 +22,22 @@ interface ManagedProviderConnection {
   baseUrl: string
   model: string
   protocol: AiProtocol
+  thinkingMode: 'disabled'
 }
 
 /** New or completely empty UI profiles start with the managed provider. */
 export function defaultManagedConnectionWhenUnset(
-  config: { baseUrl?: unknown; model?: unknown },
+  config: { baseUrl?: unknown; model?: unknown; thinkingMode?: unknown },
 ): Partial<ManagedProviderConnection> {
   const hasBaseUrl = typeof config.baseUrl === 'string' && config.baseUrl.trim().length > 0
   const hasModel = typeof config.model === 'string' && config.model.trim().length > 0
   if (hasBaseUrl || hasModel) return {}
+  const hasThinkingMode = config.thinkingMode === 'adaptive' || config.thinkingMode === 'enabled' || config.thinkingMode === 'disabled'
   return {
     baseUrl: MANAGED_PROVIDER.api,
-    model: MANAGED_PROVIDER.modelId,
+    model: MANAGED_PROVIDER.defaultModelId,
     protocol: MANAGED_PROVIDER.protocol,
+    ...(hasThinkingMode ? {} : { thinkingMode: MANAGED_PROVIDER.defaultThinkingMode }),
   }
 }
 

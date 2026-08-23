@@ -93,6 +93,25 @@ describe('AI model discovery', () => {
     const result = await discoverAiModels({ baseUrl: 'https://api.anthropic.com', apiKey: 'secret' }, { fetcher })
     expect(result.models[0]).toMatchObject({ id: 'claude-test', name: 'Claude Test' })
   })
+
+  test('discovers selectable managed models without authorization', async () => {
+    const fetcher = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      expect(String(input)).toBe('https://ai.xiteng.site/v1/models')
+      expect(init?.method).toBe('GET')
+      expect(new Headers(init?.headers).get('authorization')).toBeNull()
+      return Response.json({ data: [
+        { id: 'deepseek-v4-flash' },
+        { id: 'deepseek-v4-pro' },
+        { id: 'deepseek-v4-flash-vision-exp' },
+      ] })
+    }) as typeof fetch
+    const result = await discoverAiModels({ baseUrl: 'https://ai.xiteng.site/v1' }, { fetcher })
+    expect(result.models.map((model) => model.id)).toEqual([
+      'deepseek-v4-flash',
+      'deepseek-v4-pro',
+      'deepseek-v4-flash-vision-exp',
+    ])
+  })
 })
 
 describe('AI billing currency discovery', () => {

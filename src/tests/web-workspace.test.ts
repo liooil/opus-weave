@@ -379,8 +379,11 @@ describe('web workspace structure', () => {
 
   test('wires the managed provider without requiring a credential', () => {
     expect(managedProvider).toContain("api: 'https://ai.xiteng.site/v1'")
-    expect(managedProvider).toContain("modelId: 'deepseek-v4-flash'")
+    expect(managedProvider).toContain("defaultModelId: 'deepseek-v4-flash-vision-exp'")
     expect(app.indexOf('...defaultManagedConnectionWhenUnset(stored)')).toBeGreaterThan(app.indexOf('...stored'))
+    expect(app).toContain("$<HTMLSelectElement>('ai-thinking-mode').value = MANAGED_PROVIDER.defaultThinkingMode")
+    expect(app).toContain("$<HTMLButtonElement>('btn-ai-refresh-models').hidden = false")
+    expect(app).toContain('if (isManagedProviderBaseUrl(initialAiConfig.baseUrl)) scheduleAiModelDiscovery()')
     expect(managedProvider).not.toContain('TOKEN')
     expect(app).not.toContain('MANAGED_TOKEN')
     expect(app).toContain("$('ai-api-key-field').hidden = local || managed")
@@ -388,7 +391,7 @@ describe('web workspace structure', () => {
     expect(desktopBuild).not.toContain('OPUSWEAVE_MANAGED_TOKEN')
     expect(html).toContain('id="ai-managed-provider-hint"')
     expect(html).toContain('id="ai-activity-quota"')
-    expect(i18n).toContain('无需密钥；服务每日共享 ¥10 免费总额度')
+    expect(i18n).toContain('无需密钥；服务每日共享 ¥1 免费总额度')
     expect(i18n).toContain('今日托管共享额度已用完，可明日再试或使用自己的 API Key（BYOK）')
   })
 

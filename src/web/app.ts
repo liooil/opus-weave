@@ -2475,7 +2475,7 @@ function renderAiProviderUi(provider: AiProviderChoice): void {
   const managed = provider === 'managed' || isManagedProviderBaseUrl($<HTMLInputElement>('ai-endpoint').value)
   $('ai-api-key-field').hidden = local || managed
   $('ai-protocol-field').hidden = managed || provider !== 'custom'
-  $<HTMLButtonElement>('btn-ai-refresh-models').hidden = managed
+  $<HTMLButtonElement>('btn-ai-refresh-models').hidden = false
   if (managed) $<HTMLSelectElement>('ai-protocol').value = MANAGED_PROVIDER.protocol
   renderManagedProviderState()
 }
@@ -2488,7 +2488,8 @@ function applyAiProviderPreset(provider: AiProviderChoice): void {
     $<HTMLSelectElement>('ai-protocol').value = defaults.protocol
     if (provider === 'managed') {
       keyInput.value = ''
-      renderAiModelOptions([{ id: MANAGED_PROVIDER.modelId, name: t('ai.managedModel') }], MANAGED_PROVIDER.modelId)
+      renderAiModelOptions([{ id: MANAGED_PROVIDER.defaultModelId, name: t('ai.managedModel') }], MANAGED_PROVIDER.defaultModelId)
+      $<HTMLSelectElement>('ai-thinking-mode').value = MANAGED_PROVIDER.defaultThinkingMode
     }
   }
   renderAiProviderUi(provider)
@@ -2598,7 +2599,7 @@ function renderAiConfig(config: OwtAiConfig): void {
   const provider = inferAiProvider(config)
   const managed = isManagedProviderBaseUrl(config.baseUrl)
   $<HTMLInputElement>('ai-endpoint').value = config.baseUrl
-  if (managed) renderAiModelOptions([{ id: MANAGED_PROVIDER.modelId, name: t('ai.managedModel') }], MANAGED_PROVIDER.modelId)
+  if (managed) renderAiModelOptions([{ id: MANAGED_PROVIDER.defaultModelId, name: t('ai.managedModel') }], config.model)
   else setAiModelValue(config.model)
   $<HTMLInputElement>('ai-api-key').value = managed ? '' : config.apiKey ?? ''
   $<HTMLSelectElement>('ai-protocol').value = managed ? MANAGED_PROVIDER.protocol : config.protocol ?? 'auto'
@@ -2782,18 +2783,6 @@ async function refreshAiModels(): Promise<void> {
     model.removeAttribute('aria-busy')
     return
   }
-  if (isManagedProviderBaseUrl(config.baseUrl)) {
-    aiDiscoveryController = undefined
-    refresh.disabled = false
-    model.removeAttribute('aria-busy')
-    $<HTMLSelectElement>('ai-protocol').value = MANAGED_PROVIDER.protocol
-    renderAiModelOptions([{ id: MANAGED_PROVIDER.modelId, name: t('ai.managedModel') }], MANAGED_PROVIDER.modelId)
-    persistAiConfig()
-    applyModelMetadataFromCurrent()
-    setTranslatedStatus('ai-status', 'ai.managedReady', {}, 'ok')
-    updateConversationalImprovUi()
-    return
-  }
   const controller = new AbortController()
   aiDiscoveryController = controller
   refresh.disabled = true
@@ -2821,7 +2810,6 @@ async function refreshAiModels(): Promise<void> {
 
 function scheduleAiModelDiscovery(): void {
   window.clearTimeout(aiDiscoveryTimer)
-  if (isManagedProviderBaseUrl(currentAiConfig().baseUrl)) return
   aiDiscoveryTimer = window.setTimeout(() => void refreshAiModels(), 500)
 }
 
@@ -3108,12 +3096,12 @@ function renderDirectoryModels(): void {
   detail.textContent = ''
   let count = 0
   if (!providerId || providerId === MANAGED_PROVIDER_ID) {
-    const searchable = `${MANAGED_PROVIDER.name} ${MANAGED_PROVIDER.modelName} ${MANAGED_PROVIDER.modelId}`.toLowerCase()
+    const searchable = `${MANAGED_PROVIDER.name} ${MANAGED_PROVIDER.defaultModelName} ${MANAGED_PROVIDER.defaultModelId}`.toLowerCase()
     if (!search || searchable.includes(search)) {
       const option = document.createElement('option')
-      option.textContent = `${MANAGED_PROVIDER.name} — ${MANAGED_PROVIDER.modelName} (${MANAGED_PROVIDER.modelId})`
+      option.textContent = `${MANAGED_PROVIDER.name} — ${MANAGED_PROVIDER.defaultModelName} (${MANAGED_PROVIDER.defaultModelId})`
       option.dataset.provider = MANAGED_PROVIDER_ID
-      option.dataset.model = MANAGED_PROVIDER.modelId
+      option.dataset.model = MANAGED_PROVIDER.defaultModelId
       select.appendChild(option)
       count++
     }
@@ -3143,9 +3131,9 @@ function renderDirectoryDetail(): void {
     detail.textContent = ''
     return
   }
-  if (providerId === MANAGED_PROVIDER_ID && modelId === MANAGED_PROVIDER.modelId) {
-    const catalog = findAiDirectoryModel({ baseUrl: MANAGED_PROVIDER.api, model: MANAGED_PROVIDER.modelId })
-    const parts: string[] = [`${MANAGED_PROVIDER.name} · ${MANAGED_PROVIDER.modelName}`]
+  if (providerId === MANAGED_PROVIDER_ID && modelId === MANAGED_PROVIDER.defaultModelId) {
+    const catalog = findAiDirectoryModel({ baseUrl: MANAGED_PROVIDER.api, model: MANAGED_PROVIDER.defaultModelId })
+    const parts: string[] = [`${MANAGED_PROVIDER.name} · ${MANAGED_PROVIDER.defaultModelName}`]
     if (catalog?.model.context) parts.push(`Context: ${catalog.model.context.toLocaleString()}`)
     if (catalog?.model.output) parts.push(`Max output: ${catalog.model.output.toLocaleString()}`)
     if (catalog?.model.cost) parts.push(...modelRateDetails(catalog.model.cost, catalog.provider.id, catalog.model.id))
@@ -3176,7 +3164,7 @@ function applyDirectorySelection(): void {
   const providerId = option?.dataset.provider
   const modelId = option?.dataset.model
   if (!providerId || !modelId) return
-  if (providerId === MANAGED_PROVIDER_ID && modelId === MANAGED_PROVIDER.modelId) {
+  if (providerId === MANAGED_PROVIDER_ID && modelId === MANAGED_PROVIDER.defaultModelId) {
     $<HTMLSelectElement>('ai-provider').value = 'managed'
     applyAiProviderPreset('managed')
     persistAiConfig()
@@ -3750,6 +3738,7 @@ function handleConversationalImprovPlaybackEnded(): void {
 
 const initialAiConfig = storedAiConfig()
 renderAiConfig(initialAiConfig)
+if (isManagedProviderBaseUrl(initialAiConfig.baseUrl)) scheduleAiModelDiscovery()
 renderAiBillingCurrencyControl()
 updateAiSettingsState()
 updateConversationalImprovUi()
@@ -3807,7 +3796,7 @@ $<HTMLSelectElement>('ai-provider').addEventListener('change', (event) => {
   applyAiProviderPreset(provider)
   persistAiConfig()
   updateConversationalImprovUi()
-  if (provider !== 'managed') scheduleAiModelDiscovery()
+  scheduleAiModelDiscovery()
   scheduleAiBillingCurrencyDetection()
   applyModelMetadataFromCurrent()
   renderAiActivity()

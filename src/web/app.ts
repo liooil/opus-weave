@@ -16,7 +16,7 @@ import { VirtualKeyboard } from './components/virtual-keyboard.ts'
 import { isPressureSensitive, pressureToVelocity } from './pointer-pressure.ts'
 import { modelDirectory, type ModelDirectoryModel, type ModelDirectoryProvider } from './models-directory.ts'
 import { enableHorizontalPointerScroll } from './components/horizontal-pointer-scroll.ts'
-import { getLocale, resolveLocale, setLocale, t, translateDocument, type Locale, type TranslationValues } from './i18n.ts'
+import { getLocale, resolveLocale, setLocale, t, translateDocument, type TranslationValues } from './i18n.ts'
 import { compileScoreText, extractMelodyFromMidi, extractMelodyFromRecording, type MelodyExtractionResult, type MelodyVoiceStrategy } from '../domain/owt/integration.ts'
 import { parseOwt, parseOwtLoose } from '../domain/owt/parser.ts'
 import { parseRational, rational, rationalToNumber } from '../domain/owt/rational.ts'
@@ -34,7 +34,8 @@ import { BUILTIN_OWT_EXAMPLES, builtinOwtExample } from '../domain/owt/builtin-e
 import { buildScoreViewModel, type ScoreViewModel } from '../domain/owt/score-views.ts'
 import { renderJianpuScore, renderStaffScore } from './components/score-views.ts'
 import { buildManualOwtPrompt, createOwtWithAi, defaultOwtAiPromptTemplates, DEFAULT_OWT_AI_CONFIG, hasConfiguredAiApi, testOwtAiConnection, validateOwtAiPromptTemplates, type OwtAiConfig, type OwtAiPromptTemplates, type OwtAiRequest } from '../domain/ai/owt-ai.ts'
-import { discoverAiModels, type AiProtocol } from '../domain/ai/providers.ts'
+import { aiProviderHint, discoverAiBillingCurrency, discoverAiModels, type AiModelInfo, type AiProtocol, type AiTokenUsage } from '../domain/ai/providers.ts'
+import { AI_BILLING_CURRENCIES, AI_USD_CNY_REFERENCE_DATE, AI_USD_CNY_REFERENCE_RATE, normalizeAiBillingCurrencyPreference, resolveAiBillingCurrency, resolveAiTokenRates, type AiBillingCurrency, type AiBillingCurrencyPreference } from '../domain/ai/pricing.ts'
 import { ConversationalImprovSession } from '../domain/ai/conversational-improv.ts'
 import { mediaFileToAiAttachments } from './ai-media.ts'
 import { scoreFileKind } from './open-file.ts'
@@ -45,14 +46,27 @@ import type { FullCompositionStage, FullCompositionStreamUpdate } from '../domai
 import { repairCommonOwtErrors } from '../domain/owt/repair.ts'
 import { attachSourceHover, describeOwtSourceToken, type SourceHoverField } from './views/source-hover-view.ts'
 import { computerInputKey, computerKeyLabel, computerKeyWidth, keyboardSectionsForLayout } from './keyboard/layout-view-model.ts'
+import { resolveComputerLayoutPreference } from './keyboard/computer-layout-preference.ts'
+import { AI_CUSTOM_MODEL_VALUE, resolveAiModelChoice, selectedAiModelId } from './ai-model-choice.ts'
+import { appendAiUsageRecord, createAiUsageRecord, emptyAiUsageSession, parseAiUsageSession, type AiUsageRatesByCurrency, type AiUsageSessionStats } from './ai-usage-stats.ts'
+import { incrementalTextPatch, shouldFollowScrollEnd } from './rendering/incremental-render.ts'
 import { byId as $, clearStatus, retranslateTrackedCopy, setStatus, setTranslatedStatus, setTranslatedText, showError } from './views/status-view.ts'
 import { WorkspaceStore, type CompositionWorkflowState, type ImprovState, type WorkspaceState } from './state/workspace-store.ts'
 import { TransportController } from './controllers/transport-controller.ts'
 import { ImprovController } from './controllers/improv-controller.ts'
+import appIconUrl from './assets/app-icon.svg' with { type: 'file' }
+import appIcon32Url from './assets/app-icon-32.png' with { type: 'file' }
+import appIcon256Url from './assets/app-icon-256.png' with { type: 'file' }
+import fileIconUrl from './assets/file-icon.svg' with { type: 'file' }
 import builtInGmSoundFontUrl from './assets/soundfonts/FluidR3Mono_GM.sf3' with { type: 'file' }
 import builtInGmLicenseUrl from './assets/soundfonts/FluidR3Mono_License.md' with { type: 'file' }
 import freePianoSoundFontUrl from './assets/freepiano-mda-piano.sf2' with { type: 'file' }
 
+$<HTMLImageElement>('brand-mark').src = appIconUrl
+$<HTMLLinkElement>('app-icon-svg').href = appIconUrl
+$<HTMLLinkElement>('app-icon-32').href = appIcon32Url
+$<HTMLLinkElement>('app-icon-256').href = appIcon256Url
+$<HTMLElement>('file-menu-icon').style.setProperty('--control-icon-url', `url("${fileIconUrl}")`)
 
 const localeButton = $<HTMLButtonElement>('language-toggle')
 const themeButton = $<HTMLButtonElement>('theme-toggle')
@@ -108,7 +122,7 @@ localeButton.addEventListener('click', () => {
   const locale = document.documentElement.lang === 'en' ? 'zh-CN' : 'en'
   setLocale(locale)
   window.localStorage.setItem('opusweave.locale', locale)
-  if (!savedComputerLayoutPreference()) setComputerKeyboardLayout(defaultComputerLayoutForLocale(locale), false)
+  syncAutomaticComputerKeyboardLayout()
   translateDocument()
   if (templatesUseDefaults) {
     renderAiConfig({ ...currentAiConfig(), locale, promptTemplates: defaultOwtAiPromptTemplates(locale) })
@@ -126,6 +140,11 @@ localeButton.addEventListener('click', () => {
   if (practiceSession) renderPracticeGuide()
   updateConversationalImprovUi()
   renderAiComposeButton()
+  renderAiBillingCurrencyControl()
+  applyModelMetadataFromCurrent()
+  renderDirectoryDetail()
+  renderAiUsageStats()
+  renderAiActivity()
   renderScoreViewCycleButton()
   renderOwtReference()
   if (activeScoreView === 'staff' || activeScoreView === 'jianpu') renderNotationViews()
@@ -286,6 +305,8 @@ const owtEditor = $<HTMLTextAreaElement>('owt-editor')
 const owtHighlight = $<HTMLElement>('owt-highlight')
 const owtEditorShell = document.querySelector<HTMLElement>('.owt-editor-shell')!
 let owtLexicalTokens: OwtLexicalRange[] = []
+let aiEditorStreaming = false
+let owtStreamingHighlightText: Text | undefined
 let owtPlaybackTokens: OwtPlaybackToken[] = []
 let owtPlaybackRanges: OwtSourceRange[] = []
 let owtActiveRangeKey = ''
@@ -295,6 +316,12 @@ let scoreCursorRanges: OwtSourceRange[] = []
 let owtSyntaxIndex = buildOwtSyntaxIndex('')
 let owtModalView: ModalEditorViewState | undefined
 let owtValidationTimer = 0
+
+function updateTextNode(node: Text, text: string): void {
+  const patch = incrementalTextPatch(node.data, text)
+  if (patch.kind === 'append') node.appendData(patch.text)
+  else if (patch.kind === 'replace') node.replaceData(0, node.length, patch.text)
+}
 
 const initialWorkspaceState: WorkspaceState = {
   owt: DEFAULT_OWT_SCORE,
@@ -512,6 +539,10 @@ $('btn-loop-playback').addEventListener('click', () => {
 function syncOwtHighlightScroll(): void {
   owtHighlight.scrollTop = owtEditor.scrollTop
   owtHighlight.scrollLeft = owtEditor.scrollLeft
+  if (aiEditorStreaming) {
+    hideOwtDiagnosticTooltip()
+    return
+  }
   if (owtModalView?.selections[owtModalView.primary]) renderMotionDestinations(owtMotionDestinations(owtSyntaxIndex, owtModalView.selections[owtModalView.primary]!))
   renderOwtDiagnosticLines()
   hideOwtDiagnosticTooltip()
@@ -627,9 +658,21 @@ function renderMotionDestinations(destinations: readonly OwtMotionDestination[])
 }
 
 function renderOwtEditorHighlight(): void {
+  if (aiEditorStreaming) {
+    if (owtStreamingHighlightText?.parentNode !== owtHighlight) {
+      owtStreamingHighlightText = document.createTextNode('')
+      owtHighlight.replaceChildren(owtStreamingHighlightText)
+      $('owt-motion-destinations').replaceChildren()
+      $('owt-diagnostic-lines').replaceChildren()
+    }
+    updateTextNode(owtStreamingHighlightText, owtEditor.value)
+    syncOwtHighlightScroll()
+    return
+  }
   const destinations = owtModalView && owtModalView.selections[owtModalView.primary]
     ? owtMotionDestinations(owtSyntaxIndex, owtModalView.selections[owtModalView.primary]!)
     : []
+  owtStreamingHighlightText = undefined
   owtHighlight.innerHTML = renderOwtHighlight(owtEditor.value, owtPlaybackRanges, owtLexicalTokens, [...modalDecorations(), ...motionDestinationDecorations()])
   renderMotionDestinations(destinations)
   syncOwtHighlightScroll()
@@ -637,7 +680,6 @@ function renderOwtEditorHighlight(): void {
 
 function refreshOwtLexicalHighlight(): void {
   owtLexicalTokens = owtLexicalRanges(owtEditor.value)
-  renderOwtEditorHighlight()
 }
 
 function clearOwtPlaybackContext(): void {
@@ -746,7 +788,7 @@ function modalHint(prefix: string): string {
 
 function renderModalStatus(state: ModalEditorViewState): void {
   owtModalView = state
-  if (!playbackActive && state.mode !== 'insert' && state.mode !== 'raw') setScoreCursorFromSelections(state.selections)
+  if (!aiEditorStreaming && !playbackActive && state.mode !== 'insert' && state.mode !== 'raw') setScoreCursorFromSelections(state.selections)
   const mode = $<HTMLButtonElement>('owt-mode')
   mode.textContent = state.mode.toUpperCase()
   mode.className = `owt-mode ${state.mode}`
@@ -776,6 +818,7 @@ const modalEditor = new ModalOwtEditor(
     onChange: () => {
       if (owtPlaybackTokens.length > 0) engine?.stop()
       if (practiceSession) stopPractice()
+      if (aiEditorStreaming) return
       owtRevision++
       scheduleNotationRefresh()
       owtPlaybackTokens = []
@@ -934,6 +977,7 @@ let practiceExpectedNotes: number[] = []
 const midiLearn = new MidiLearn(window.localStorage)
 const profiles: DeviceProfile[] = [midiplusTinyPlusProfile()]
 let activeProfile: DeviceProfile | null = null
+let highlightedMidiInputId: string | null = null
 const PARAM_LABEL_KEYS: Record<string, string> = {
   'master-volume': 'params.masterVolume',
   'octave-up': 'params.octaveUp',
@@ -1486,6 +1530,7 @@ function renderMidiState(state: MidiManagerState): void {
 
   renderPortDetails(state)
   wireActiveInput(state)
+  syncAutomaticComputerKeyboardLayout(state)
   detectProfile(state)
 }
 
@@ -1533,8 +1578,18 @@ function wireActiveInput(state: MidiManagerState): void {
 }
 
 function detectProfile(state: MidiManagerState): void {
+  const selectedInputChanged = state.selectedInputId !== highlightedMidiInputId
+  highlightedMidiInputId = state.selectedInputId
   const port = state.inputs.find((p) => p.id === state.selectedInputId)
   activeProfile = port ? findProfileForPort(profiles, port.name, port.manufacturer) : null
+  const playableRange = activeProfile?.noteRange ?? null
+  keyboard.setMidiPlayableRange(playableRange)
+  if (selectedInputChanged && playableRange) {
+    requestAnimationFrame(() => {
+      keyboard.scrollToRange(playableRange.min, playableRange.max)
+      scheduleKeyboardLinks()
+    })
+  }
   const box = $<HTMLDivElement>('device-profile')
   if (!activeProfile) {
     box.hidden = true
@@ -2286,24 +2341,35 @@ async function loadBuiltinExample(id: string | undefined, play: boolean): Promis
 }
 
 const COMPUTER_LAYOUT_PREFERENCE_KEY = 'opusweave.computer-layout'
-const COMPUTER_LAYOUT_IDS: readonly BuiltinComputerLayoutId[] = ['default', 'english', 'pinyin', 'freepiano']
+const COMPUTER_LAYOUT_IDS: readonly BuiltinComputerLayoutId[] = ['none', 'default', 'english', 'pinyin', 'freepiano']
 let keyboardSequenceGeneration = 0
+let hardwareKeyboardAvailable: boolean | null = null
 
 function savedComputerLayoutPreference(): BuiltinComputerLayoutId | null {
   const saved = window.localStorage.getItem(COMPUTER_LAYOUT_PREFERENCE_KEY)
   return saved && COMPUTER_LAYOUT_IDS.includes(saved as BuiltinComputerLayoutId) ? saved as BuiltinComputerLayoutId : null
 }
 
-function defaultComputerLayoutForLocale(locale: Locale): BuiltinComputerLayoutId {
-  return locale === 'zh-CN' ? 'pinyin' : 'english'
-}
-
 function currentComputerLayout(): BuiltinComputerLayoutId {
   return mapping.currentComputerLayoutId as BuiltinComputerLayoutId
 }
 
+function preferredComputerLayout(state: MidiManagerState = midiManager.getState()): BuiltinComputerLayoutId {
+  return resolveComputerLayoutPreference(savedComputerLayoutPreference(), {
+    locale: getLocale(),
+    hasHardwareKeyboard: hardwareKeyboardAvailable,
+    hasMidiInput: state.inputs.length > 0,
+  })
+}
+
+function syncAutomaticComputerKeyboardLayout(state: MidiManagerState = midiManager.getState()): void {
+  if (savedComputerLayoutPreference()) return
+  const layout = preferredComputerLayout(state)
+  if (layout !== currentComputerLayout()) setComputerKeyboardLayout(layout, false)
+}
 
 function setComputerKeyboardLayout(layout: BuiltinComputerLayoutId, persist = true): void {
+  keyboardSequenceGeneration++
   releaseComputerNotes()
   mapping.setComputerLayout(layout)
   $<HTMLSelectElement>('computer-layout').value = layout
@@ -2322,11 +2388,30 @@ async function soundKeyboardLayoutMessages(messages: readonly Uint8Array[], gene
 }
 
 $<HTMLSelectElement>('computer-layout').addEventListener('change', (event) => {
-  keyboardSequenceGeneration++
   setComputerKeyboardLayout((event.target as HTMLSelectElement).value as BuiltinComputerLayoutId)
 })
 
 const AI_CONFIG_KEY = 'opusweave.ai.config'
+const AI_USAGE_SESSION_KEY = 'opusweave.ai.usage.session.v2'
+const AI_BILLING_CURRENCY_PREFERENCE_KEY = 'opusweave.ai.billing-currency'
+
+function storedAiUsageSession(): AiUsageSessionStats {
+  try {
+    return parseAiUsageSession(window.sessionStorage.getItem(AI_USAGE_SESSION_KEY))
+  } catch {
+    return emptyAiUsageSession()
+  }
+}
+
+let aiUsageSession = storedAiUsageSession()
+let aiBillingCurrencyPreference: AiBillingCurrencyPreference = normalizeAiBillingCurrencyPreference(
+  window.localStorage.getItem(AI_BILLING_CURRENCY_PREFERENCE_KEY),
+)
+let detectedAiBillingCurrency: AiBillingCurrency | undefined
+let detectedAiBillingConfigSignature = ''
+let aiBillingCurrencyDetectionPending = false
+let aiBillingCurrencyDetectionTimer: number | undefined
+let aiBillingCurrencyDetectionSequence = 0
 
 function storedAiConfig(): OwtAiConfig {
   const defaults = defaultOwtAiPromptTemplates(getLocale())
@@ -2371,9 +2456,64 @@ function renderAiProviderUi(provider: AiProviderChoice): void {
   $('ai-protocol-field').hidden = provider !== 'custom'
 }
 
+function aiModelOption(model: Pick<AiModelInfo, 'id' | 'name'>): HTMLOptionElement {
+  const option = document.createElement('option')
+  option.value = model.id
+  option.textContent = model.name === model.id ? model.id : `${model.name} — ${model.id}`
+  return option
+}
+
+function aiCustomModelOption(): HTMLOptionElement {
+  const option = document.createElement('option')
+  option.value = AI_CUSTOM_MODEL_VALUE
+  option.dataset.i18n = 'ai.modelCustom'
+  option.textContent = t('ai.modelCustom')
+  return option
+}
+
+function syncAiCustomModelInput(focus = false): void {
+  const select = $<HTMLSelectElement>('ai-model')
+  const input = $<HTMLInputElement>('ai-model-custom')
+  const custom = select.value === AI_CUSTOM_MODEL_VALUE
+  input.hidden = !custom
+  input.disabled = !custom
+  if (custom && focus) input.focus()
+}
+
+function setAiModelValue(model: string): void {
+  const select = $<HTMLSelectElement>('ai-model')
+  const input = $<HTMLInputElement>('ai-model-custom')
+  const availableModelIds = [...select.options]
+    .map((option) => option.value)
+    .filter((id) => id !== AI_CUSTOM_MODEL_VALUE)
+  const choice = resolveAiModelChoice(model, availableModelIds)
+  select.value = choice.selection
+  input.value = choice.customModel
+  syncAiCustomModelInput()
+}
+
+function renderAiModelOptions(models: readonly Pick<AiModelInfo, 'id' | 'name'>[], selectedModel: string): void {
+  const select = $<HTMLSelectElement>('ai-model')
+  const seen = new Set<string>()
+  const uniqueModels = models.filter((model) => {
+    if (!model.id || model.id === AI_CUSTOM_MODEL_VALUE || seen.has(model.id)) return false
+    seen.add(model.id)
+    return true
+  })
+  select.replaceChildren(...uniqueModels.map(aiModelOption), aiCustomModelOption())
+  setAiModelValue(selectedModel)
+}
+
+function currentAiModelId(): string {
+  return selectedAiModelId(
+    $<HTMLSelectElement>('ai-model').value,
+    $<HTMLInputElement>('ai-model-custom').value,
+  )
+}
+
 function renderAiConfig(config: OwtAiConfig): void {
   $<HTMLInputElement>('ai-endpoint').value = config.baseUrl
-  $<HTMLInputElement>('ai-model').value = config.model
+  setAiModelValue(config.model)
   $<HTMLInputElement>('ai-api-key').value = config.apiKey ?? ''
   $<HTMLSelectElement>('ai-protocol').value = config.protocol ?? 'auto'
   const provider = inferAiProvider(config)
@@ -2420,7 +2560,7 @@ function currentAiConfig(): OwtAiConfig {
   const reasoningEffort = $<HTMLSelectElement>('ai-reasoning-effort').value
   return {
     baseUrl: $<HTMLInputElement>('ai-endpoint').value.trim(),
-    model: $<HTMLInputElement>('ai-model').value.trim(),
+    model: currentAiModelId(),
     apiKey: $<HTMLInputElement>('ai-api-key').value || undefined,
     protocol: $<HTMLSelectElement>('ai-protocol').value as AiProtocol,
     locale: getLocale(),
@@ -2434,6 +2574,83 @@ function currentAiConfig(): OwtAiConfig {
     autoRepair: $<HTMLInputElement>('ai-auto-repair-on').checked,
     promptTemplates: currentAiPromptTemplates(),
   }
+}
+
+function aiBillingConfigSignature(config: OwtAiConfig): string {
+  return `${normalizeDirectoryUrl(config.baseUrl)}\u0000${config.apiKey ?? ''}`
+}
+
+function detectedBillingCurrencyForConfig(config = currentAiConfig()): AiBillingCurrency | undefined {
+  return aiBillingConfigSignature(config) === detectedAiBillingConfigSignature ? detectedAiBillingCurrency : undefined
+}
+
+function currentAiBillingCurrency(): AiBillingCurrency {
+  return resolveAiBillingCurrency(aiBillingCurrencyPreference, getLocale(), detectedBillingCurrencyForConfig())
+}
+
+function renderAiBillingCurrencyControl(): void {
+  const select = $<HTMLSelectElement>('ai-billing-currency')
+  const currency = currentAiBillingCurrency()
+  select.value = aiBillingCurrencyPreference
+  const auto = select.querySelector<HTMLOptionElement>('option[value="auto"]')
+  if (auto) auto.textContent = t('ai.billingCurrencyAutoResolved', { currency })
+  const source = $('ai-billing-currency-source')
+  if (aiBillingCurrencyPreference !== 'auto') {
+    source.textContent = t('ai.billingCurrencyManual')
+  } else if (aiBillingCurrencyDetectionPending) {
+    source.textContent = t('ai.billingCurrencyDetecting')
+  } else if (detectedBillingCurrencyForConfig()) {
+    source.textContent = t('ai.billingCurrencyDetected', { currency })
+  } else {
+    source.textContent = t('ai.billingCurrencyLanguage', { currency })
+  }
+  $('ai-usage-estimate-hint').textContent = t('ai.usageEstimateHint', {
+    rate: AI_USD_CNY_REFERENCE_RATE,
+    date: AI_USD_CNY_REFERENCE_DATE,
+  })
+}
+
+function canDetectAiBillingCurrency(config: OwtAiConfig): boolean {
+  if (!config.baseUrl || !config.apiKey || aiBillingCurrencyPreference !== 'auto') return false
+  try { return aiProviderHint(config.baseUrl) === 'deepseek' } catch { return false }
+}
+
+async function refreshDetectedAiBillingCurrency(config = currentAiConfig(), force = false): Promise<void> {
+  window.clearTimeout(aiBillingCurrencyDetectionTimer)
+  const signature = aiBillingConfigSignature(config)
+  const sequence = ++aiBillingCurrencyDetectionSequence
+  if (!canDetectAiBillingCurrency(config)) {
+    aiBillingCurrencyDetectionPending = false
+    renderAiBillingCurrencyControl()
+    return
+  }
+  if (!force && signature === detectedAiBillingConfigSignature) return
+  aiBillingCurrencyDetectionPending = true
+  renderAiBillingCurrencyControl()
+  let currency: AiBillingCurrency | undefined
+  try {
+    currency = await discoverAiBillingCurrency(config, { signal: AbortSignal.timeout(12_000) })
+  } catch {
+    currency = undefined
+  }
+  if (sequence !== aiBillingCurrencyDetectionSequence || signature !== aiBillingConfigSignature(currentAiConfig())) return
+  detectedAiBillingConfigSignature = signature
+  detectedAiBillingCurrency = currency
+  aiBillingCurrencyDetectionPending = false
+  renderAiBillingCurrencyControl()
+  applyModelMetadataFromCurrent()
+  renderDirectoryDetail()
+  renderAiUsageStats()
+  if (workspaceStore.state.activity.kind === 'idle') renderAiActivity()
+}
+
+function scheduleAiBillingCurrencyDetection(): void {
+  window.clearTimeout(aiBillingCurrencyDetectionTimer)
+  ++aiBillingCurrencyDetectionSequence
+  aiBillingCurrencyDetectionPending = false
+  renderAiBillingCurrencyControl()
+  if (!canDetectAiBillingCurrency(currentAiConfig())) return
+  aiBillingCurrencyDetectionTimer = window.setTimeout(() => void refreshDetectedAiBillingCurrency(), 650)
 }
 
 function persistAiConfig(): void {
@@ -2455,9 +2672,12 @@ function updateAiSettingsState(): void {
   aiState.classList.toggle('ok', Boolean(config.baseUrl && config.model))
 }
 
-function aiTransport(signal?: AbortSignal): { signal: AbortSignal } {
+function aiTransport(signal?: AbortSignal, config = currentAiConfig()): { signal: AbortSignal; onUsage: (usage: AiTokenUsage) => void } {
   const timeout = AbortSignal.timeout(180_000)
-  return { signal: signal ? AbortSignal.any([signal, timeout]) : timeout }
+  return {
+    signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+    onUsage: (usage) => recordAiUsage(config, usage),
+  }
 }
 
 let aiDiscoveryTimer: number | undefined
@@ -2465,34 +2685,37 @@ let aiDiscoveryController: AbortController | undefined
 
 async function refreshAiModels(): Promise<void> {
   const config = currentAiConfig()
-  if (!config.baseUrl) return
   aiDiscoveryController?.abort()
-  aiDiscoveryController = new AbortController()
   const refresh = $<HTMLButtonElement>('btn-ai-refresh-models')
-  const model = $<HTMLInputElement>('ai-model')
+  const model = $<HTMLSelectElement>('ai-model')
+  if (!config.baseUrl) {
+    aiDiscoveryController = undefined
+    refresh.disabled = false
+    model.removeAttribute('aria-busy')
+    return
+  }
+  const controller = new AbortController()
+  aiDiscoveryController = controller
   refresh.disabled = true
   model.setAttribute('aria-busy', 'true')
   setTranslatedStatus('ai-status', 'ai.modelsLoading', {}, 'warn')
   try {
-    const discovery = await discoverAiModels(config, aiTransport(aiDiscoveryController.signal))
-    const options = $('ai-model-options')
-    options.replaceChildren(...discovery.models.map((item) => {
-      const option = document.createElement('option')
-      option.value = item.id
-      option.label = item.name === item.id ? item.id : `${item.name} — ${item.id}`
-      return option
-    }))
-    if (!config.model || !discovery.models.some((item) => item.id === config.model)) model.value = discovery.models[0]?.id ?? ''
+    const discovery = await discoverAiModels(config, aiTransport(controller.signal, config))
+    renderAiModelOptions(discovery.models, currentAiModelId())
     if ((config.protocol ?? 'auto') === 'auto') $<HTMLSelectElement>('ai-protocol').value = discovery.protocol
     persistAiConfig()
     applyModelMetadataFromCurrent()
     setTranslatedStatus('ai-status', 'ai.modelsLoaded', { count: discovery.models.length, provider: discovery.provider }, 'ok')
   } catch (error) {
+    if (controller.signal.aborted) return
     setTranslatedStatus('ai-status', 'ai.modelsError', { error: error instanceof Error ? error.message : String(error) }, 'err')
   } finally {
-    refresh.disabled = false
-    model.removeAttribute('aria-busy')
-    updateConversationalImprovUi()
+    if (aiDiscoveryController === controller) {
+      aiDiscoveryController = undefined
+      refresh.disabled = false
+      model.removeAttribute('aria-busy')
+      updateConversationalImprovUi()
+    }
   }
 }
 
@@ -2525,6 +2748,124 @@ function findDirectoryModel(config?: OwtAiConfig): { provider: ModelDirectoryPro
   if (!provider) return undefined
   const model = provider.models.find((entry) => entry.id === current.model)
   return model ? { provider, model } : undefined
+}
+
+function catalogUsdRates(cost: NonNullable<ModelDirectoryModel['cost']>): { input?: number; output?: number; cacheRead?: number; cacheWrite?: number } {
+  return { input: cost.input, output: cost.output, cacheRead: cost.cache_read, cacheWrite: cost.cache_write }
+}
+
+function usageRatesForModel(config: OwtAiConfig): AiUsageRatesByCurrency {
+  const directory = findDirectoryModel(config)
+  if (!directory?.model.cost) return {}
+  const rates: AiUsageRatesByCurrency = {}
+  for (const currency of AI_BILLING_CURRENCIES) {
+    const resolved = resolveAiTokenRates(directory.provider.id, directory.model.id, catalogUsdRates(directory.model.cost), currency)
+    if (resolved) rates[currency] = resolved.rates
+  }
+  return rates
+}
+
+function formatAiRate(value: number, currency: AiBillingCurrency): string {
+  return new Intl.NumberFormat(getLocale(), {
+    style: 'currency',
+    currency,
+    currencyDisplay: 'narrowSymbol',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 6,
+  }).format(value)
+}
+
+function modelRateDetails(cost: NonNullable<ModelDirectoryModel['cost']>, providerId: string, modelId: string): string[] {
+  const resolved = resolveAiTokenRates(providerId, modelId, catalogUsdRates(cost), currentAiBillingCurrency())
+  if (!resolved) return []
+  const rates = resolved.rates
+  const details: string[] = []
+  if (rates.input != null) details.push(t(rates.cacheRead != null ? 'ai.rateInputMiss' : 'ai.rateInput', { rate: formatAiRate(rates.input, resolved.currency) }))
+  if (rates.cacheRead != null) details.push(t('ai.rateCacheHit', { rate: formatAiRate(rates.cacheRead, resolved.currency) }))
+  if (rates.cacheWrite != null) details.push(t('ai.rateCacheWrite', { rate: formatAiRate(rates.cacheWrite, resolved.currency) }))
+  if (rates.output != null) details.push(t('ai.rateOutput', { rate: formatAiRate(rates.output, resolved.currency) }))
+  if (resolved.origin === 'provider-cny') details.push(t('ai.rateProviderCny'))
+  if (resolved.origin === 'reference-conversion') details.push(t('ai.rateReferenceConverted'))
+  return details
+}
+
+function formatAiTokenCount(value: number): string {
+  return new Intl.NumberFormat(getLocale()).format(value)
+}
+
+function formatAiUsageTokens(usage: AiTokenUsage): string {
+  const parts = [t('ai.usageInput', { count: formatAiTokenCount(usage.inputTokens) })]
+  if (usage.cachedInputTokens > 0) parts.push(t('ai.usageCached', { count: formatAiTokenCount(usage.cachedInputTokens) }))
+  if (usage.cacheWriteInputTokens > 0) parts.push(t('ai.usageCacheWrite', { count: formatAiTokenCount(usage.cacheWriteInputTokens) }))
+  parts.push(t('ai.usageOutput', { count: formatAiTokenCount(usage.outputTokens) }))
+  if (usage.reasoningTokens > 0) parts.push(t('ai.usageReasoning', { count: formatAiTokenCount(usage.reasoningTokens) }))
+  return parts.join(' · ')
+}
+
+function formatAiMoney(value: number, currency: AiBillingCurrency): string {
+  const format = new Intl.NumberFormat(getLocale(), {
+    style: 'currency',
+    currency,
+    currencyDisplay: 'narrowSymbol',
+    minimumFractionDigits: 4,
+    maximumFractionDigits: 6,
+  })
+  if (value > 0 && value < 0.000001) return `<${format.format(0.000001)}`
+  return format.format(value)
+}
+
+function renderAiUsageStats(): void {
+  const summary = $<HTMLDivElement>('ai-usage-summary')
+  const activity = $<HTMLDivElement>('ai-activity-usage')
+  const last = aiUsageSession.last
+  summary.hidden = !last
+  activity.hidden = !last
+  if (!last) {
+    $('ai-usage-last').textContent = ''
+    $('ai-usage-total').textContent = ''
+    activity.textContent = ''
+    return
+  }
+
+  const currency = currentAiBillingCurrency()
+  const lastPrefix = t('ai.usageLastRequest', { provider: last.provider, model: last.model })
+  const lastCost = last.estimatedCosts[currency] === undefined
+    ? t('ai.usageRateUnavailable')
+    : t('ai.usageEstimatedCost', { cost: formatAiMoney(last.estimatedCosts[currency], currency) })
+  const lastDetails = `${formatAiUsageTokens(last.usage)} · ${lastCost}`
+  $('ai-usage-last').textContent = `${lastPrefix} · ${lastDetails}`
+  activity.textContent = `${lastPrefix} · ${lastDetails}`
+
+  const sessionParts = [
+    t('ai.usageRequests', { count: aiUsageSession.requestCount }),
+    formatAiUsageTokens(aiUsageSession.usage),
+  ]
+  sessionParts.push(aiUsageSession.pricedRequestCounts[currency] > 0
+    ? t('ai.usageEstimatedCost', { cost: formatAiMoney(aiUsageSession.estimatedCosts[currency], currency) })
+    : t('ai.usageRateUnavailable'))
+  if (aiUsageSession.unpricedRequestCounts[currency] > 0) sessionParts.push(t('ai.usageUnpriced', { count: aiUsageSession.unpricedRequestCounts[currency] }))
+  $('ai-usage-total').textContent = sessionParts.join(' · ')
+}
+
+function recordAiUsage(config: OwtAiConfig, usage: AiTokenUsage): void {
+  const directory = findDirectoryModel(config)
+  const record = createAiUsageRecord(
+    directory?.provider.name ?? aiProviderHint(config.baseUrl),
+    config.model,
+    usage,
+    usageRatesForModel(config),
+  )
+  aiUsageSession = appendAiUsageRecord(aiUsageSession, record)
+  try { window.sessionStorage.setItem(AI_USAGE_SESSION_KEY, JSON.stringify(aiUsageSession)) } catch { /* usage remains available in memory */ }
+  renderAiUsageStats()
+  if (workspaceStore.state.activity.kind === 'idle') renderAiActivity()
+}
+
+function resetAiUsageStats(): void {
+  aiUsageSession = emptyAiUsageSession()
+  try { window.sessionStorage.removeItem(AI_USAGE_SESSION_KEY) } catch { /* usage was already cleared in memory */ }
+  renderAiUsageStats()
+  renderAiActivity()
 }
 
 function applyModelMetadata(meta?: ModelDirectoryModel, provider?: ModelDirectoryProvider): void {
@@ -2604,11 +2945,7 @@ function applyModelMetadata(meta?: ModelDirectoryModel, provider?: ModelDirector
   const details: string[] = []
   if (meta.context) details.push(`ctx ${meta.context.toLocaleString()}`)
   if (meta.output) details.push(`out ${meta.output.toLocaleString()}`)
-  if (meta.cost?.input != null || meta.cost?.output != null) {
-    const input = meta.cost.input != null ? `$${meta.cost.input}/M in` : ''
-    const output = meta.cost.output != null ? `$${meta.cost.output}/M out` : ''
-    details.push([input, output].filter(Boolean).join(' · '))
-  }
+  if (meta.cost) details.push(...modelRateDetails(meta.cost, provider.id, meta.id))
   const line2 = document.createElement('div')
   line2.textContent = details.join(' · ')
   metaEl.appendChild(line2)
@@ -2695,8 +3032,7 @@ function renderDirectoryDetail(): void {
   const parts: string[] = [`${provider.name} · ${model.name}`]
   if (model.context) parts.push(`Context: ${model.context.toLocaleString()}`)
   if (model.output) parts.push(`Max output: ${model.output.toLocaleString()}`)
-  if (model.cost?.input != null) parts.push(`Input $${model.cost.input}/M`)
-  if (model.cost?.output != null) parts.push(`Output $${model.cost.output}/M`)
+  if (model.cost) parts.push(...modelRateDetails(model.cost, provider.id, model.id))
   if (model.modalities && model.modalities.length > 0) parts.push(`Input: ${model.modalities.join(', ')}`)
   detail.textContent = parts.join(' · ')
 }
@@ -2714,8 +3050,9 @@ function applyDirectorySelection(): void {
   renderAiProviderUi(choice)
   $<HTMLInputElement>('ai-endpoint').value = provider.api
   $<HTMLSelectElement>('ai-protocol').value = provider.protocol
-  $<HTMLInputElement>('ai-model').value = model.id
+  renderAiModelOptions(provider.models, model.id)
   persistAiConfig()
+  scheduleAiBillingCurrencyDetection()
   applyModelMetadata(model, provider)
   updateConversationalImprovUi()
   $<HTMLDialogElement>('ai-model-directory-dialog').close()
@@ -2779,28 +3116,55 @@ function setAiBusy(busy: boolean): void {
   updateConversationalImprovUi()
 }
 
-function createAiEditorStream(): { update: (text: string) => void; finish: (text: string) => void } {
+function createAiEditorStream(): { update: (text: string) => void; finish: (text: string) => void; cancel: () => void } {
   let frame = 0
   let pending = ''
   let recordInitialState = true
-  const render = (): void => {
+  let active = false
+  let settled = false
+  const render = (final = false): void => {
     frame = 0
     const scrollTop = owtEditor.scrollTop
     const scrollLeft = owtEditor.scrollLeft
-    modalEditor.setText(pending, recordInitialState)
+    aiEditorStreaming = !final
+    active ||= !final
+    const appended = modalEditor.setStreamText(pending, recordInitialState)
     recordInitialState = false
-    owtEditor.scrollTop = scrollTop
-    owtEditor.scrollLeft = scrollLeft
+    if (!appended) {
+      owtEditor.scrollTop = scrollTop
+      owtEditor.scrollLeft = scrollLeft
+      syncOwtHighlightScroll()
+    }
+    if (final && owtModalView?.mode !== 'raw') selectSemanticAt(0)
   }
   return {
     update: (text) => {
+      if (settled) return
       pending = text
-      if (!frame) frame = requestAnimationFrame(render)
+      if (!frame) frame = requestAnimationFrame(() => render())
     },
     finish: (text) => {
+      if (settled) return
       if (frame) cancelAnimationFrame(frame)
       pending = text
-      render()
+      render(true)
+      settled = true
+    },
+    cancel: () => {
+      if (settled) return
+      if (frame) cancelAnimationFrame(frame)
+      frame = 0
+      if (active) {
+        const scrollTop = owtEditor.scrollTop
+        const scrollLeft = owtEditor.scrollLeft
+        aiEditorStreaming = false
+        modalEditor.setStreamText(owtEditor.value)
+        owtEditor.scrollTop = scrollTop
+        owtEditor.scrollLeft = scrollLeft
+        syncOwtHighlightScroll()
+        if (owtModalView?.mode !== 'raw') selectSemanticAt(0)
+      }
+      settled = true
     },
   }
 }
@@ -2816,7 +3180,20 @@ const aiReasoningPanel = $<HTMLDetailsElement>('ai-reasoning-panel')
 const aiReasoningLastLine = $('ai-reasoning-last-line')
 const aiReasoningState = $('ai-reasoning-state')
 const aiReasoningOutput = $('ai-reasoning-stream')
+const aiReasoningTextNode = document.createTextNode('')
+const aiReasoningLastLineTextNode = document.createTextNode('')
+aiReasoningOutput.replaceChildren(aiReasoningTextNode)
+aiReasoningLastLine.replaceChildren(aiReasoningLastLineTextNode)
+let aiReasoningFollowEnd = true
 let activeAiReasoningStream: AiReasoningStream | undefined
+
+const refreshAiReasoningFollowEnd = (): void => {
+  aiReasoningFollowEnd = shouldFollowScrollEnd(aiReasoningOutput.scrollTop, aiReasoningOutput.clientHeight, aiReasoningOutput.scrollHeight)
+}
+aiReasoningOutput.addEventListener('scroll', refreshAiReasoningFollowEnd)
+aiReasoningOutput.addEventListener('pointerdown', () => { aiReasoningFollowEnd = false })
+aiReasoningOutput.addEventListener('pointerup', refreshAiReasoningFollowEnd)
+aiReasoningOutput.addEventListener('wheel', () => { aiReasoningFollowEnd = false }, { passive: true })
 
 const refreshAiReasoningLastLineClip = (): void => {
   if (aiReasoningPanel.hidden || aiReasoningLastLine.clientWidth === 0) return
@@ -2829,7 +3206,10 @@ function createAiReasoningStream(): AiReasoningStream {
   let pending = ''
   let disposed = false
   let hasRendered = false
+  let currentStateKey = ''
   const setState = (key: string): void => {
+    if (currentStateKey === key) return
+    currentStateKey = key
     aiReasoningState.removeAttribute('data-i18n')
     setTranslatedText('ai-reasoning-state', key)
   }
@@ -2838,21 +3218,24 @@ function createAiReasoningStream(): AiReasoningStream {
     return [...lines].reverse().find((line) => line.trim().length > 0)?.trim() ?? ''
   }
   const renderLastLine = (): void => {
-    aiReasoningLastLine.textContent = lastLine(pending)
+    updateTextNode(aiReasoningLastLineTextNode, lastLine(pending))
     refreshAiReasoningLastLineClip()
   }
   const render = (): void => {
-    aiReasoningOutput.textContent = pending
+    const followEnd = aiReasoningFollowEnd && shouldFollowScrollEnd(aiReasoningOutput.scrollTop, aiReasoningOutput.clientHeight, aiReasoningOutput.scrollHeight)
+    updateTextNode(aiReasoningTextNode, pending)
     renderLastLine()
-    aiReasoningOutput.scrollTop = aiReasoningOutput.scrollHeight
+    if (followEnd) aiReasoningOutput.scrollTop = aiReasoningOutput.scrollHeight
   }
   return {
     begin: () => {
       disposed = false
       hasRendered = false
       pending = ''
-      aiReasoningOutput.textContent = ''
-      aiReasoningLastLine.textContent = ''
+      currentStateKey = ''
+      aiReasoningFollowEnd = true
+      updateTextNode(aiReasoningTextNode, '')
+      updateTextNode(aiReasoningLastLineTextNode, '')
       aiReasoningLastLine.classList.remove('is-overflowing')
       aiReasoningPanel.hidden = true
       aiReasoningPanel.open = false
@@ -2860,20 +3243,16 @@ function createAiReasoningStream(): AiReasoningStream {
     },
     update: (text) => {
       if (disposed) return
-      if (text.startsWith(pending)) {
-        const delta = text.slice(pending.length)
-        if (delta) aiReasoningOutput.append(document.createTextNode(delta))
-      } else {
-        aiReasoningOutput.textContent = text
-      }
+      const followEnd = aiReasoningFollowEnd && shouldFollowScrollEnd(aiReasoningOutput.scrollTop, aiReasoningOutput.clientHeight, aiReasoningOutput.scrollHeight)
       pending = text
-      aiReasoningOutput.scrollTop = aiReasoningOutput.scrollHeight
+      updateTextNode(aiReasoningTextNode, pending)
       aiReasoningPanel.hidden = false
-      renderLastLine()
       if (!hasRendered) {
         aiReasoningPanel.open = true
         hasRendered = true
       }
+      renderLastLine()
+      if (followEnd) aiReasoningOutput.scrollTop = aiReasoningOutput.scrollHeight
       setState('ai.reasoningStreaming')
     },
     finish: () => {
@@ -2893,8 +3272,9 @@ function createAiReasoningStream(): AiReasoningStream {
       disposed = true
       hasRendered = false
       pending = ''
-      aiReasoningOutput.textContent = ''
-      aiReasoningLastLine.textContent = ''
+      currentStateKey = ''
+      updateTextNode(aiReasoningTextNode, '')
+      updateTextNode(aiReasoningLastLineTextNode, '')
       aiReasoningLastLine.classList.remove('is-overflowing')
       aiReasoningPanel.hidden = true
       aiReasoningPanel.open = false
@@ -2942,8 +3322,9 @@ async function applyAiRequest(request: OwtAiRequest, statusKey: string, statusVa
   const reasoningStream = beginAiReasoningStream()
   clearOwtPlaybackContext()
   try {
-    const text = await createOwtWithAi(currentAiConfig(), request, {
-      ...aiTransport(),
+    const config = currentAiConfig()
+    const text = await createOwtWithAi(config, request, {
+      ...aiTransport(undefined, config),
       onUpdate: stream.update,
       onReasoningUpdate: reasoningStream.update,
     })
@@ -2959,6 +3340,7 @@ async function applyAiRequest(request: OwtAiRequest, statusKey: string, statusVa
     setAiComposeState('error')
     return false
   } finally {
+    stream.cancel()
     finishAiReasoningStream(reasoningStream)
     setAiBusy(false)
     workspaceStore.update({ activity: composeError ? { kind: 'compose', task: composeTask, error: composeError } : { kind: 'idle' } })
@@ -3154,13 +3536,14 @@ async function requestConversationalImprovResponse(): Promise<void> {
     const turnHumanTrack = previousDocument.tracks[0]!
     const existingAiTrack = previousDocument.tracks[1]!
     const turnOwt = improvScoreText
-    const text = await createOwtWithAi(currentAiConfig(), {
+    const config = currentAiConfig()
+    const text = await createOwtWithAi(config, {
       task: 'improvise',
       instruction: '',
       currentOwt: turnOwt,
       lenientBars: true,
     }, {
-      ...aiTransport(controller.signal),
+      ...aiTransport(controller.signal, config),
       onReasoningUpdate: (value) => {
         if (requestSequence === improvRequestSequence) reasoningStream.update(value)
       },
@@ -3222,25 +3605,49 @@ function handleConversationalImprovPlaybackEnded(): void {
 
 const initialAiConfig = storedAiConfig()
 renderAiConfig(initialAiConfig)
+renderAiBillingCurrencyControl()
 updateAiSettingsState()
 updateConversationalImprovUi()
 renderAiComposeButton()
-for (const id of ['ai-model', 'ai-protocol', 'ai-thinking-mode', 'ai-reasoning-effort', 'ai-retry-count']) {
+for (const id of ['ai-protocol', 'ai-thinking-mode', 'ai-reasoning-effort', 'ai-retry-count']) {
   $(id).addEventListener('change', () => { persistAiConfig(); updateConversationalImprovUi(); applyModelMetadataFromCurrent() })
 }
 for (const id of ['ai-auto-repair-on', 'ai-auto-repair-off']) {
   $(id).addEventListener('change', () => { persistAiConfig(); updateConversationalImprovUi(); applyModelMetadataFromCurrent() })
 }
-$('ai-model').addEventListener('input', () => { persistAiConfig(); updateConversationalImprovUi(); applyModelMetadataFromCurrent() })
+$('ai-model').addEventListener('change', () => {
+  syncAiCustomModelInput(true)
+  persistAiConfig()
+  updateConversationalImprovUi()
+  applyModelMetadataFromCurrent()
+})
+$('ai-model-custom').addEventListener('input', () => { persistAiConfig(); updateConversationalImprovUi(); applyModelMetadataFromCurrent() })
 for (const id of ['ai-temperature', 'ai-top-p', 'ai-max-tokens', 'ai-thinking-budget']) {
   $(id).addEventListener('input', persistAiConfig)
 }
 for (const id of ['ai-endpoint', 'ai-api-key']) {
-  $(id).addEventListener('input', () => { persistAiConfig(); updateConversationalImprovUi(); scheduleAiModelDiscovery(); applyModelMetadataFromCurrent() })
+  $(id).addEventListener('input', () => { persistAiConfig(); updateConversationalImprovUi(); scheduleAiModelDiscovery(); scheduleAiBillingCurrencyDetection(); applyModelMetadataFromCurrent() })
 }
 for (const id of ['ai-template-system', 'ai-template-prompt', 'ai-template-media', 'ai-template-improvise', 'ai-template-full-plan', 'ai-template-full-section']) {
   $(id).addEventListener('input', persistAiConfig)
 }
+
+if (initialAiConfig.baseUrl) {
+  scheduleAiModelDiscovery()
+  scheduleAiBillingCurrencyDetection()
+}
+
+$<HTMLSelectElement>('ai-billing-currency').addEventListener('change', (event) => {
+  aiBillingCurrencyPreference = normalizeAiBillingCurrencyPreference((event.target as HTMLSelectElement).value)
+  window.localStorage.setItem(AI_BILLING_CURRENCY_PREFERENCE_KEY, aiBillingCurrencyPreference)
+  scheduleAiBillingCurrencyDetection()
+  renderAiBillingCurrencyControl()
+  applyModelMetadataFromCurrent()
+  renderDirectoryDetail()
+  renderAiUsageStats()
+  renderAiActivity()
+  markSettingsSaved()
+})
 
 $<HTMLSelectElement>('ai-provider').addEventListener('change', (event) => {
   const provider = (event.target as HTMLSelectElement).value as AiProviderChoice
@@ -3253,6 +3660,7 @@ $<HTMLSelectElement>('ai-provider').addEventListener('change', (event) => {
   persistAiConfig()
   updateConversationalImprovUi()
   scheduleAiModelDiscovery()
+  scheduleAiBillingCurrencyDetection()
   applyModelMetadataFromCurrent()
 })
 
@@ -3343,7 +3751,7 @@ async function runPromptTemplateExamples(): Promise<void> {
     const state = card.querySelector<HTMLElement>('.ai-prompt-test-result-head span')!
     const output = card.querySelector<HTMLPreElement>('pre')!
     try {
-      const text = await createOwtWithAi(config, { task: 'prompt', instruction, currentOwt: testCase.currentOwt }, aiTransport())
+      const text = await createOwtWithAi(config, { task: 'prompt', instruction, currentOwt: testCase.currentOwt }, aiTransport(undefined, config))
       const summary = summarizePromptTestOwt(text)
       card.classList.replace('running', 'passed')
       state.textContent = t('ai.promptTest.passed')
@@ -3389,13 +3797,15 @@ aiModelDirectoryDialog.addEventListener('click', (event) => {
   if (event.target === aiModelDirectoryDialog) aiModelDirectoryDialog.close()
 })
 $('btn-ai-refresh-models').addEventListener('click', () => void refreshAiModels())
+$('btn-ai-usage-reset').addEventListener('click', resetAiUsageStats)
 $('btn-ai-test').addEventListener('click', () => {
   const config = currentAiConfig()
   setAiBusy(true)
   setTranslatedStatus('ai-status', 'ai.testing', { model: config.model }, 'warn')
-  void testOwtAiConnection(config, aiTransport()).then(() => {
+  void testOwtAiConnection(config, aiTransport(undefined, config)).then(() => {
     persistAiConfig()
     setTranslatedStatus('ai-status', 'ai.connected', { model: config.model }, 'ok')
+    void refreshDetectedAiBillingCurrency(config, true)
   }).catch((error) => {
     setTranslatedStatus('ai-status', 'ai.error', { error: error instanceof Error ? error.message : String(error) }, 'err')
   }).finally(() => setAiBusy(false))
@@ -3430,28 +3840,64 @@ function applyFullCompositionResult(owt: string, updateEditor = true): void {
   setAiComposeState('success')
 }
 
-function aiActivityStep(text: string, state: 'done' | 'active' | 'pending' | 'failed', onRetry?: () => void): HTMLLIElement {
+type AiActivityStepState = 'done' | 'active' | 'pending' | 'failed'
+type AiActivityStepDefinition = { key: string; text: string; state: AiActivityStepState; onRetry?: () => void }
+
+function createAiActivityStep(key: string): HTMLLIElement {
   const li = document.createElement('li')
-  li.className = `ai-activity-step is-${state}`
-  li.dataset.state = state
-  if (state === 'active') li.setAttribute('aria-current', 'step')
+  li.className = 'ai-activity-step'
+  li.dataset.stepKey = key
   const icon = document.createElement('span')
   icon.className = 'ai-activity-step-icon'
   icon.setAttribute('aria-hidden', 'true')
-  icon.textContent = state === 'done' ? '✓' : state === 'failed' ? '✗' : state === 'active' ? '⟳' : '○'
   const label = document.createElement('span')
   label.className = 'ai-activity-step-label'
-  label.textContent = text
   li.append(icon, label)
-  if (state === 'failed' && onRetry) {
-    const retry = document.createElement('button')
-    retry.type = 'button'
-    retry.className = 'quiet ai-activity-step-retry'
-    retry.textContent = t('sound.retry')
-    retry.addEventListener('click', onRetry)
-    li.append(' ', retry)
-  }
   return li
+}
+
+function updateAiActivityStep(li: HTMLLIElement, definition: AiActivityStepDefinition): void {
+  const className = `ai-activity-step is-${definition.state}`
+  if (li.className !== className) li.className = className
+  li.dataset.state = definition.state
+  if (definition.state === 'active') li.setAttribute('aria-current', 'step')
+  else li.removeAttribute('aria-current')
+
+  const icon = li.querySelector<HTMLElement>('.ai-activity-step-icon')!
+  const iconText = definition.state === 'done' ? '✓' : definition.state === 'failed' ? '✗' : definition.state === 'active' ? '⟳' : '○'
+  if (icon.textContent !== iconText) icon.textContent = iconText
+  const label = li.querySelector<HTMLElement>('.ai-activity-step-label')!
+  if (label.textContent !== definition.text) label.textContent = definition.text
+
+  let retry = li.querySelector<HTMLButtonElement>('.ai-activity-step-retry')
+  if (definition.state === 'failed' && definition.onRetry) {
+    if (!retry) {
+      retry = document.createElement('button')
+      retry.type = 'button'
+      retry.className = 'quiet ai-activity-step-retry'
+      li.append(retry)
+    }
+    retry.textContent = t('sound.retry')
+    retry.onclick = definition.onRetry
+  } else {
+    retry?.remove()
+  }
+}
+
+function reconcileAiActivitySteps(stepper: HTMLOListElement, definitions: readonly AiActivityStepDefinition[]): void {
+  const existing = new Map(
+    [...stepper.querySelectorAll<HTMLLIElement>(':scope > .ai-activity-step[data-step-key]')]
+      .map((element) => [element.dataset.stepKey!, element] as const),
+  )
+  const retained = new Set<HTMLLIElement>()
+  definitions.forEach((definition, index) => {
+    const li = existing.get(definition.key) ?? createAiActivityStep(definition.key)
+    retained.add(li)
+    updateAiActivityStep(li, definition)
+    const current = stepper.children.item(index)
+    if (current !== li) stepper.insertBefore(li, current)
+  })
+  for (const child of [...stepper.children]) if (!retained.has(child as HTMLLIElement)) child.remove()
 }
 
 function fullCompositionStageText(stage: CompositionWorkflowState): string {
@@ -3494,19 +3940,19 @@ function renderFullCompositionStepper(stage: CompositionWorkflowState): void {
 
   const completed = new Set('completed' in stage ? stage.completed : fullCompositionWorkflow?.composedSections.map((section) => section.id))
   const current = 'sectionId' in stage ? stage.sectionId : undefined
-  const nodes: HTMLLIElement[] = [aiActivityStep(t('ai.activity.plan'), plan ? 'done' : stage.kind === 'planning' ? 'active' : 'pending')]
+  const steps: AiActivityStepDefinition[] = [{ key: 'plan', text: t('ai.activity.plan'), state: plan ? 'done' : stage.kind === 'planning' ? 'active' : 'pending' }]
   for (const section of plan?.sections ?? []) {
-    const state: 'done' | 'active' | 'pending' | 'failed' = completed.has(section.id)
+    const state: AiActivityStepState = completed.has(section.id)
       ? 'done'
       : current === section.id
         ? (stage.kind === 'error' ? 'failed' : 'active')
         : 'pending'
     const onRetry = state === 'failed' ? () => retryFullCompositionSection(section.id) : undefined
-    nodes.push(aiActivityStep(section.name, state, onRetry))
+    steps.push({ key: `section:${section.id}`, text: section.name, state, onRetry })
   }
-  nodes.push(aiActivityStep(t('ai.activity.assemble'), stage.kind === 'assembling' || stage.kind === 'validating' ? 'active' : stage.kind === 'complete' ? 'done' : 'pending'))
-  nodes.push(aiActivityStep(t('ai.activity.done'), stage.kind === 'complete' ? 'done' : 'pending'))
-  stepper.replaceChildren(...nodes)
+  steps.push({ key: 'assemble', text: t('ai.activity.assemble'), state: stage.kind === 'assembling' || stage.kind === 'validating' ? 'active' : stage.kind === 'complete' ? 'done' : 'pending' })
+  steps.push({ key: 'done', text: t('ai.activity.done'), state: stage.kind === 'complete' ? 'done' : 'pending' })
+  reconcileAiActivitySteps(stepper, steps)
 }
 
 function improvStateKey(state: ImprovState): string {
@@ -3523,20 +3969,34 @@ function improvStateKey(state: ImprovState): string {
 function renderAiActivity(): void {
   const activity = workspaceStore.state.activity
   const container = $<HTMLElement>('ai-activity')
+  const title = $('ai-activity-title')
+  const status = $('ai-activity-status')
+  const stepper = $<HTMLOListElement>('ai-activity-stepper')
+  const cancel = $<HTMLButtonElement>('btn-ai-activity-cancel')
   if (activity.kind === 'idle') {
-    container.hidden = true
+    if (!aiUsageSession.last) {
+      container.hidden = true
+      return
+    }
+    container.hidden = false
+    title.textContent = t('ai.usageSession')
+    const currency = currentAiBillingCurrency()
+    const sessionStatus = [t('ai.usageRequests', { count: aiUsageSession.requestCount })]
+    if (aiUsageSession.pricedRequestCounts[currency] > 0) sessionStatus.push(t('ai.usageEstimatedCost', { cost: formatAiMoney(aiUsageSession.estimatedCosts[currency], currency) }))
+    if (aiUsageSession.unpricedRequestCounts[currency] > 0) sessionStatus.push(t('ai.usageUnpriced', { count: aiUsageSession.unpricedRequestCounts[currency] }))
+    status.textContent = sessionStatus.join(' · ')
+    status.classList.remove('err')
+    stepper.hidden = true
+    cancel.hidden = true
     return
   }
   container.hidden = false
-  const stepper = $<HTMLOListElement>('ai-activity-stepper')
-  const cancel = $<HTMLButtonElement>('btn-ai-activity-cancel')
   switch (activity.kind) {
     case 'compose': {
       const status = $('ai-activity-status')
       $('ai-activity-title').textContent = activity.task === 'media' ? t('ai.activity.media') : t('ai.compose')
       status.textContent = activity.error ? t('ai.error', { error: activity.error }) : t('ai.composing')
       status.classList.toggle('err', Boolean(activity.error))
-      stepper.replaceChildren()
       stepper.hidden = true
       cancel.hidden = true
       break
@@ -3547,14 +4007,12 @@ function renderAiActivity(): void {
     case 'improv':
       $('ai-activity-title').textContent = t('simpleEdit.improvMode')
       $('ai-activity-status').textContent = t(improvStateKey(workspaceStore.state.improv))
-      stepper.replaceChildren()
       stepper.hidden = true
       cancel.hidden = true
       break
     case 'prompt-test':
       $('ai-activity-title').textContent = t('ai.promptTestTitle')
       $('ai-activity-status').textContent = t('ai.activity.testing', { passed: activity.passed, total: activity.total })
-      stepper.replaceChildren()
       stepper.hidden = true
       cancel.hidden = true
       break
@@ -3687,7 +4145,8 @@ aiComposeForm.addEventListener('submit', (event) => {
   activeFullCompositionStream = createAiEditorStream()
   const reasoningStream = beginAiReasoningStream()
   clearOwtPlaybackContext()
-  fullCompositionWorkflow = createFullCompositionWorkflow(currentAiConfig(), { ...aiTransport(), onReasoningUpdate: (text) => activeAiReasoningStream?.update(text) }, renderFullCompositionStage, renderFullCompositionStream)
+  const config = currentAiConfig()
+  fullCompositionWorkflow = createFullCompositionWorkflow(config, { ...aiTransport(undefined, config), onReasoningUpdate: (text) => activeAiReasoningStream?.update(text) }, renderFullCompositionStage, renderFullCompositionStream)
   void fullCompositionWorkflow.run(instruction).then(({ owt }) => {
     activeFullCompositionStream?.finish(owt)
     applyFullCompositionResult(owt, false)
@@ -3697,6 +4156,7 @@ aiComposeForm.addEventListener('submit', (event) => {
     setStatus('ai-status', error instanceof Error ? error.message : String(error), 'err')
     setAiComposeState('error')
   }).finally(() => {
+    activeFullCompositionStream?.cancel()
     activeFullCompositionStream = undefined
     finishAiReasoningStream(reasoningStream)
     setAiBusy(false)
@@ -3920,14 +4380,15 @@ async function detectHardwareKeyboard(): Promise<boolean | null> {
   return null
 }
 
-async function initializeComputerMapDisclosure(): Promise<void> {
+async function initializeComputerKeyboardExperience(): Promise<void> {
+  hardwareKeyboardAvailable = await detectHardwareKeyboard()
+  syncAutomaticComputerKeyboardLayout()
   const preference = window.localStorage.getItem(COMPUTER_MAP_PREFERENCE_KEY)
   if (preference === 'expanded' || preference === 'collapsed') {
     setComputerMapExpanded(preference === 'expanded')
     return
   }
-  const detected = await detectHardwareKeyboard()
-  setComputerMapExpanded(detected ?? true)
+  setComputerMapExpanded(hardwareKeyboardAvailable ?? true)
 }
 
 function renderComputerKeyMap(): void {
@@ -3947,6 +4408,13 @@ function renderComputerKeyMap(): void {
     f: { label: t('live.velocityDownKey'), velocity: true },
     '4': { label: t('live.velocityUpKey'), velocity: true },
   } : {}
+
+  if (layout === 'none') {
+    const empty = document.createElement('div')
+    empty.className = 'computer-map-empty'
+    empty.textContent = t('live.noComputerMapping')
+    root.appendChild(empty)
+  }
 
   for (const sectionSpec of keyboardSectionsForLayout(layout)) {
     const section = document.createElement('div')
@@ -4056,6 +4524,7 @@ function buildComputerKeyLabels(): Map<number, string[]> {
 
 function syncPianoToComputerMap(behavior: ScrollBehavior): void {
   const assignments = mapping.listComputerKeyAssignments()
+  if (assignments.length === 0) return
   const minNote = assignments[0]!.note
   const maxNote = assignments[assignments.length - 1]!.note
   requestAnimationFrame(() => {
@@ -4286,7 +4755,8 @@ window.addEventListener('beforeunload', () => {
 // ─── Boot ────────────────────────────────────────────────────────────────────
 
 renderLearnBindings()
-const initialComputerLayout = savedComputerLayoutPreference() ?? defaultComputerLayoutForLocale(getLocale())
+renderAiUsageStats()
+const initialComputerLayout = preferredComputerLayout()
 setComputerKeyboardLayout(initialComputerLayout, false)
 setPlaybackUi(false)
 renderLoopPlaybackUi()
@@ -4300,6 +4770,7 @@ const initialScoreView: ScoreViewId = ['owt', 'timeline', 'staff', 'jianpu'].inc
   : 'owt'
 showScoreView(initialScoreView, false)
 renderMidiState(midiManager.getState())
+void midiManager.restorePermission()
 showWorkspacePage('studio')
 renderTimelineView()
 if (initialOwtHashPresent && initialOwtFromHash === null) {
@@ -4320,7 +4791,7 @@ window.addEventListener('hashchange', () => {
   showScoreView('owt')
   setTranslatedStatus('owt-status', 'owt.shareLoaded', {}, 'ok')
 })
-void initializeComputerMapDisclosure()
+void initializeComputerKeyboardExperience()
 builtInSoundFontPromise = loadBuiltInSoundFont()
 void builtInSoundFontPromise.then(() => refreshAudioOutputs(true))
 

@@ -1,25 +1,24 @@
 /**
  * OpusWeave — main entry point.
  *
- * 1. `mcp` and `owt` argv are handled BEFORE normal GUI startup.
+ * 1. MCP and application-owned CLI commands are handled before GUI startup.
  * 2. `owt play` compiles OWT and opens the GUI with startup MIDI.
- * 3. BunDesk desktop app: HTTP server + window; CLI actions on all three
- *    layers (CLI / HTTP API / GUI console).
+ * 3. BunDesk owns the desktop HTTP server, window and lifecycle.
  * 4. Linux (and Windows) use the Chromium-family browser provider because the
  *    product depends on WebMIDI, which WebKitGTK and WebView2 do not expose
  *    without extra permission plumbing.
  */
 import { createDesktopApp } from 'bundesk'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { mainMcp } from './mcp/server.ts'
 import { OpusWeaveService } from './domain/services/opusweave-service.ts'
 import { OpusWeaveError } from './shared/errors.ts'
-import { optionalNumber, optionalString, printJson, requireString, type ActionArgs } from './cli/cli.ts'
 import { runOwtCli, type OwtCliResult } from './cli/owt-cli.ts'
 import { runCompositionCli } from './cli/composition-cli.ts'
+import { runServiceCli } from './cli/service-cli.ts'
 import page from './web/index.html'
 import { readFileSync } from 'node:fs'
 import workletPath from '../node_modules/spessasynth_lib/dist/spessasynth_processor.min.js' with { type: 'file' }
@@ -46,6 +45,8 @@ if (argv[0] === 'mcp') {
   if (result.kind === 'play') await runDesktopApp(result)
 } else if (argv[0] === 'composition') {
   await runCompositionCli(argv.slice(1), service)
+} else if (await runServiceCli(argv, service)) {
+  // The application-owned service command ran without starting BunDesk.
 } else {
   await runDesktopApp()
 }
@@ -59,6 +60,12 @@ async function runDesktopApp(startupPlayback?: Extract<OwtCliResult, { kind: 'pl
     cli: {
       name: 'opus-weave',
       description: 'OpusWeave — from idea to score to performance. Run `opusweave` for the GUI, `opusweave mcp` for the MCP server.',
+      options: [
+        { flags: 'create-midi', description: 'Create MIDI from JSON (--spec <file> --output <file>)' },
+        { flags: 'inspect-midi', description: 'Inspect MIDI as JSON (--file <file>)' },
+        { flags: 'render-midi', description: 'Render WAV (--midi <file> --soundfont <file> --output <file>)' },
+        { flags: 'doctor', description: 'Diagnose dependencies ([--soundfont <file>])' },
+      ],
     },
 
     server: {
@@ -80,9 +87,9 @@ async function runDesktopApp(startupPlayback?: Extract<OwtCliResult, { kind: 'pl
 
     window: {
       path: '/',
-      // 'browser' = Chromium-family app mode on Linux AND Windows (WebMIDI).
+      // Chromium App Mode is required for WebMIDI on Linux and Windows.
       // WebKitGTK and unpatched WebView2 do not expose Web MIDI.
-      provider: 'browser',
+      provider: 'chromium-app',
       title: 'OpusWeave',
       width: 1280,
       height: 860,
@@ -90,72 +97,6 @@ async function runDesktopApp(startupPlayback?: Extract<OwtCliResult, { kind: 'pl
     },
 
     singleInstance: smokeDataDirectory ? { dataDirectory: smokeDataDirectory } : {},
-
-    actions: [
-      {
-        name: 'create-midi',
-        description: 'Create a MIDI file from a CompositionSpec JSON file and write it to disk',
-        args: [
-          { name: 'spec', type: 'string', required: true, description: 'Path to a CompositionSpec JSON file' },
-          { name: 'output', type: 'string', required: true, description: 'Output .mid file path' },
-        ],
-        async handler(args: ActionArgs) {
-          const specPath = requireString(args, 'spec')
-          const output = requireString(args, 'output')
-          const raw = await Bun.file(resolve(here, '..', specPath)).text()
-          const spec = JSON.parse(raw) as unknown
-          const result = await service.createMidi(spec, output)
-          printJson(result)
-          return { ok: true, ...result }
-        },
-      },
-
-      {
-        name: 'inspect-midi',
-        description: 'Parse a MIDI file and print structured information (tracks, tempos, time signatures, ranges, warnings) as JSON',
-        args: [{ name: 'file', type: 'string', required: true, description: 'Input .mid file path' }],
-        async handler(args: ActionArgs) {
-          const file = requireString(args, 'file')
-          const inspection = await service.inspectMidiFile(file)
-          printJson(inspection)
-          return { ok: true, ...inspection }
-        },
-      },
-
-      {
-        name: 'render-midi',
-        description: 'Render MIDI + SoundFont to WAV using the system FluidSynth binary',
-        args: [
-          { name: 'midi', type: 'string', required: true, description: 'Input .mid file path' },
-          { name: 'soundfont', type: 'string', required: true, description: 'Input .sf2/.sf3 SoundFont path' },
-          { name: 'output', type: 'string', required: true, description: 'Output .wav file path' },
-          { name: 'sample-rate', type: 'number', required: false, description: 'Sample rate in Hz (default 44100)' },
-          { name: 'gain', type: 'number', required: false, description: 'FluidSynth gain (default 0.5)' },
-        ],
-        async handler(args: ActionArgs) {
-          const result = await service.renderMidi({
-            midi: requireString(args, 'midi'),
-            soundfont: requireString(args, 'soundfont'),
-            output: requireString(args, 'output'),
-            sampleRate: optionalNumber(args, 'sample-rate', 44100),
-            gain: optionalNumber(args, 'gain', 0.5),
-          })
-          printJson(result)
-          return { ok: true, ...result }
-        },
-      },
-
-      {
-        name: 'doctor',
-        description: 'Diagnose the environment: platform, Chromium, FluidSynth, SoundFont, app data directory, features',
-        args: [{ name: 'soundfont', type: 'string', required: false, description: 'Optional SoundFont path to check' }],
-        async handler(args: ActionArgs) {
-          const report = await service.doctor({ soundfont: optionalString(args, 'soundfont') })
-          printJson(report)
-          return { ok: true, ...report }
-        },
-      },
-    ],
 
     onReady: (context) => {
       console.log(`[opus-weave] ${VERSION} ready: ${context.url.href} env=${context.env}`)
@@ -165,7 +106,7 @@ async function runDesktopApp(startupPlayback?: Extract<OwtCliResult, { kind: 'pl
   // ─── Headless smoke test ───────────────────────────────────────────────────
   if (argv.includes('--smoke')) {
     try {
-      const result = await app.start(['--no-browser'])
+      const result = await app.start(['--no-window'])
       if (result.kind !== 'primary') throw new Error(`smoke start returned ${result.kind}`)
       const health = (await fetch(new URL('/api/health', result.url)).then((response) => response.json())) as { ok: boolean }
       console.log(`[smoke] server ok: ${result.url.href} health=${JSON.stringify(health)}`)

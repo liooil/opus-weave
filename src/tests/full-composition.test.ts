@@ -170,6 +170,7 @@ describe('Full Composition workflow', () => {
     }, { fetcher }, () => {}, () => {})
     await workflow.createPlan('test composition')
     expect(requestBody).toHaveProperty('reasoning_effort', 'high')
+    expect(requestBody).toHaveProperty('max_tokens', 6144)
   })
 
   test('turns off DeepSeek thinking when reasoning effort is explicitly none', async () => {
@@ -188,6 +189,7 @@ describe('Full Composition workflow', () => {
     await workflow.createPlan('test composition')
     expect(requestBody).toHaveProperty('reasoning_effort', 'none')
     expect(requestBody).toHaveProperty('thinking.type', 'disabled')
+    expect(requestBody).toHaveProperty('max_tokens', 4096)
   })
 
   test('streams DeepSeek V4 reasoning separately during composition', async () => {

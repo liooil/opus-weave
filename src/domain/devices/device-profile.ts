@@ -37,7 +37,7 @@ export interface DeviceProfile {
   match: DeviceMatchRule[]
   /** Editable control bindings: control id -> message mapping. */
   controls: Record<string, ControlMapping>
-  /** Default note range of the keyboard (for virtual keyboard sizing). */
+  /** Default playable note range, used to highlight and center the virtual keyboard. */
   noteRange?: { min: number; max: number }
 }
 

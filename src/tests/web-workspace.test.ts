@@ -3,6 +3,7 @@ import { describe, expect, test } from 'bun:test'
 const html = await Bun.file('src/web/index.html').text()
 const app = await Bun.file('src/web/app.ts').text()
 const css = await Bun.file('src/web/app.css').text()
+const i18n = await Bun.file('src/web/i18n.ts').text()
 const modalEditor = await Bun.file('src/web/editor/modal-editor.ts').text()
 const aiClient = await Bun.file('src/domain/ai/owt-ai.ts').text()
 const owtReference = await Bun.file('src/domain/owt/reference.ts').text()
@@ -10,8 +11,21 @@ const owtDocs = await Bun.file('docs/owt.md').text()
 const webBuild = await Bun.file('src/build-web.ts').text()
 const sourceHover = await Bun.file('src/web/views/source-hover-view.ts').text()
 const keyboardLayout = await Bun.file('src/web/keyboard/layout-view-model.ts').text()
+const computerLayoutPreference = await Bun.file('src/web/keyboard/computer-layout-preference.ts').text()
+const virtualKeyboard = await Bun.file('src/web/components/virtual-keyboard.ts').text()
 
 describe('web workspace structure', () => {
+  test('loads document icons through file imports instead of Bun HTML asset rewriting', () => {
+    expect(html).toContain('<img id="brand-mark" class="brand-mark" alt="" aria-hidden="true" />')
+    expect(html).not.toContain('src="./assets/app-icon.svg"')
+    expect(html).not.toContain('href="./assets/app-icon')
+    expect(app).toContain("import appIconUrl from './assets/app-icon.svg' with { type: 'file' }")
+    expect(app).toContain("import appIcon32Url from './assets/app-icon-32.png' with { type: 'file' }")
+    expect(app).toContain("import appIcon256Url from './assets/app-icon-256.png' with { type: 'file' }")
+    expect(app).toContain("$<HTMLImageElement>('brand-mark').src = appIconUrl")
+    expect(app).toContain("$<HTMLLinkElement>('app-icon-svg').href = appIconUrl")
+  })
+
   test('integrates score controls into the top bar without a local-session badge', () => {
     const header = html.slice(html.indexOf('<header'), html.indexOf('</header>'))
     expect(header).toContain('id="score-view-toolbar"')
@@ -162,6 +176,7 @@ describe('web workspace structure', () => {
     }
     expect(html).toContain('id="settings-save-state"')
     expect(html).toContain('id="midi-permission-card"')
+    expect(app).toContain('void midiManager.restorePermission()')
     expect(html).toContain('id="ai-provider"')
     expect(html).toContain('class="prompt-workbench"')
     expect(html).not.toContain('id="record-panel"')
@@ -210,6 +225,16 @@ describe('web workspace structure', () => {
     expect(css).toContain(".ai-improv-button[data-improv-state='thinking'] { border-color: rgba(198, 165, 246, 0.55)")
     expect(css).toContain('@keyframes ai-improv-pulse')
     expect(css).toContain(":root[data-effective-theme='light'] .ai-compose-button")
+  })
+
+  test('updates AI streams incrementally without taking over user scrolling', () => {
+    expect(app).toContain('shouldFollowScrollEnd(aiReasoningOutput.scrollTop')
+    expect(app).toContain('updateTextNode(aiReasoningTextNode, pending)')
+    expect(app).toContain('modalEditor.setStreamText(pending, recordInitialState)')
+    expect(app).toContain('if (aiEditorStreaming) {')
+    expect(modalEditor).toContain('this.textarea.setRangeText(patch.text, end, end')
+    expect(app).toContain('reconcileAiActivitySteps(stepper, steps)')
+    expect(app).not.toContain('stepper.replaceChildren(')
   })
 
   test('submits composition on Enter and exposes persistent per-feature prompt templates', () => {
@@ -305,7 +330,10 @@ describe('web workspace structure', () => {
     expect(html).not.toMatch(/id="ai-endpoint"[^>]*\svalue=/)
     expect(html).not.toMatch(/id="ai-model"[^>]*\svalue=/)
     expect(html).toContain('id=\"ai-protocol\"')
-    expect(html).toContain('id=\"ai-model-options\"')
+    expect(html).toContain('<select id="ai-model">')
+    expect(html).toContain('value="__custom__" data-i18n="ai.modelCustom"')
+    expect(html).toContain('id="ai-model-custom" type="text"')
+    expect(html).not.toContain('id="ai-model-options"')
     expect(html).toContain('id=\"btn-ai-refresh-models\"')
     expect(app).toContain('discoverAiModels(config')
     expect(html).toContain('<dialog id="ai-manual-dialog"')
@@ -320,11 +348,23 @@ describe('web workspace structure', () => {
   test('uses provider-first AI configuration with progressive generation parameters', () => {
     expect(html).toContain('id="ai-provider"')
     expect(html).toContain('<option value="deepseek">DeepSeek</option>')
-    expect(html).toContain('id="ai-model" type="text"')
+    expect(html).toContain('id="ai-billing-currency"')
+    expect(html).toContain('<option value="CNY"')
+    expect(html).toContain('<option value="USD"')
+    expect(app).toContain("resolveAiBillingCurrency(aiBillingCurrencyPreference, getLocale(), detectedBillingCurrencyForConfig())")
+    expect(app).toContain('discoverAiBillingCurrency(config')
+    expect(html).toContain('<select id="ai-model">')
+    expect(html).toContain('id="ai-model-custom" type="text"')
+    expect(app).toContain('renderAiModelOptions(discovery.models, currentAiModelId())')
+    expect(app).toContain('input.hidden = !custom')
+    expect(app).toContain('input.disabled = !custom')
     expect(html).toContain('class="settings-more-parameters"')
     for (const id of ['ai-thinking-mode', 'ai-reasoning-effort', 'ai-temperature', 'ai-top-p', 'ai-max-tokens', 'ai-thinking-budget']) {
       expect(html).toContain(`id="${id}"`)
     }
+    expect(html).toContain('Maximum final-answer tokens (thinking excluded)')
+    expect(i18n).toContain("'ai.maxTokens': '最大最终答案 token（不含思考）'")
+    expect(i18n).toContain("'ai.thinkingBudget': '额外思考 token 额度'")
     expect(app).toContain("thinkingMode: thinkingMode ? thinkingMode as NonNullable<OwtAiConfig['thinkingMode']> : undefined")
     expect(app).toContain("reasoningEffort: reasoningEffort ? reasoningEffort as NonNullable<OwtAiConfig['reasoningEffort']> : undefined")
     expect(app).toContain("deepseek: { baseUrl: 'https://api.deepseek.com', protocol: 'openai-chat-completions' }")
@@ -402,6 +442,11 @@ describe('web workspace structure', () => {
 
   test('moves file and MIDI import options out of the editor chrome', () => {
     expect(html).toContain('class="file-menu topbar-file-menu"')
+    expect(html).toContain('id="file-menu-icon" class="control-icon mask-icon"')
+    expect(html).not.toContain('>📄</span>')
+    expect(app).toContain("import fileIconUrl from './assets/file-icon.svg' with { type: 'file' }")
+    expect(app).toContain("$<HTMLElement>('file-menu-icon').style.setProperty('--control-icon-url'")
+    expect(css).toContain('.control-icon.mask-icon { background: currentColor;')
     expect(html.match(/id="owt-file"/g)).toHaveLength(1)
     expect(html).toContain('id="owt-example-menu"')
     expect(html).not.toContain('id="owt-example"')
@@ -447,6 +492,7 @@ describe('web workspace structure', () => {
     const mapHeader = livePanel.slice(livePanel.indexOf('id="computer-map-head"'), livePanel.indexOf('class="computer-map-content"'))
     expect(mapHeader).toContain('id="oct-down"')
     expect(mapHeader).toContain('id="oct-label"')
+    expect(mapHeader).toContain('class="map-performance-control computer-octave-control"')
     expect(mapHeader).toContain('id="velocity-down"')
     expect(mapHeader).toContain('id="key-velocity"')
     expect(mapHeader).toContain('id="computer-map-head"')
@@ -472,6 +518,9 @@ describe('web workspace structure', () => {
     expect(css).toContain('.performance-layout-control .stepper-label { color: var(--text); font-weight: 700; white-space: nowrap; }')
     expect(css).toContain('.computer-map:has(.computer-map-content[hidden]) .computer-map-layout .stepper-label { display: none; }')
     expect(css).toContain('.map-performance-control .velocity-input { width: 46px; height: 28px; padding: 3px 4px; border: 0; background: transparent; text-align: center; appearance: textfield; -moz-appearance: textfield; }')
+    expect(css).toContain(".computer-map:has(.qwerty-map[data-layout='none']) .computer-octave-control { display: none; }")
+    expect(i18n).toContain("'live.octave': 'Map octave'")
+    expect(i18n).toContain("'live.octave': '映射八度'")
   })
 
   test('renders layout-specific key maps including the complete FreePiano keyboard', () => {
@@ -483,9 +532,15 @@ describe('web workspace structure', () => {
     expect(keyboardLayout).toContain("['num0', 'num.', null]")
     expect(keyboardLayout).toContain('rowOffsets: [0, 1.5, 1.75, 2.25]')
     expect(keyboardLayout).toContain('rowOffsets: [0, 0.25, 0.75, 2]')
-    expect(app).toContain("return locale === 'zh-CN' ? 'pinyin' : 'english'")
-    expect(app).toContain('initialComputerLayout = savedComputerLayoutPreference() ?? defaultComputerLayoutForLocale(getLocale())')
-    expect(app).toContain('if (!savedComputerLayoutPreference()) setComputerKeyboardLayout(defaultComputerLayoutForLocale(locale), false)')
+    expect(computerLayoutPreference).toContain("return environment.locale === 'zh-CN' ? 'pinyin' : 'english'")
+    expect(computerLayoutPreference).toContain("if (environment.hasMidiInput || environment.hasHardwareKeyboard === false) return 'none'")
+    expect(html).toContain('<option value="none" data-i18n="layout.none">No mapping</option>')
+    expect(app).toContain('initialComputerLayout = preferredComputerLayout()')
+    expect(app).toContain('syncAutomaticComputerKeyboardLayout(state)')
+    expect(app).toContain('hasMidiInput: state.inputs.length > 0')
+    expect(app).toContain('hardwareKeyboardAvailable = await detectHardwareKeyboard()')
+    expect(app).toContain("if (layout === 'none')")
+    expect(app).toContain('if (assignments.length === 0) return')
     expect(app).toContain("root.dataset.layout = layout")
     expect(app).toContain("row.style.setProperty('--keyboard-row-offset'")
     expect(app).toContain('minNote: 0')
@@ -497,6 +552,24 @@ describe('web workspace structure', () => {
     expect(app).toContain('if (!assignment && !action)')
     expect(app).not.toContain("keycap.classList.add('unmapped')")
     expect(css).not.toContain('.computer-keycap.unmapped')
+  })
+
+  test('labels every piano key and highlights a matched MIDI keyboard range', () => {
+    expect(virtualKeyboard).toContain('label.textContent = noteName(note)')
+    expect(css).not.toContain('.vk-key:not(.mapped) .vk-label')
+    expect(virtualKeyboard).toContain("el.classList.toggle('midi-playable'")
+    expect(css).toContain('.vk-key.midi-playable')
+    expect(app).toContain('keyboard.setMidiPlayableRange(playableRange)')
+    expect(app).toContain('keyboard.scrollToRange(playableRange.min, playableRange.max)')
+  })
+
+  test('uses one-pointer piano glissando and reserves panning for two touches', () => {
+    expect(virtualKeyboard).toContain('new PianoPointerGesture()')
+    expect(virtualKeyboard).toContain('this.noteAtPoint(event.clientX, event.clientY)')
+    expect(virtualKeyboard).toContain('isPointerOnNativeScrollbar(this.root, event)')
+    expect(virtualKeyboard).not.toContain('enableHorizontalPointerScroll(this.root')
+    expect(css).toContain('touch-action: none')
+    expect(css).toContain('#virtual-keyboard.is-touch-panning { scroll-behavior: auto; }')
   })
 
   test('explains hovered score source as a readable multiline field list', () => {

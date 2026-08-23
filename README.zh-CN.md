@@ -46,7 +46,7 @@ MIDI 播放/导出  →  SoundFont 合成
 
 ## 快速开始
 
-前置条件：[Bun](https://bun.sh) ≥ 1.3.14，Chromium 系浏览器（Chrome、Edge、
+前置条件：[Bun](https://bun.sh) ≥ 1.4.0，Chromium 系浏览器（Chrome、Edge、
 Brave…，WebMIDI 需要），可选安装 `fluidsynth` 用于离线渲染。
 
 ```bash
@@ -57,7 +57,7 @@ bun run dev            # 桌面窗口（Linux/Windows 使用 Chromium 应用模�
 无头服务器（用 Firefox 或 Chromium 打开打印出的地址）：
 
 ```bash
-bun run dev --no-browser
+bun run dev --no-window
 ```
 
 服务器只绑定 `127.0.0.1`，默认不暴露到局域网。
@@ -121,7 +121,7 @@ OpusWeave 默认加载 **mda Piano**，即 FreePiano 1.8 默认使用的采样�
 
 ```
 src/
-├── main.ts                    # BunDesk 桌面应用、CLI actions、--smoke、MCP 路由
+├── main.ts                    # BunDesk 桌面应用、CLI 分发、--smoke、MCP 路由
 ├── build.ts                   # 单文件二进制构建（bundesk）
 ├── domain/                    # 无框架核心：OWT、旋律提取、composition IR、
 │   │                          #   MIDI 导入导出、设备与共享服务

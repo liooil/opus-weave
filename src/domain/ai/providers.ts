@@ -1,4 +1,9 @@
+import { mergeAiTokenUsageSnapshots, type AiTokenUsage } from './usage.ts'
+import type { AiBillingCurrency } from './pricing.ts'
+
 export type AiProtocol = 'auto' | 'openai-responses' | 'openai-chat-completions' | 'openai-completions' | 'anthropic-messages' | 'ollama-native'
+
+export type { AiTokenUsage } from './usage.ts'
 
 export type AiProviderHint = 'openai' | 'anthropic' | 'ollama' | 'llama.cpp' | 'openrouter' | 'deepseek' | 'compatible'
 
@@ -144,6 +149,21 @@ export function aiThinkingParameters(baseUrl: string, thinkingMode?: AiThinkingM
   return { thinking: { type: thinkingMode === 'disabled' ? 'disabled' : 'enabled' } }
 }
 
+/** Ask official OpenAI-compatible streaming APIs for their final usage chunk. */
+export function applyAiStreamUsageParameters(
+  body: Record<string, unknown>,
+  config: AiConnectionConfig,
+  protocol: Exclude<AiProtocol, 'auto'> = resolvedAiProtocol(config),
+): Record<string, unknown> {
+  if (body.stream !== true || (protocol !== 'openai-chat-completions' && protocol !== 'openai-completions')) return body
+  const provider = aiProviderHint(config.baseUrl)
+  if (provider !== 'openai' && provider !== 'deepseek') return body
+  const existing = body.stream_options && typeof body.stream_options === 'object' && !Array.isArray(body.stream_options)
+    ? body.stream_options as Record<string, unknown>
+    : {}
+  return { ...body, stream_options: { ...existing, include_usage: true } }
+}
+
 export async function sendAiProviderRequest(request: AiProviderRequest, options: AiProviderTransportOptions = {}): Promise<Response> {
   const fetcher = options.fetcher ?? fetch
   return fetcher(request.endpoint, {
@@ -152,6 +172,35 @@ export async function sendAiProviderRequest(request: AiProviderRequest, options:
     body: request.body === undefined ? undefined : JSON.stringify(request.body),
     signal: options.signal,
   })
+}
+
+/**
+ * Detect an account's billing currency when the provider exposes it without
+ * creating a charge. DeepSeek's balance endpoint returns CNY or USD.
+ */
+export async function discoverAiBillingCurrency(
+  config: AiConnectionConfig,
+  options: AiProviderTransportOptions = {},
+): Promise<AiBillingCurrency | undefined> {
+  if (!config.baseUrl || !config.apiKey || aiProviderHint(config.baseUrl) !== 'deepseek') return undefined
+  const root = apiRoot(config.baseUrl, 'deepseek')
+  const headers = aiRequestHeaders(config, 'openai-chat-completions')
+  delete headers['content-type']
+  const response = await sendAiProviderRequest({
+    endpoint: appendPath(root, 'user/balance'),
+    method: 'GET',
+    headers,
+  }, options)
+  if (!response.ok) return undefined
+  let payload: unknown
+  try { payload = await response.json() } catch { return undefined }
+  if (!payload || typeof payload !== 'object' || !Array.isArray((payload as { balance_infos?: unknown }).balance_infos)) return undefined
+  const currencies = [...new Set((payload as { balance_infos: unknown[] }).balance_infos.flatMap((item): AiBillingCurrency[] => {
+    if (!item || typeof item !== 'object') return []
+    const currency = (item as { currency?: unknown }).currency
+    return currency === 'CNY' || currency === 'USD' ? [currency] : []
+  }))]
+  return currencies.length === 1 ? currencies[0] : undefined
 }
 
 export function extractAiResponseText(protocol: Exclude<AiProtocol, 'auto'>, payload: Record<string, unknown>): string {
@@ -225,11 +274,87 @@ function isMaxTokensStopReason(stopReason: string | undefined): boolean {
   return stopReason === 'length' || stopReason === 'max_tokens' || stopReason === 'max_output_tokens' || stopReason === 'MAX_TOKENS'
 }
 
+function tokenCount(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.trunc(value) : undefined
+}
+
+function objectValue(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined
+}
+
+/** Normalize provider-specific usage payloads without estimating token counts. */
+export function extractAiTokenUsage(
+  protocol: Exclude<AiProtocol, 'auto'>,
+  payload: Record<string, unknown>,
+): AiTokenUsage | undefined {
+  const response = protocol === 'openai-responses' ? objectValue(payload.response) ?? payload : payload
+  const message = protocol === 'anthropic-messages' ? objectValue(payload.message) : undefined
+  const usage = objectValue(message?.usage) ?? objectValue(response.usage)
+
+  if (protocol === 'ollama-native') {
+    const inputTokens = tokenCount(response.prompt_eval_count)
+    const outputTokens = tokenCount(response.eval_count)
+    if (inputTokens === undefined && outputTokens === undefined) return undefined
+    const input = inputTokens ?? 0
+    const output = outputTokens ?? 0
+    return {
+      inputTokens: input,
+      cachedInputTokens: 0,
+      cacheWriteInputTokens: 0,
+      outputTokens: output,
+      reasoningTokens: 0,
+      totalTokens: input + output,
+    }
+  }
+
+  if (!usage) return undefined
+  if (protocol === 'anthropic-messages') {
+    const ordinaryInput = tokenCount(usage.input_tokens)
+    const cachedInput = tokenCount(usage.cache_read_input_tokens) ?? 0
+    const cacheWriteInput = tokenCount(usage.cache_creation_input_tokens) ?? 0
+    const output = tokenCount(usage.output_tokens)
+    if (ordinaryInput === undefined && output === undefined && cachedInput === 0 && cacheWriteInput === 0) return undefined
+    const input = (ordinaryInput ?? 0) + cachedInput + cacheWriteInput
+    return {
+      inputTokens: input,
+      cachedInputTokens: cachedInput,
+      cacheWriteInputTokens: cacheWriteInput,
+      outputTokens: output ?? 0,
+      reasoningTokens: 0,
+      totalTokens: input + (output ?? 0),
+    }
+  }
+
+  const inputDetails = objectValue(usage.input_tokens_details) ?? objectValue(usage.prompt_tokens_details)
+  const outputDetails = objectValue(usage.output_tokens_details) ?? objectValue(usage.completion_tokens_details)
+  const cacheHit = tokenCount(usage.prompt_cache_hit_tokens) ?? tokenCount(inputDetails?.cached_tokens) ?? 0
+  const cacheMiss = tokenCount(usage.prompt_cache_miss_tokens)
+  const cacheWrite = tokenCount(inputDetails?.cache_write_tokens) ?? 0
+  const reportedInput = tokenCount(usage.input_tokens) ?? tokenCount(usage.prompt_tokens)
+  const reportedOutput = tokenCount(usage.output_tokens) ?? tokenCount(usage.completion_tokens)
+  const reportedTotal = tokenCount(usage.total_tokens)
+  if (reportedInput === undefined && reportedOutput === undefined && reportedTotal === undefined && cacheHit === 0 && cacheMiss === undefined && cacheWrite === 0) return undefined
+  const input = reportedInput ?? cacheHit + (cacheMiss ?? 0) + cacheWrite
+  const output = reportedOutput ?? Math.max(0, (reportedTotal ?? input) - input)
+  const cachedInput = Math.min(input, cacheHit)
+  const cacheWriteInput = Math.min(Math.max(0, input - cachedInput), cacheWrite)
+  const reasoning = Math.min(output, tokenCount(outputDetails?.reasoning_tokens) ?? 0)
+  return {
+    inputTokens: input,
+    cachedInputTokens: cachedInput,
+    cacheWriteInputTokens: cacheWriteInput,
+    outputTokens: output,
+    reasoningTokens: reasoning,
+    totalTokens: Math.max(input + output, reportedTotal ?? 0),
+  }
+}
+
 export async function readAiTextResponse(
   response: Response,
   protocol: Exclude<AiProtocol, 'auto'>,
   onUpdate?: (text: string) => void,
   onReasoningUpdate?: (text: string) => void,
+  onUsage?: (usage: AiTokenUsage) => void,
 ): Promise<string> {
   if (!response.ok) {
     const detail = await response.text()
@@ -240,6 +365,8 @@ export async function readAiTextResponse(
     const raw = await response.text()
     let payload: Record<string, unknown>
     try { payload = JSON.parse(raw) as Record<string, unknown> } catch { throw new Error('AI endpoint returned a non-streaming, non-JSON response') }
+    const usage = extractAiTokenUsage(protocol, payload)
+    if (usage) onUsage?.(usage)
     const reasoning = extractAiResponseReasoning(protocol, payload)
     if (reasoning) onReasoningUpdate?.(reasoning)
     const text = extractAiResponseText(protocol, payload)
@@ -254,6 +381,7 @@ export async function readAiTextResponse(
   let reasoning = ''
   let finalPayload: Record<string, unknown> | undefined
   let stopReason: string | undefined
+  let usage: AiTokenUsage | undefined
   let sawReasoning = false
   const consume = (line: string): void => {
     const trimmed = line.trim()
@@ -262,6 +390,8 @@ export async function readAiTextResponse(
     if (!data || data === '[DONE]') return
     let payload: Record<string, unknown>
     try { payload = JSON.parse(data) as Record<string, unknown> } catch { return }
+    const usageSnapshot = extractAiTokenUsage(protocol, payload)
+    if (usageSnapshot) usage = mergeAiTokenUsageSnapshots(usage, usageSnapshot)
     const currentStopReason = extractAiStreamStopReason(protocol, payload)
     if (currentStopReason) stopReason = currentStopReason
     const reasoningDelta = extractAiStreamReasoningDelta(protocol, payload)
@@ -287,6 +417,7 @@ export async function readAiTextResponse(
     if (done) break
   }
   if (pending.trim()) consume(pending)
+  if (usage) onUsage?.(usage)
   if (!text && finalPayload) {
     try {
       text = extractAiResponseText(protocol, finalPayload)
@@ -300,7 +431,7 @@ export async function readAiTextResponse(
   if (!text) {
     const stopHint = stopReason
       ? isMaxTokensStopReason(stopReason)
-        ? ` (stop_reason=${stopReason}; max output tokens reached)`
+        ? ` (stop_reason=${stopReason}; combined reasoning/output token limit reached)`
         : ` (stop_reason=${stopReason})`
       : ''
     if (sawReasoning) throw new Error(`AI stream returned reasoning but no final message content${stopHint}`)

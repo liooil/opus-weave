@@ -1,4 +1,5 @@
 import { buildOwtSyntaxIndex, nextObject, objectContaining, objectsOfKind, selectionLevelForClickCount, semanticRangeFromNativeSelection, syntaxChild, syntaxParent, type OwtObjectKind, type OwtSyntaxIndex } from './owt-objects.ts'
+import { incrementalTextPatch } from '../rendering/incremental-render.ts'
 
 export type EditorMode = 'normal' | 'insert' | 'select' | 'command' | 'raw'
 
@@ -187,6 +188,23 @@ export class ModalOwtEditor {
     if (record) this.pushUndo()
     this.textarea.value = text; this.selections = [this.mode === 'raw' ? cursor(text, 0) : this.eventSelectionAt(0)]; this.primary = 0
     this.sync(); this.callbacks.onChange(text); this.render()
+  }
+  /** Apply cumulative AI output without resetting the textarea for append-only chunks. */
+  setStreamText(text: string, record = false): boolean {
+    if (record) this.pushUndo()
+    const patch = incrementalTextPatch(this.text, text)
+    if (patch.kind === 'append') {
+      const end = this.text.length
+      this.textarea.setRangeText(patch.text, end, end, 'preserve')
+    } else if (patch.kind === 'replace') {
+      this.textarea.value = patch.text
+      this.selections = [this.mode === 'raw' ? cursor(text, 0) : this.eventSelectionAt(0)]
+      this.primary = 0
+      this.sync()
+    }
+    this.callbacks.onChange(text)
+    this.render()
+    return patch.kind !== 'replace'
   }
 
   private snapshot(): Snapshot { return { text: this.text, selections: cloneSelections(this.selections), primary: this.primary } }

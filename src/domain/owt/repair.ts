@@ -1,4 +1,4 @@
-import { parseOwt, scorePositionToQuarter, scoreTokenDuration, scoreTokens, stripComment } from './parser.ts'
+import { parseOwt, scoreTokenDuration, scoreTokens, stripComment } from './parser.ts'
 import { addRational, compareRational, formatRational, rational, subtractRational, ZERO, type Rational } from './rational.ts'
 import type { OwtScore } from './ast.ts'
 
@@ -49,37 +49,69 @@ function splitTimedEvent(text: string, left: Rational, right: Rational): string 
   return `${head}:${formatRational(left)}${attrs} | ${head}:${formatRational(right)}${attrs}`
 }
 
-function boundaryAtMeasure(measure: number, score: OwtScore): Rational {
-  return scorePositionToQuarter({ measure, beat: rational(1) }, score.meters)
+interface BoundaryWindow {
+  exact: boolean
+  previous?: Rational
+  next?: Rational
 }
 
-function isMeasureBoundary(cursor: Rational, score: OwtScore): boolean {
-  if (compareRational(cursor, ZERO) === 0) return true
-  for (let measure = 2; measure <= 100000; measure++) {
-    const boundary = boundaryAtMeasure(measure, score)
-    const comparison = compareRational(boundary, cursor)
-    if (comparison === 0) return true
-    if (comparison > 0) return false
+/**
+ * Lazily index measure boundaries once for the whole repair pass.
+ *
+ * The previous implementation searched from measure one for every lookup and
+ * called scorePositionToQuarter() for every candidate. A long, but valid,
+ * duration therefore turned a boundary lookup into quadratic work. Keeping a
+ * shared monotonically-grown index makes the same operation linear in the
+ * furthest measure reached, regardless of how many tracks or bar lines query
+ * it.
+ */
+function createMeasureBoundaryLookup(score: OwtScore): (cursor: Rational) => BoundaryWindow {
+  const boundaries: Rational[] = [ZERO]
+  const meters = score.meters
+  let meterIndex = 0
+  let activeMeter = meters[0] ?? {
+    position: { measure: 1, beat: rational(1) },
+    at: ZERO,
+    numerator: 4,
+    denominator: 4,
   }
-  return false
-}
 
-function nextBoundary(cursor: Rational, score: OwtScore): Rational | undefined {
-  for (let measure = 2; measure <= 100000; measure++) {
-    const boundary = boundaryAtMeasure(measure, score)
-    if (compareRational(boundary, cursor) > 0) return boundary
+  const appendBoundary = (): boolean => {
+    // boundaries[n] is the start of measure n + 1. Match the existing upper
+    // limit whose final candidate is the start of measure 100000.
+    if (boundaries.length >= 100000) return false
+    const measure = boundaries.length
+    while (meterIndex + 1 < meters.length && meters[meterIndex + 1]!.position.measure <= measure) {
+      activeMeter = meters[++meterIndex]!
+    }
+    const length = rational(activeMeter.numerator * 4, activeMeter.denominator)
+    boundaries.push(addRational(boundaries.at(-1)!, length))
+    return true
   }
-  return undefined
-}
 
-function lastBoundaryAfter(segmentStart: Rational, cursor: Rational, score: OwtScore): Rational | undefined {
-  let result: Rational | undefined
-  for (let measure = 2; measure <= 100000; measure++) {
-    const boundary = boundaryAtMeasure(measure, score)
-    if (compareRational(boundary, cursor) >= 0) break
-    if (compareRational(boundary, segmentStart) > 0) result = boundary
+  return (cursor): BoundaryWindow => {
+    while (compareRational(boundaries.at(-1)!, cursor) < 0 && appendBoundary()) {
+      // Extend only as far as this query needs; later queries reuse the work.
+    }
+
+    let low = 0
+    let high = boundaries.length
+    while (low < high) {
+      const middle = (low + high) >> 1
+      if (compareRational(boundaries[middle]!, cursor) < 0) low = middle + 1
+      else high = middle
+    }
+
+    const candidate = boundaries[low]
+    if (candidate && compareRational(candidate, cursor) === 0) {
+      return { exact: true, previous: low > 0 ? boundaries[low - 1] : undefined }
+    }
+    return {
+      exact: false,
+      previous: low > 0 ? boundaries[low - 1] : boundaries.at(-1),
+      next: candidate,
+    }
   }
-  return result
 }
 
 function applyPatches(text: string, patches: TextPatch[]): string {
@@ -104,10 +136,13 @@ function repairBarBoundaries(text: string, options: OwtRepairOptions): { text: s
   let segmentEvents: RepairEvent[] = []
   let unsupportedToken = false
   let unresolvedSegment = false
+  const findBoundaryWindow = createMeasureBoundaryLookup(score)
 
   const finishTrack = (insertAt: number): void => {
-    if (unresolvedSegment || isMeasureBoundary(cursor, score)) return
-    const upper = nextBoundary(cursor, score)
+    if (unresolvedSegment) return
+    const boundary = findBoundaryWindow(cursor)
+    if (boundary.exact) return
+    const upper = boundary.next
     if (!upper) return
     const gap = subtractRational(upper, cursor)
     if (compareRational(gap, ZERO) <= 0) return
@@ -119,13 +154,14 @@ function repairBarBoundaries(text: string, options: OwtRepairOptions): { text: s
   }
 
   const handleBar = (bar: RepairBar): void => {
-    if (isMeasureBoundary(cursor, score)) {
+    const boundary = findBoundaryWindow(cursor)
+    if (boundary.exact) {
       segmentStart = cursor
       segmentEvents = []
       unresolvedSegment = false
       return
     }
-    const upper = nextBoundary(cursor, score)
+    const upper = boundary.next
     if (!upper) {
       segmentStart = cursor
       segmentEvents = []
@@ -133,7 +169,9 @@ function repairBarBoundaries(text: string, options: OwtRepairOptions): { text: s
       return
     }
 
-    const lower = lastBoundaryAfter(segmentStart, cursor, score)
+    const lower = boundary.previous && compareRational(boundary.previous, segmentStart) > 0
+      ? boundary.previous
+      : undefined
     if (lower) {
       const eventAtBoundary = segmentEvents.find((event) => compareRational(event.at, lower) === 0)
       if (eventAtBoundary) {

@@ -15,7 +15,8 @@ export function noteName(note: number): string {
   return `${name}${octave}`
 }
 
-export type BuiltinComputerLayoutId = 'default' | 'english' | 'pinyin' | 'freepiano'
+export type BuiltinComputerLayoutId = 'none' | 'default' | 'english' | 'pinyin' | 'freepiano'
+export type PlayableComputerLayoutId = Exclude<BuiltinComputerLayoutId, 'none'>
 
 export interface ComputerKeyboardLayout {
   id: string
@@ -66,6 +67,7 @@ const FREEPIANO_CLASSIC_LAYOUT: ComputerKeyboardLayout = {
 }
 
 export const BUILTIN_COMPUTER_LAYOUTS: Readonly<Record<BuiltinComputerLayoutId, ComputerKeyboardLayout>> = {
+  none: { id: 'none', baseNote: 48, keys: {} },
   default: DEFAULT_LAYOUT,
   english: musicalKeys('english'),
   pinyin: musicalKeys('pinyin'),
@@ -134,20 +136,23 @@ export class MappingEngine {
     }).sort((left, right) => left.note - right.note || left.key.localeCompare(right.key))
   }
 
-  private layoutPitchRange(): { minimum: number; maximum: number } {
+  private layoutPitchRange(): { minimum: number; maximum: number } | null {
     const pitches = this.layout.musicalMode
       ? Object.keys(this.layout.keys).flatMap((key) => musicalTypingStep(key, this.layout.musicalMode!, 2)?.pitches ?? [])
       : Object.values(this.layout.keys).map((offset) => this.layout.baseNote + offset)
+    if (pitches.length === 0) return null
     return { minimum: Math.min(...pitches), maximum: Math.max(...pitches) }
   }
   private clampOctaveShift(): void {
     const range = this.layoutPitchRange()
+    if (!range) return
     const minimumShift = Math.ceil(-range.minimum / 12) * 12
     const maximumShift = Math.floor((127 - range.maximum) / 12) * 12
     this.octaveShift = Math.max(minimumShift, Math.min(maximumShift, this.octaveShift))
   }
 
   shiftOctave(delta: number): void {
+    if (!this.layoutPitchRange()) return
     this.octaveShift += delta * 12
     this.clampOctaveShift()
   }

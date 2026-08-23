@@ -18,7 +18,7 @@ The phase-1 spec mandates five separations, and the code follows them:
 3. **CLI and MCP share one service; the GUI composes domain modules directly.**
    `OpusWeaveService` (`src/domain/services/opusweave-service.ts`) is the single
    Node-side entry point for creating, inspecting, validating and rendering.
-   CLI actions (`src/main.ts`) and MCP tools (`src/mcp/tools.ts`) are thin
+   CLI adapters (`src/cli/`) and MCP tools (`src/mcp/tools.ts`) are thin
    adapters over it — neither re-implements MIDI processing. The browser GUI
    cannot import the service (it uses `Bun.file`/`node:fs`), so it calls the
    same framework-free domain modules in `src/domain/` directly.
@@ -36,7 +36,7 @@ The phase-1 spec mandates five separations, and the code follows them:
 
 ```
 src/main.ts        BunDesk app: HTTP server (127.0.0.1 only), window (Chromium
-                   provider), CLI actions, --smoke. `mcp` argv is handled
+                   provider), CLI dispatch, --smoke. `mcp` argv is handled
                    BEFORE any GUI code runs (stdio-only mode).
 src/build.ts       Single-file binary via bundesk; the AudioWorklet processor
                    is embedded with a `with { type: 'file' }` import and

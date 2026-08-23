@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { aiProviderHint, aiRequestEndpoint, aiRequestHeaders, discoverAiModels, resolvedAiProtocol } from '../domain/ai/providers.ts'
+import { aiProviderHint, aiRequestEndpoint, aiRequestHeaders, discoverAiBillingCurrency, discoverAiModels, extractAiTokenUsage, resolvedAiProtocol } from '../domain/ai/providers.ts'
 import { createOwtWithAi } from '../domain/ai/owt-ai.ts'
 
 const validOwt = `owt 0.1 score
@@ -92,13 +92,58 @@ describe('AI model discovery', () => {
   })
 })
 
+describe('AI billing currency discovery', () => {
+  test('reads an unambiguous currency from DeepSeek without creating a charge', async () => {
+    const fetcher = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      expect(String(input)).toBe('https://api.deepseek.com/user/balance')
+      expect(init?.method).toBe('GET')
+      expect(new Headers(init?.headers).get('authorization')).toBe('Bearer secret')
+      return Response.json({ is_available: true, balance_infos: [{ currency: 'CNY', total_balance: '10.00' }] })
+    }) as typeof fetch
+    await expect(discoverAiBillingCurrency({ baseUrl: 'https://api.deepseek.com/v1', apiKey: 'secret' }, { fetcher })).resolves.toBe('CNY')
+  })
+
+  test('does not guess for unsupported providers or ambiguous balances', async () => {
+    let calls = 0
+    const fetcher = (async (_input: URL | RequestInfo, _init?: RequestInit) => {
+      calls += 1
+      return Response.json({ balance_infos: [{ currency: 'CNY' }, { currency: 'USD' }] })
+    }) as typeof fetch
+    await expect(discoverAiBillingCurrency({ baseUrl: 'https://api.openai.com', apiKey: 'secret' }, { fetcher })).resolves.toBeUndefined()
+    expect(calls).toBe(0)
+    await expect(discoverAiBillingCurrency({ baseUrl: 'https://api.deepseek.com', apiKey: 'secret' }, { fetcher })).resolves.toBeUndefined()
+    expect(calls).toBe(1)
+  })
+})
+
 describe('AI protocol adapters', () => {
+  test('normalizes usage details from each supported provider protocol', () => {
+    expect(extractAiTokenUsage('openai-chat-completions', {
+      usage: {
+        prompt_tokens: 100,
+        prompt_cache_hit_tokens: 40,
+        prompt_cache_miss_tokens: 60,
+        completion_tokens: 30,
+        completion_tokens_details: { reasoning_tokens: 12 },
+        total_tokens: 130,
+      },
+    })).toEqual({ inputTokens: 100, cachedInputTokens: 40, cacheWriteInputTokens: 0, outputTokens: 30, reasoningTokens: 12, totalTokens: 130 })
+    expect(extractAiTokenUsage('openai-responses', {
+      type: 'response.completed',
+      response: { usage: { input_tokens: 80, input_tokens_details: { cached_tokens: 20, cache_write_tokens: 10 }, output_tokens: 25, output_tokens_details: { reasoning_tokens: 5 }, total_tokens: 105 } },
+    })).toEqual({ inputTokens: 80, cachedInputTokens: 20, cacheWriteInputTokens: 10, outputTokens: 25, reasoningTokens: 5, totalTokens: 105 })
+    expect(extractAiTokenUsage('anthropic-messages', {
+      message: { usage: { input_tokens: 50, cache_read_input_tokens: 30, cache_creation_input_tokens: 20, output_tokens: 1 } },
+    })).toEqual({ inputTokens: 100, cachedInputTokens: 30, cacheWriteInputTokens: 20, outputTokens: 1, reasoningTokens: 0, totalTokens: 101 })
+    expect(extractAiTokenUsage('ollama-native', { prompt_eval_count: 70, eval_count: 18 })).toEqual({ inputTokens: 70, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 18, reasoningTokens: 0, totalTokens: 88 })
+  })
+
   test('sends OpenAI Responses requests and extracts output text', async () => {
     const fetcher = (async (input: URL | RequestInfo, init?: RequestInit) => {
       expect(String(input)).toBe('https://api.openai.com/v1/responses')
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>
       expect(body).toHaveProperty('input')
-      expect(body).toHaveProperty('max_output_tokens', 4096)
+      expect(body).toHaveProperty('max_output_tokens', 6144)
       expect(body).toHaveProperty('temperature', 0.2)
       expect(body).toHaveProperty('top_p', 0.8)
       expect(body).toHaveProperty('reasoning.effort', 'high')
@@ -108,6 +153,38 @@ describe('AI protocol adapters', () => {
     expect(await createOwtWithAi({ baseUrl: 'https://api.openai.com', model: 'gpt-test', temperature: 0.2, topP: 0.8, reasoningEffort: 'high' }, request, { fetcher })).toBe(validOwt)
   })
 
+  test('uses OpenAI Chat Completions combined limit without shrinking the final-answer budget', async () => {
+    const fetcher = (async (_input: URL | RequestInfo, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+      expect(body.max_tokens).toBeUndefined()
+      expect(body).toHaveProperty('max_completion_tokens', 3000)
+      return Response.json({ choices: [{ message: { content: validOwt } }] })
+    }) as typeof fetch
+    await expect(createOwtWithAi({
+      baseUrl: 'https://api.openai.com',
+      protocol: 'openai-chat-completions',
+      model: 'gpt-test',
+      reasoningEffort: 'high',
+      maxTokens: 1000,
+      thinkingBudgetTokens: 2000,
+    }, request, { fetcher })).resolves.toBe(validOwt)
+  })
+
+  test('keeps the visible limit unchanged for a compatible endpoint without reasoning', async () => {
+    const fetcher = (async (_input: URL | RequestInfo, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+      expect(body).toHaveProperty('max_tokens', 1234)
+      return Response.json({ choices: [{ message: { content: validOwt } }] })
+    }) as typeof fetch
+    await expect(createOwtWithAi({
+      baseUrl: 'http://model.test',
+      protocol: 'openai-chat-completions',
+      model: 'plain-model',
+      maxTokens: 1234,
+      thinkingBudgetTokens: 5678,
+    }, request, { fetcher })).resolves.toBe(validOwt)
+  })
+
   test('sends Anthropic Messages requests and extracts content blocks', async () => {
     const fetcher = (async (input: URL | RequestInfo, init?: RequestInit) => {
       expect(String(input)).toBe('https://api.anthropic.com/v1/messages')
@@ -115,6 +192,7 @@ describe('AI protocol adapters', () => {
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>
       expect(body).toHaveProperty('stream', true)
       expect(body).toHaveProperty('system')
+      expect(body).toHaveProperty('max_tokens', 6144)
       expect(body).toHaveProperty('thinking.type', 'adaptive')
       expect(body).toHaveProperty('output_config.effort', 'xhigh')
       return Response.json({ content: [{ type: 'text', text: validOwt }] })
@@ -126,7 +204,7 @@ describe('AI protocol adapters', () => {
     const fetcher = (async (input: URL | RequestInfo, init?: RequestInit) => {
       expect(String(input)).toBe('http://localhost:11434/api/chat')
       const body = JSON.parse(String(init?.body))
-      expect(body).toHaveProperty('options.num_predict', 4096)
+      expect(body).toHaveProperty('options.num_predict', 6144)
       expect(body).toHaveProperty('options.temperature', 0.25)
       expect(body).toHaveProperty('options.top_p', 0.9)
       expect(body).toHaveProperty('think', 'low')
@@ -141,6 +219,7 @@ describe('AI protocol adapters', () => {
       const body = JSON.parse(String(init?.body))
       expect(body).toHaveProperty('thinking.type', 'enabled')
       expect(body).toHaveProperty('thinking.budget_tokens', 3072)
+      expect(body).toHaveProperty('max_tokens', 7168)
       return Response.json({ content: [{ type: 'text', text: validOwt }] })
     }) as typeof fetch
     expect(await createOwtWithAi({
@@ -159,6 +238,7 @@ describe('AI protocol adapters', () => {
       const body = JSON.parse(String(init?.body))
       expect(body).toHaveProperty('stream', true)
       expect(body).toHaveProperty('reasoning_effort', 'minimal')
+      expect(body).toHaveProperty('max_tokens', 6144)
       return new Response(new ReadableStream({
         start(controller) {
           for (const content of pieces) controller.enqueue(encoder.encode(`data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\n`))
@@ -187,6 +267,7 @@ describe('AI protocol adapters', () => {
     const fetcher = (async (_input: URL | RequestInfo, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>
       expect(body).toHaveProperty('thinking.type', 'enabled')
+      expect(body).toHaveProperty('max_tokens', 6144)
       return streamResponse([
         JSON.stringify({ choices: [{ delta: { reasoning_content: 'Thinking through the score...' } }] }),
         JSON.stringify({ choices: [{ delta: { content: validOwt } }] }),
@@ -197,7 +278,72 @@ describe('AI protocol adapters', () => {
     expect(reasoning).toEqual(['Thinking through the score...'])
   })
 
-  test('reports when a reasoning-only stream hits the max output token limit', async () => {
+  test('requests and reports DeepSeek streaming usage', async () => {
+    const encoder = new TextEncoder()
+    const fetcher = (async (_input: URL | RequestInfo, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+      expect(body).toHaveProperty('stream_options.include_usage', true)
+      return new Response(new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: validOwt } }], usage: null })}\n\n`))
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ choices: [], usage: { prompt_tokens: 1000, prompt_cache_hit_tokens: 800, prompt_cache_miss_tokens: 200, completion_tokens: 250, completion_tokens_details: { reasoning_tokens: 90 }, total_tokens: 1250 } })}\n\n`))
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+          controller.close()
+        },
+      }), { headers: { 'content-type': 'text/event-stream' } })
+    }) as typeof fetch
+    const usages: unknown[] = []
+    await expect(createOwtWithAi({ baseUrl: 'https://api.deepseek.com', model: 'deepseek-v4-flash' }, request, { fetcher, onUsage: (value) => usages.push(value) })).resolves.toBe(validOwt)
+    expect(usages).toEqual([{ inputTokens: 1000, cachedInputTokens: 800, cacheWriteInputTokens: 0, outputTokens: 250, reasoningTokens: 90, totalTokens: 1250 }])
+  })
+
+  test('reports usage from a completed OpenAI Responses stream', async () => {
+    const encoder = new TextEncoder()
+    const fetcher = (async (_input: URL | RequestInfo) => new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'response.output_text.delta', delta: validOwt })}\n\n`))
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'response.completed', response: { usage: { input_tokens: 90, input_tokens_details: { cached_tokens: 30 }, output_tokens: 20, output_tokens_details: { reasoning_tokens: 8 }, total_tokens: 110 } } })}\n\n`))
+        controller.close()
+      },
+    }), { headers: { 'content-type': 'text/event-stream' } })) as typeof fetch
+    const usages: unknown[] = []
+    await createOwtWithAi({ baseUrl: 'https://api.openai.com', model: 'gpt-test' }, request, { fetcher, onUsage: (value) => usages.push(value) })
+    expect(usages).toEqual([{ inputTokens: 90, cachedInputTokens: 30, cacheWriteInputTokens: 0, outputTokens: 20, reasoningTokens: 8, totalTokens: 110 }])
+  })
+
+  test('merges split Anthropic stream usage without double-counting', async () => {
+    const encoder = new TextEncoder()
+    const events = [
+      { type: 'message_start', message: { usage: { input_tokens: 50, cache_read_input_tokens: 30, cache_creation_input_tokens: 20, output_tokens: 1 } } },
+      { type: 'content_block_delta', delta: { type: 'text_delta', text: validOwt } },
+      { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 25 } },
+    ]
+    const fetcher = (async (_input: URL | RequestInfo) => new Response(new ReadableStream({
+      start(controller) {
+        for (const event of events) controller.enqueue(encoder.encode(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`))
+        controller.close()
+      },
+    }), { headers: { 'content-type': 'text/event-stream' } })) as typeof fetch
+    const usages: unknown[] = []
+    await createOwtWithAi({ baseUrl: 'https://api.anthropic.com', model: 'claude-test' }, request, { fetcher, onUsage: (value) => usages.push(value) })
+    expect(usages).toEqual([{ inputTokens: 100, cachedInputTokens: 30, cacheWriteInputTokens: 20, outputTokens: 25, reasoningTokens: 0, totalTokens: 125 }])
+  })
+
+  test('reports native Ollama counts from its final NDJSON object', async () => {
+    const encoder = new TextEncoder()
+    const fetcher = (async (_input: URL | RequestInfo) => new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode(`${JSON.stringify({ message: { content: validOwt }, done: false })}\n`))
+        controller.enqueue(encoder.encode(`${JSON.stringify({ message: { content: '' }, done: true, prompt_eval_count: 70, eval_count: 18 })}\n`))
+        controller.close()
+      },
+    }), { headers: { 'content-type': 'application/x-ndjson' } })) as typeof fetch
+    const usages: unknown[] = []
+    await createOwtWithAi({ baseUrl: 'http://localhost:11434', model: 'qwen-test' }, request, { fetcher, onUsage: (value) => usages.push(value) })
+    expect(usages).toEqual([{ inputTokens: 70, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 18, reasoningTokens: 0, totalTokens: 88 }])
+  })
+
+  test('reports when a reasoning-only stream hits the combined token limit', async () => {
     const encoder = new TextEncoder()
     const streamResponse = (events: string[]): Response => new Response(new ReadableStream({
       start(controller) {
@@ -214,6 +360,22 @@ describe('AI protocol adapters', () => {
         JSON.stringify({ choices: [{ delta: {}, finish_reason: 'length' }] }),
       ])
     }) as typeof fetch
-    await expect(createOwtWithAi({ baseUrl: 'https://api.deepseek.com', model: 'deepseek-v4-flash', thinkingMode: 'enabled' }, request, { fetcher })).rejects.toThrow('max output tokens reached')
+    await expect(createOwtWithAi({ baseUrl: 'https://api.deepseek.com', model: 'deepseek-v4-flash', thinkingMode: 'enabled' }, request, { fetcher })).rejects.toThrow('combined reasoning/output token limit reached')
+  })
+
+  test('does not add a reasoning allowance when thinking is explicitly disabled', async () => {
+    const fetcher = (async (_input: URL | RequestInfo, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+      expect(body).toHaveProperty('max_output_tokens', 4096)
+      expect(body).toHaveProperty('reasoning.effort', 'none')
+      return Response.json({ output_text: validOwt })
+    }) as typeof fetch
+    await expect(createOwtWithAi({
+      baseUrl: 'https://api.openai.com',
+      model: 'gpt-test',
+      thinkingMode: 'disabled',
+      maxTokens: 4096,
+      thinkingBudgetTokens: 8192,
+    }, request, { fetcher })).resolves.toBe(validOwt)
   })
 })

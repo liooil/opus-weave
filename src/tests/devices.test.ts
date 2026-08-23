@@ -26,7 +26,9 @@ describe('MIDIPLUS TINY+ profile', () => {
     expect(profile.controls['mod']!).toMatchObject({ kind: 'cc', controller: 1 })
     expect(profile.controls['sustain']!).toMatchObject({ kind: 'cc', controller: 64 })
     expect(profile.controls['pitchBend']!.kind).toBe('pitchBend')
-    expect(profile.noteRange).toEqual({ min: 36, max: 67 }) // 32 keys
+    expect(profile.noteRange).toEqual({ min: 41, max: 72 }) // 32 keys, F2..C5
+    expect(noteName(profile.noteRange!.min)).toBe('F2')
+    expect(noteName(profile.noteRange!.max)).toBe('C5')
   })
 
   it('allows overriding a control default without mutating the original', () => {
@@ -114,6 +116,15 @@ describe('MappingEngine (computer keyboard)', () => {
     const m = new MappingEngine()
     expect(m.keyToNote('`')).toBeNull()
     expect(m.keyDownMessage(' ')).toBeNull()
+  })
+
+  it('supports disabling all computer-key mappings', () => {
+    const m = new MappingEngine({ layout: 'none' })
+    expect(m.listComputerKeyAssignments()).toEqual([])
+    expect(m.keyDownMessages('z')).toEqual([])
+    expect(m.keyUpMessage('z')).toBeNull()
+    m.shiftOctave(1)
+    expect(m.currentOctaveShift).toBe(0)
   })
 
   it('sends on the configured channel', () => {

@@ -1,5 +1,24 @@
 import { describe, expect, test } from 'bun:test'
+import { isNoteInRange } from '../web/components/virtual-keyboard.ts'
 import { isPressureSensitive, pressureToVelocity } from '../web/pointer-pressure.ts'
+
+describe('virtual keyboard MIDI range', () => {
+  test('includes both ends of a connected keyboard note range', () => {
+    const range = { min: 36, max: 67 }
+    expect(isNoteInRange(35, range)).toBe(false)
+    expect(isNoteInRange(36, range)).toBe(true)
+    expect(isNoteInRange(60, range)).toBe(true)
+    expect(isNoteInRange(67, range)).toBe(true)
+    expect(isNoteInRange(68, range)).toBe(false)
+  })
+
+  test('does not highlight notes for a missing or invalid range', () => {
+    expect(isNoteInRange(60, null)).toBe(false)
+    expect(isNoteInRange(60, { min: 68, max: 36 })).toBe(false)
+    expect(isNoteInRange(60, { min: -1, max: 67 })).toBe(false)
+    expect(isNoteInRange(60, { min: 36, max: 128 })).toBe(false)
+  })
+})
 
 describe('virtual keyboard pressure velocity', () => {
   test('maps normalized pressure to MIDI velocity in 1..127', () => {

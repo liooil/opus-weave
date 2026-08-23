@@ -34,3 +34,13 @@ declare module '*.md' {
   const fileUrl: string
   export default fileUrl
 }
+
+declare module '*.svg' {
+  const fileUrl: string
+  export default fileUrl
+}
+
+declare module '*.png' {
+  const fileUrl: string
+  export default fileUrl
+}

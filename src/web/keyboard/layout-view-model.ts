@@ -54,6 +54,7 @@ const CODE_KEYS: Readonly<Record<string, string>> = {
 }
 
 export function keyboardSectionsForLayout(layout: BuiltinComputerLayoutId): readonly ComputerKeyboardSectionSpec[] {
+  if (layout === 'none') return []
   if (layout === 'freepiano') return FREEPIANO_KEYBOARD_SECTIONS
   if (layout === 'english' || layout === 'pinyin') return [{ id: 'main', rows: WORD_MELODY_ROWS, rowOffsets: [0, 0.25, 0.75, 2] }]
   return [{ id: 'main', rows: STANDARD_QWERTY_ROWS, rowOffsets: [0, 1.5, 1.75, 2.25] }]

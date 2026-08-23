@@ -1,4 +1,4 @@
-import { aiRequestEndpoint, aiRequestHeaders, readAiTextResponse, resolvedAiProtocol, sendAiProviderRequest } from '../../domain/ai/providers.ts'
+import { aiRequestEndpoint, aiRequestHeaders, applyAiStreamUsageParameters, readAiTextResponse, resolvedAiProtocol, sendAiProviderRequest } from '../../domain/ai/providers.ts'
 import { FullCompositionWorkflow, type FullCompositionStage, type FullCompositionStreamUpdate } from '../../domain/ai/full-composition.ts'
 import { aiRepairRetryCount, applyOwtAiReasoningParameters, buildOwtAiMessages, type OwtAiConfig, type OwtAiTransportOptions } from '../../domain/ai/owt-ai.ts'
 
@@ -24,9 +24,10 @@ export function createFullCompositionWorkflow(
     else if (protocol === 'anthropic-messages') body = { model: config.model, system: messages[0]!.content, messages: [messages[1]], temperature: config.temperature ?? 0.35, max_tokens: config.maxTokens ?? 4096, stream: true }
     else if (protocol === 'ollama-native') body = { model: config.model, messages, options: { temperature: config.temperature ?? 0.35, num_predict: config.maxTokens ?? 4096 }, stream: true }
     body = applyOwtAiReasoningParameters(body, config, protocol)
+    body = applyAiStreamUsageParameters(body, config, protocol)
     const read = async (bodyToSend: Record<string, unknown>): Promise<string> => {
       const response = await sendAiProviderRequest({ endpoint: aiRequestEndpoint(config), headers: aiRequestHeaders(config, protocol), body: bodyToSend }, { ...options, signal })
-      return readAiTextResponse(response, protocol, onUpdate, onReasoningUpdate)
+      return readAiTextResponse(response, protocol, onUpdate, onReasoningUpdate, options.onUsage)
     }
     return read(body)
   }, onStage, onStream, aiRepairRetryCount(config), config.promptTemplates)

@@ -1,6 +1,6 @@
 import { parseOwt } from '../owt/parser.ts'
 import { buildOwt01Reference } from '../owt/reference.ts'
-import { aiProviderHint, aiRequestEndpoint, aiRequestHeaders, aiThinkingParameters, readAiTextResponse, resolvedAiProtocol, sendAiProviderRequest, type AiProtocol } from './providers.ts'
+import { aiProviderHint, aiRequestEndpoint, aiRequestHeaders, aiThinkingParameters, applyAiStreamUsageParameters, readAiTextResponse, resolvedAiProtocol, sendAiProviderRequest, type AiProtocol, type AiTokenUsage } from './providers.ts'
 
 export interface OwtAiPromptTemplates {
   system: string
@@ -21,14 +21,56 @@ export interface OwtAiConfig {
   apiKey?: string
   temperature?: number
   topP?: number
+  /** Maximum tokens reserved for the visible final answer, excluding reasoning. */
   maxTokens?: number
   thinkingMode?: AiThinkingMode
   reasoningEffort?: AiReasoningEffort
+  /** Additional generated-token allowance reserved for model reasoning. */
   thinkingBudgetTokens?: number
   promptTemplates?: Partial<OwtAiPromptTemplates>
   locale?: 'en' | 'zh-CN'
   retryCount?: number
   autoRepair?: boolean
+}
+
+function normalizedTokenCount(value: number | undefined, fallback: number, minimum = 1): number {
+  return Math.max(minimum, Math.trunc(Number.isFinite(value) ? value! : fallback))
+}
+
+/** Whether the selected protocol may spend generated tokens on hidden/separate reasoning. */
+function mayGenerateReasoning(config: OwtAiConfig, protocol: Exclude<AiProtocol, 'auto'>): boolean {
+  if (protocol === 'openai-completions' || config.thinkingMode === 'disabled') return false
+  if (config.thinkingMode === 'enabled' || config.thinkingMode === 'adaptive') return true
+  if (config.reasoningEffort === 'none') return false
+  if (config.reasoningEffort) return true
+
+  // These native protocols can reason under their provider/model defaults even
+  // when the caller does not send an explicit toggle. Generic compatible chat
+  // endpoints get the reserve only when reasoning was explicitly requested.
+  if (protocol === 'openai-responses' || protocol === 'anthropic-messages' || protocol === 'ollama-native') return true
+  const provider = aiProviderHint(config.baseUrl)
+  return protocol === 'openai-chat-completions' && (provider === 'openai' || provider === 'deepseek')
+}
+
+export function aiReasoningTokenAllowance(
+  config: OwtAiConfig,
+  protocol: Exclude<AiProtocol, 'auto'> = resolvedAiProtocol(config),
+): number {
+  if (!mayGenerateReasoning(config, protocol)) return 0
+  return normalizedTokenCount(config.thinkingBudgetTokens, 2048, config.thinkingMode === 'enabled' && protocol === 'anthropic-messages' ? 1024 : 1)
+}
+
+/**
+ * Provider token-limit fields combine reasoning and visible text. OpusWeave's
+ * maxTokens setting is intentionally final-answer-only, so requests add a
+ * separate reasoning allowance whenever the selected protocol may think.
+ */
+export function aiRequestOutputTokenLimit(
+  config: OwtAiConfig,
+  protocol: Exclude<AiProtocol, 'auto'> = resolvedAiProtocol(config),
+): number {
+  const visibleOutputTokens = normalizedTokenCount(config.maxTokens, 4096)
+  return visibleOutputTokens + aiReasoningTokenAllowance(config, protocol)
 }
 
 /**
@@ -48,22 +90,33 @@ export function applyOwtAiReasoningParameters(
     ? config.reasoningEffort
     : undefined
   let requestBody = { ...body }
+  const outputTokenLimit = aiRequestOutputTokenLimit(config, protocol)
+
+  if (protocol === 'openai-responses') {
+    requestBody.max_output_tokens = outputTokenLimit
+  } else if (protocol === 'openai-chat-completions' && aiProviderHint(config.baseUrl) === 'openai') {
+    delete requestBody.max_tokens
+    requestBody.max_completion_tokens = outputTokenLimit
+  } else if (protocol === 'openai-chat-completions' || protocol === 'openai-completions' || protocol === 'anthropic-messages') {
+    requestBody.max_tokens = outputTokenLimit
+  } else if (protocol === 'ollama-native') {
+    const options = requestBody.options && typeof requestBody.options === 'object'
+      ? requestBody.options as Record<string, unknown>
+      : {}
+    requestBody.options = { ...options, num_predict: outputTokenLimit }
+  }
 
   if (protocol === 'openai-responses' && openAiEffort) {
     requestBody = { ...requestBody, reasoning: { effort: openAiEffort } }
   } else if (protocol === 'openai-chat-completions' && openAiEffort) {
     requestBody = { ...requestBody, reasoning_effort: openAiEffort }
   } else if (protocol === 'anthropic-messages') {
-    const maxTokens = typeof body.max_tokens === 'number' ? body.max_tokens : config.maxTokens ?? 4096
-    if (config.thinkingMode === 'enabled' && maxTokens <= 1024) {
-      throw new Error('Anthropic manual thinking requires maxTokens to be greater than 1024')
-    }
     const thinking = config.thinkingMode === 'adaptive'
       ? { type: 'adaptive' }
       : config.thinkingMode === 'enabled'
         ? {
             type: 'enabled',
-            budget_tokens: Math.max(1024, Math.min(config.thinkingBudgetTokens ?? 2048, maxTokens - 1)),
+            budget_tokens: aiReasoningTokenAllowance(config, protocol),
           }
         : config.thinkingMode === 'disabled'
           ? { type: 'disabled' }
@@ -120,6 +173,7 @@ export interface OwtAiTransportOptions {
   signal?: AbortSignal
   onUpdate?: (text: string) => void
   onReasoningUpdate?: (text: string) => void
+  onUsage?: (usage: AiTokenUsage) => void
 }
 
 interface ChatMessage {
@@ -443,13 +497,14 @@ async function postChat(config: OwtAiConfig, body: ChatBody, options: OwtAiTrans
     }
   }
   requestBody = applyOwtAiReasoningParameters(requestBody as Record<string, unknown>, config, protocol)
+  requestBody = applyAiStreamUsageParameters(requestBody as Record<string, unknown>, config, protocol)
   const read = async (bodyToSend: unknown): Promise<string> => {
     const response = await sendAiProviderRequest({
       endpoint,
       headers: aiRequestHeaders(config, protocol),
       body: bodyToSend,
     }, options)
-    return readAiTextResponse(response, protocol, options.onUpdate, options.onReasoningUpdate)
+    return readAiTextResponse(response, protocol, options.onUpdate, options.onReasoningUpdate, options.onUsage)
   }
   return read(requestBody)
 }

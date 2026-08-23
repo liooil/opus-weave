@@ -6,6 +6,37 @@ export interface HorizontalPointerScrollOptions {
   onTap?: (target: HTMLElement, event: PointerEvent, startEvent: PointerEvent) => void
 }
 
+export interface ScrollbarHitArea {
+  clientHeight: number
+  clientWidth: number
+  clientLeft: number
+  clientTop: number
+  offsetHeight: number
+  offsetWidth: number
+  scrollHeight: number
+  scrollWidth: number
+  getBoundingClientRect(): { top: number; right: number; bottom: number; left: number }
+}
+
+/** True when a pointer is inside a classic scrollbar rather than its content box. */
+export function isPointerOnNativeScrollbar(
+  element: ScrollbarHitArea,
+  point: { clientX: number; clientY: number },
+): boolean {
+  const rect = element.getBoundingClientRect()
+  const insideX = point.clientX >= rect.left && point.clientX < rect.right
+  const insideY = point.clientY >= rect.top && point.clientY < rect.bottom
+  if (!insideX || !insideY) return false
+
+  const horizontalScrollbar = element.scrollWidth > element.clientWidth
+    && element.offsetHeight > element.clientHeight
+    && point.clientY >= rect.top + element.clientTop + element.clientHeight
+  const verticalScrollbar = element.scrollHeight > element.clientHeight
+    && element.offsetWidth > element.clientWidth
+    && point.clientX >= rect.left + element.clientLeft + element.clientWidth
+  return horizontalScrollbar || verticalScrollbar
+}
+
 /**
  * Adds click/hold plus drag-to-scroll behavior to a horizontally scrollable
  * element. A short stationary pointer becomes a tap; a held pointer starts the
@@ -50,6 +81,9 @@ export function enableHorizontalPointerScroll(
 
   const onPointerDown = (event: PointerEvent) => {
     if (pointerId !== null || (event.pointerType === 'mouse' && event.button !== 0)) return
+    // Pointer capture cancels the browser's native scrollbar-thumb drag. Leave
+    // scrollbar gestures untouched and only capture pointers from the content.
+    if (isPointerOnNativeScrollbar(element, event)) return
     const closest = (event.target as Element | null)?.closest<HTMLElement>(options.targetSelector) ?? null
     target = closest && element.contains(closest) ? closest : null
     pointerId = event.pointerId

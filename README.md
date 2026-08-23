@@ -47,7 +47,7 @@ MIDI playback/export  →  SoundFont synthesis
 
 ## Quick start
 
-Prerequisites: [Bun](https://bun.sh) ≥ 1.3.14, a Chromium-family browser
+Prerequisites: [Bun](https://bun.sh) ≥ 1.4.0, a Chromium-family browser
 (Chrome, Edge, Brave…) for WebMIDI, and optionally `fluidsynth` for offline
 WAV rendering.
 
@@ -59,7 +59,7 @@ bun run dev            # desktop window (Chromium app mode on Linux/Windows)
 Headless server (open the printed URL in Firefox or Chromium):
 
 ```bash
-bun run dev --no-browser
+bun run dev --no-window
 ```
 
 The server binds `127.0.0.1` only — it is never exposed to the LAN by default.
@@ -138,7 +138,7 @@ schema and validation rules.
 
 ```
 src/
-├── main.ts                    # BunDesk desktop app, CLI actions, --smoke, MCP routing
+├── main.ts                    # BunDesk desktop app, CLI dispatch, --smoke, MCP routing
 ├── build.ts                   # single-file binary build (bundesk)
 ├── build-web.ts               # static browser build (GitHub Pages)
 ├── domain/                    # framework-free core: OWT, melody extraction,

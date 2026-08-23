@@ -15,7 +15,7 @@ export function midiplusTinyPlusProfile(): DeviceProfile {
       { field: 'name', pattern: 'midiplus|tiny', flags: 'i' },
       { field: 'manufacturer', pattern: 'midiplus', flags: 'i' },
     ],
-    noteRange: { min: 36, max: 67 }, // 32 keys, C2..G4
+    noteRange: { min: 41, max: 72 }, // 32 keys, F2..C5 at the neutral octave/transpose setting
     controls: {
       'k1': { kind: 'cc', controller: 93 }, // K1 default: CC93
       'k2': { kind: 'cc', controller: 91 }, // K2 default: CC91 (reverb)

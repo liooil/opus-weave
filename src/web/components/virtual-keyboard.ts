@@ -1,11 +1,12 @@
 /**
  * VirtualKeyboard — renders a piano keyboard for an arbitrary note range.
- * Not fixed at 88 keys: a 32-key MIDIPLUS TINY+ (C2..G4) or the range of the
- * loaded MIDI both get a sane layout. Click-to-play optional.
+ * Note names are always present; computer-key mappings and the playable range
+ * of a connected MIDI keyboard are tracked as separate visual states.
  */
 import { noteName } from '../../domain/devices/mapping-engine.ts'
-import { enableHorizontalPointerScroll } from './horizontal-pointer-scroll.ts'
+import { isPointerOnNativeScrollbar } from './horizontal-pointer-scroll.ts'
 import { isPressureSensitive, pressureToVelocity } from '../pointer-pressure.ts'
+import { PianoPointerGesture, type PianoGestureAction, type PianoPointerSample } from './piano-pointer-gesture.ts'
 
 export interface VirtualKeyboardOptions {
   /** Lowest MIDI note to render. */
@@ -18,6 +19,28 @@ export interface VirtualKeyboardOptions {
   onNoteOff?: (note: number) => void
 }
 
+export interface MidiNoteRange {
+  min: number
+  max: number
+}
+
+/** True when a valid MIDI note belongs to a valid inclusive MIDI range. */
+export function isNoteInRange(note: number, range: MidiNoteRange | null | undefined): boolean {
+  return Boolean(
+    range
+    && Number.isInteger(note)
+    && note >= 0
+    && note <= 127
+    && Number.isInteger(range.min)
+    && Number.isInteger(range.max)
+    && range.min >= 0
+    && range.max <= 127
+    && range.min <= range.max
+    && note >= range.min
+    && note <= range.max,
+  )
+}
+
 function isBlack(note: number): boolean {
   const pc = ((note % 12) + 12) % 12
   return pc === 1 || pc === 3 || pc === 6 || pc === 8 || pc === 10
@@ -28,18 +51,13 @@ export class VirtualKeyboard {
   private readonly keys = new Map<number, HTMLElement>()
   private readonly expected = new Set<number>()
   private readonly computerLabels = new Map<number, string[]>()
+  private readonly pointerGesture = new PianoPointerGesture()
+  private midiPlayableRange: MidiNoteRange | null = null
 
   constructor(container: HTMLElement, private readonly opts: VirtualKeyboardOptions) {
     this.root = container
     this.render()
-    enableHorizontalPointerScroll(this.root, {
-      targetSelector: '.vk-key',
-      onHoldStart: (target, event) => this.startPointerNote(target, event),
-      onTap: (target, _event, startEvent) => {
-        const release = this.startPointerNote(target, startEvent)
-        if (release) window.setTimeout(release, 160)
-      },
-    })
+    this.enablePointerPerformance()
   }
 
   private render(): void {
@@ -49,6 +67,7 @@ export class VirtualKeyboard {
       const el = document.createElement('div')
       el.className = `vk-key${isBlack(note) ? ' black' : ''}`
       if (this.expected.has(note)) el.classList.add('expected')
+      if (isNoteInRange(note, this.midiPlayableRange)) el.classList.add('midi-playable')
       el.dataset.note = String(note)
       const label = document.createElement('span')
       label.className = 'vk-label'
@@ -68,16 +87,61 @@ export class VirtualKeyboard {
     return pressureToVelocity(event.pressure)
   }
 
-  private startPointerNote(target: HTMLElement, event?: PointerEvent): (() => void) | undefined {
-    const note = Number(target.dataset.note)
-    if (!Number.isInteger(note)) return undefined
-    this.opts.onNoteOn?.(note, this.pointerVelocity(event))
-    let released = false
-    return () => {
-      if (released) return
-      released = true
-      this.opts.onNoteOff?.(note)
+  private enablePointerPerformance(): void {
+    this.root.addEventListener('pointerdown', (event) => {
+      if ((event.pointerType === 'mouse' && event.button !== 0) || isPointerOnNativeScrollbar(this.root, event)) return
+      event.preventDefault()
+      const actions = this.pointerGesture.pointerDown(this.pointerSample(event), this.noteFromEventTarget(event))
+      this.root.setPointerCapture(event.pointerId)
+      this.applyGestureActions(actions, event)
+    })
+    this.root.addEventListener('pointermove', (event) => {
+      if (!this.pointerGesture.hasPointer(event.pointerId)) return
+      event.preventDefault()
+      const actions = this.pointerGesture.pointerMove(this.pointerSample(event), this.noteAtPoint(event.clientX, event.clientY))
+      this.applyGestureActions(actions, event)
+    })
+    const endPointer = (event: PointerEvent) => {
+      if (!this.pointerGesture.hasPointer(event.pointerId)) return
+      event.preventDefault()
+      this.applyGestureActions(this.pointerGesture.pointerUp(event.pointerId), event)
+      if (this.root.hasPointerCapture(event.pointerId)) this.root.releasePointerCapture(event.pointerId)
     }
+    this.root.addEventListener('pointerup', endPointer)
+    this.root.addEventListener('pointercancel', endPointer)
+    this.root.addEventListener('lostpointercapture', (event) => {
+      if (!this.pointerGesture.hasPointer(event.pointerId)) return
+      this.applyGestureActions(this.pointerGesture.pointerUp(event.pointerId), event)
+    })
+    window.addEventListener('blur', () => this.applyGestureActions(this.pointerGesture.cancelAll()))
+  }
+
+  private pointerSample(event: PointerEvent): PianoPointerSample {
+    return { pointerId: event.pointerId, pointerType: event.pointerType, clientX: event.clientX }
+  }
+
+  private noteFromEventTarget(event: PointerEvent): number | null {
+    return this.noteFromElement(event.target as Element | null)
+  }
+
+  private noteAtPoint(clientX: number, clientY: number): number | null {
+    return this.noteFromElement(document.elementFromPoint(clientX, clientY))
+  }
+
+  private noteFromElement(element: Element | null): number | null {
+    const key = element?.closest<HTMLElement>('.vk-key') ?? null
+    if (!key || !this.root.contains(key)) return null
+    const note = Number(key.dataset.note)
+    return Number.isInteger(note) ? note : null
+  }
+
+  private applyGestureActions(actions: readonly PianoGestureAction[], event?: PointerEvent): void {
+    for (const action of actions) {
+      if (action.type === 'note-on') this.opts.onNoteOn?.(action.note, this.pointerVelocity(event))
+      else if (action.type === 'note-off') this.opts.onNoteOff?.(action.note)
+      else this.root.scrollLeft += action.delta
+    }
+    this.root.classList.toggle('is-touch-panning', this.pointerGesture.isTouchPanning)
   }
 
   /** Highlight a pressed note. */
@@ -100,6 +164,14 @@ export class VirtualKeyboard {
   setMappedNotes(notes: ReadonlySet<number>): void {
     for (const [note, el] of this.keys) {
       el.classList.toggle('mapped', notes.has(note))
+    }
+  }
+
+  /** Highlight the notes playable on the selected physical MIDI keyboard. */
+  setMidiPlayableRange(range: MidiNoteRange | null | undefined): void {
+    this.midiPlayableRange = range ? { ...range } : null
+    for (const [note, el] of this.keys) {
+      el.classList.toggle('midi-playable', isNoteInRange(note, this.midiPlayableRange))
     }
   }
 

@@ -71,4 +71,30 @@ end
     expect(split.text).toContain('R:3\nend')
     expect(split.changes).toContain('bar-split-event')
   })
+
+  test('repairs a track containing a rest tens of thousands of measures long', () => {
+    const result = repairCommonOwtErrors(`owt 0.1 score
+meter 1:1 4/4
+track "Long pause" channel=1
+| C4:1 R:291811/4 C4:1/4
+end
+`)
+
+    expect(result.valid).toBe(true)
+    expect(result.text).toContain('C4:1 R:291811/4 C4:1/4\nR:2\nend')
+    expect(result.changes).toContain('track-fill-rest')
+  })
+
+  test('uses the active meter when locating a distant repair boundary', () => {
+    const result = repairCommonOwtErrors(`owt 0.1 score
+meter 1:1 4/4
+meter 3:1 3/4
+track "Changing meter" channel=1
+| R:8 | R:2
+end
+`)
+
+    expect(result.valid).toBe(true)
+    expect(result.text).toContain('| R:8 | R:2\nR:1\nend')
+  })
 })

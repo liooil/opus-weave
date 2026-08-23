@@ -41,7 +41,7 @@ interface ModelRecord {
   attachment?: boolean
   modalities?: { input?: string[]; output?: string[] }
   limit?: { context?: number; output?: number }
-  cost?: { input?: number; output?: number; cache_read?: number }
+  cost?: { input?: number; output?: number; cache_read?: number; cache_write?: number }
 }
 
 type Protocol = 'openai-responses' | 'openai-chat-completions' | 'openai-completions' | 'anthropic-messages' | 'ollama-native'
@@ -86,7 +86,7 @@ interface ModelOut {
   toolCall?: boolean
   structuredOutput?: boolean
   modalities?: string[]
-  cost?: { input?: number; output?: number; cache_read?: number }
+  cost?: { input?: number; output?: number; cache_read?: number; cache_write?: number }
 }
 
 const providers: ProviderOut[] = []
@@ -116,6 +116,7 @@ for (const [id, provider] of Object.entries(data)) {
         input: model.cost.input,
         output: model.cost.output,
         cache_read: model.cost.cache_read,
+        cache_write: model.cost.cache_write,
       } : undefined,
     }]
   })
@@ -141,10 +142,12 @@ const output = `/**
  */
 export type ModelDirectoryProtocol = 'openai-responses' | 'openai-chat-completions' | 'openai-completions' | 'anthropic-messages' | 'ollama-native'
 
+/** models.dev prices in USD per one million tokens. */
 export interface ModelDirectoryCost {
   input?: number
   output?: number
   cache_read?: number
+  cache_write?: number
 }
 
 export interface ModelDirectoryModel {

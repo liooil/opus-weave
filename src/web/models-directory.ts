@@ -7,10 +7,12 @@
  */
 export type ModelDirectoryProtocol = 'openai-responses' | 'openai-chat-completions' | 'openai-completions' | 'anthropic-messages' | 'ollama-native'
 
+/** models.dev prices in USD per one million tokens. */
 export interface ModelDirectoryCost {
   input?: number
   output?: number
   cache_read?: number
+  cache_write?: number
 }
 
 export interface ModelDirectoryModel {

@@ -50,7 +50,7 @@ import { resolveComputerLayoutPreference } from './keyboard/computer-layout-pref
 import { AI_CUSTOM_MODEL_VALUE, resolveAiModelChoice, selectedAiModelId } from './ai-model-choice.ts'
 import { findAiDirectoryModel } from './ai-directory-lookup.ts'
 import { appendAiUsageRecord, createAiUsageRecord, emptyAiUsageSession, parseAiUsageSession, repriceSingleAiUsageSession, type AiUsageRatesByCurrency, type AiUsageSessionStats } from './ai-usage-stats.ts'
-import { isManagedProviderBaseUrl, isManagedQuotaExceededError, managedQuotaFromHeaders, MANAGED_PROVIDER, MANAGED_PROVIDER_ID, MANAGED_TOKEN, type ManagedQuota } from './managed-provider.ts'
+import { defaultManagedConnectionWhenUnset, isManagedProviderBaseUrl, isManagedQuotaExceededError, managedQuotaFromHeaders, MANAGED_PROVIDER, MANAGED_PROVIDER_ID, type ManagedQuota } from './managed-provider.ts'
 import { incrementalTextPatch, shouldFollowScrollEnd } from './rendering/incremental-render.ts'
 import { byId as $, clearStatus, retranslateTrackedCopy, setStatus, setTranslatedStatus, setTranslatedText, showError } from './views/status-view.ts'
 import { WorkspaceStore, type CompositionWorkflowState, type ImprovState, type WorkspaceState } from './state/workspace-store.ts'
@@ -2421,14 +2421,28 @@ function storedAiConfig(): OwtAiConfig {
   const defaults = defaultOwtAiPromptTemplates(getLocale())
   try {
     const stored = JSON.parse(window.localStorage.getItem(AI_CONFIG_KEY) ?? '{}') as Partial<OwtAiConfig>
-    return {
+    const config: OwtAiConfig = {
       ...DEFAULT_OWT_AI_CONFIG,
       ...stored,
+      ...defaultManagedConnectionWhenUnset(stored),
       locale: getLocale(),
       promptTemplates: { ...defaults, ...stored.promptTemplates },
     }
+    if (isManagedProviderBaseUrl(config.baseUrl)) {
+      config.apiKey = undefined
+      if ('apiKey' in stored) {
+        delete stored.apiKey
+        window.localStorage.setItem(AI_CONFIG_KEY, JSON.stringify(stored))
+      }
+    }
+    return config
   } catch {
-    return { ...DEFAULT_OWT_AI_CONFIG, locale: getLocale(), promptTemplates: defaults }
+    return {
+      ...DEFAULT_OWT_AI_CONFIG,
+      ...defaultManagedConnectionWhenUnset({}),
+      locale: getLocale(),
+      promptTemplates: defaults,
+    }
   }
 }
 
@@ -2459,7 +2473,7 @@ function inferAiProvider(config: Pick<OwtAiConfig, 'baseUrl' | 'protocol'>): AiP
 function renderAiProviderUi(provider: AiProviderChoice): void {
   const local = provider === 'ollama' || provider === 'llamacpp'
   const managed = provider === 'managed' || isManagedProviderBaseUrl($<HTMLInputElement>('ai-endpoint').value)
-  $('ai-api-key-field').hidden = local
+  $('ai-api-key-field').hidden = local || managed
   $('ai-protocol-field').hidden = managed || provider !== 'custom'
   $<HTMLButtonElement>('btn-ai-refresh-models').hidden = managed
   if (managed) $<HTMLSelectElement>('ai-protocol').value = MANAGED_PROVIDER.protocol
@@ -2473,11 +2487,8 @@ function applyAiProviderPreset(provider: AiProviderChoice): void {
     $<HTMLInputElement>('ai-endpoint').value = defaults.baseUrl
     $<HTMLSelectElement>('ai-protocol').value = defaults.protocol
     if (provider === 'managed') {
-      keyInput.value = MANAGED_TOKEN
-      renderAiModelOptions([{ id: MANAGED_PROVIDER.modelId, name: t('ai.managedModel') }], MANAGED_PROVIDER.modelId)
-    } else if (MANAGED_TOKEN && keyInput.value === MANAGED_TOKEN) {
-      // Never forward the bundled managed credential to a BYOK provider.
       keyInput.value = ''
+      renderAiModelOptions([{ id: MANAGED_PROVIDER.modelId, name: t('ai.managedModel') }], MANAGED_PROVIDER.modelId)
     }
   }
   renderAiProviderUi(provider)
@@ -2508,11 +2519,8 @@ function renderManagedProviderState(): void {
     hint.classList.remove('is-warning')
     return
   }
-  const hasToken = Boolean($<HTMLInputElement>('ai-api-key').value.trim())
-  hint.classList.toggle('is-warning', !hasToken)
-  hint.textContent = hasToken
-    ? [quotaText, t('ai.managedHint')].filter(Boolean).join(' · ')
-    : t('ai.managedMissingToken')
+  hint.classList.remove('is-warning')
+  hint.textContent = [quotaText, t('ai.managedHint')].filter(Boolean).join(' · ')
 }
 
 function recordManagedQuota(config: OwtAiConfig, headers: Headers): void {
@@ -2592,7 +2600,7 @@ function renderAiConfig(config: OwtAiConfig): void {
   $<HTMLInputElement>('ai-endpoint').value = config.baseUrl
   if (managed) renderAiModelOptions([{ id: MANAGED_PROVIDER.modelId, name: t('ai.managedModel') }], MANAGED_PROVIDER.modelId)
   else setAiModelValue(config.model)
-  $<HTMLInputElement>('ai-api-key').value = config.apiKey ?? (managed ? MANAGED_TOKEN : '')
+  $<HTMLInputElement>('ai-api-key').value = managed ? '' : config.apiKey ?? ''
   $<HTMLSelectElement>('ai-protocol').value = managed ? MANAGED_PROVIDER.protocol : config.protocol ?? 'auto'
   $<HTMLSelectElement>('ai-provider').value = provider
   $<HTMLSelectElement>('ai-thinking-mode').value = config.thinkingMode ?? ''
@@ -2635,10 +2643,11 @@ function currentAiPromptTemplates(): OwtAiPromptTemplates {
 function currentAiConfig(): OwtAiConfig {
   const thinkingMode = $<HTMLSelectElement>('ai-thinking-mode').value
   const reasoningEffort = $<HTMLSelectElement>('ai-reasoning-effort').value
+  const baseUrl = $<HTMLInputElement>('ai-endpoint').value.trim()
   return {
-    baseUrl: $<HTMLInputElement>('ai-endpoint').value.trim(),
+    baseUrl,
     model: currentAiModelId(),
-    apiKey: $<HTMLInputElement>('ai-api-key').value || undefined,
+    apiKey: isManagedProviderBaseUrl(baseUrl) ? undefined : $<HTMLInputElement>('ai-api-key').value || undefined,
     protocol: $<HTMLSelectElement>('ai-protocol').value as AiProtocol,
     locale: getLocale(),
     thinkingMode: thinkingMode ? thinkingMode as NonNullable<OwtAiConfig['thinkingMode']> : undefined,
@@ -2781,7 +2790,7 @@ async function refreshAiModels(): Promise<void> {
     renderAiModelOptions([{ id: MANAGED_PROVIDER.modelId, name: t('ai.managedModel') }], MANAGED_PROVIDER.modelId)
     persistAiConfig()
     applyModelMetadataFromCurrent()
-    setTranslatedStatus('ai-status', config.apiKey ? 'ai.managedReady' : 'ai.managedMissingToken', {}, config.apiKey ? 'ok' : 'warn')
+    setTranslatedStatus('ai-status', 'ai.managedReady', {}, 'ok')
     updateConversationalImprovUi()
     return
   }
@@ -3174,7 +3183,7 @@ function applyDirectorySelection(): void {
     scheduleAiBillingCurrencyDetection()
     applyModelMetadataFromCurrent()
     updateConversationalImprovUi()
-    setTranslatedStatus('ai-status', MANAGED_TOKEN ? 'ai.managedReady' : 'ai.managedMissingToken', {}, MANAGED_TOKEN ? 'ok' : 'warn')
+    setTranslatedStatus('ai-status', 'ai.managedReady', {}, 'ok')
     $<HTMLDialogElement>('ai-model-directory-dialog').close()
     return
   }
@@ -3803,7 +3812,7 @@ $<HTMLSelectElement>('ai-provider').addEventListener('change', (event) => {
   applyModelMetadataFromCurrent()
   renderAiActivity()
   if (provider === 'managed') {
-    setTranslatedStatus('ai-status', MANAGED_TOKEN ? 'ai.managedReady' : 'ai.managedMissingToken', {}, MANAGED_TOKEN ? 'ok' : 'warn')
+    setTranslatedStatus('ai-status', 'ai.managedReady', {}, 'ok')
   }
 })
 

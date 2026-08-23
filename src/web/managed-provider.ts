@@ -4,20 +4,37 @@ export const MANAGED_PROVIDER_ID = 'opusweave-managed'
 
 export const MANAGED_PROVIDER = {
   id: MANAGED_PROVIDER_ID,
-  name: 'OpusWeave 托管（DeepSeek V4 Flash · 每日免费额度）',
+  name: 'OpusWeave 托管（DeepSeek V4 Flash · 每日共享免费额度）',
   api: 'https://ai.xiteng.site/v1',
   protocol: 'openai-chat-completions' satisfies AiProtocol,
   modelId: 'deepseek-v4-flash',
   modelName: 'DeepSeek V4 Flash（托管）',
 } as const
 
-export const MANAGED_TOKEN: string =
-  (import.meta.env?.VITE_OPUSWEAVE_MANAGED_TOKEN as string | undefined) ?? ''
-
 export interface ManagedQuota {
   spentCny: number
   limitCny: number
   retryAfter?: string
+}
+
+interface ManagedProviderConnection {
+  baseUrl: string
+  model: string
+  protocol: AiProtocol
+}
+
+/** New or completely empty UI profiles start with the managed provider. */
+export function defaultManagedConnectionWhenUnset(
+  config: { baseUrl?: unknown; model?: unknown },
+): Partial<ManagedProviderConnection> {
+  const hasBaseUrl = typeof config.baseUrl === 'string' && config.baseUrl.trim().length > 0
+  const hasModel = typeof config.model === 'string' && config.model.trim().length > 0
+  if (hasBaseUrl || hasModel) return {}
+  return {
+    baseUrl: MANAGED_PROVIDER.api,
+    model: MANAGED_PROVIDER.modelId,
+    protocol: MANAGED_PROVIDER.protocol,
+  }
 }
 
 function normalizedProviderUrl(value: string): string {

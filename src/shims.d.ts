@@ -44,11 +44,3 @@ declare module '*.png' {
   const fileUrl: string
   export default fileUrl
 }
-
-interface ImportMetaEnv {
-  readonly VITE_OPUSWEAVE_MANAGED_TOKEN?: string
-}
-
-interface ImportMeta {
-  readonly env?: ImportMetaEnv
-}

@@ -39,8 +39,6 @@ jobs:
 
       - name: Build static web app
         run: bun run build:web
-        env:
-          OPUSWEAVE_MANAGED_TOKEN: ${{ secrets.OPUSWEAVE_MANAGED_TOKEN }}
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

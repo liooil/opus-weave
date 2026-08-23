@@ -13,15 +13,11 @@ import { fileURLToPath } from 'node:url'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const root = resolve(here, '..')
-const managedProviderEnv = JSON.stringify({
-  VITE_OPUSWEAVE_MANAGED_TOKEN: process.env.OPUSWEAVE_MANAGED_TOKEN ?? '',
-})
 
 const base = {
   root,
   entrypoint: 'src/main.ts',
   minify: true,
-  define: { 'import.meta.env': managedProviderEnv },
 }
 
 const configs: DesktopAppConfig[] = []

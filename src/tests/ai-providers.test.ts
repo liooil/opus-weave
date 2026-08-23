@@ -126,7 +126,7 @@ describe('AI protocol adapters', () => {
     let quotaHeaders: Headers | undefined
     const fetcher = (async (input: URL | RequestInfo, init?: RequestInit) => {
       expect(String(input)).toBe('https://ai.xiteng.site/v1/chat/completions')
-      expect(new Headers(init?.headers).get('authorization')).toBe('Bearer managed-test')
+      expect(new Headers(init?.headers).get('authorization')).toBeNull()
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>
       expect(body).toHaveProperty('stream_options.include_usage', true)
       expect(body).toHaveProperty('thinking.type', 'enabled')
@@ -138,7 +138,6 @@ describe('AI protocol adapters', () => {
       baseUrl: 'https://ai.xiteng.site/v1',
       protocol: 'openai-chat-completions',
       model: 'deepseek-v4-flash',
-      apiKey: 'managed-test',
       thinkingMode: 'enabled',
     }, request, { fetcher, onResponseHeaders: (headers) => { quotaHeaders = headers } })).resolves.toBe(validOwt)
     expect(quotaHeaders?.get('x-quota-spent-cny')).toBe('1.25')

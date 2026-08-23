@@ -164,6 +164,10 @@ never per-layer.
 - Desktop windows use the **Chromium-family browser provider** on Linux and
   Windows because the product depends on WebMIDI; WebKitGTK and unpatched
   WebView2 do not expose Web MIDI.
+- On macOS the provider order is **Chromium-family → Firefox → WKWebView**.
+  Missing browsers are skipped automatically, so the built-in WKWebView keeps
+  the app launchable without an extra installation. WKWebView mode is degraded:
+  hardware MIDI, audio-output selection and file import are unavailable.
 - `FluidSynth` is an optional external tool used only for offline WAV
   rendering. The GUI plays through the in-browser synth. FluidSynth is never
   auto-installed; `doctor` prints install instructions when it is missing.

@@ -6,9 +6,6 @@ import { fileURLToPath } from 'node:url'
 const here = dirname(fileURLToPath(import.meta.url))
 const root = resolve(here, '..')
 const outdir = resolve(root, 'dist/pages')
-const managedProviderEnv = JSON.stringify({
-  VITE_OPUSWEAVE_MANAGED_TOKEN: process.env.OPUSWEAVE_MANAGED_TOKEN ?? '',
-})
 
 rmSync(outdir, { recursive: true, force: true })
 mkdirSync(outdir, { recursive: true })
@@ -19,7 +16,6 @@ const result = await Bun.build({
   target: 'browser',
   minify: true,
   sourcemap: 'none',
-  define: { 'import.meta.env': managedProviderEnv },
 })
 
 if (!result.success) {

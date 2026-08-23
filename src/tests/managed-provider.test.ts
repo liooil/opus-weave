@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { AiProviderHttpError } from '../domain/ai/providers.ts'
-import { isManagedProviderBaseUrl, isManagedQuotaExceededError, managedQuotaFromHeaders, MANAGED_PROVIDER, MANAGED_PROVIDER_ID } from '../web/managed-provider.ts'
+import { defaultManagedConnectionWhenUnset, isManagedProviderBaseUrl, isManagedQuotaExceededError, managedQuotaFromHeaders, MANAGED_PROVIDER, MANAGED_PROVIDER_ID } from '../web/managed-provider.ts'
 
 describe('OpusWeave managed AI provider', () => {
   test('defines the fixed managed endpoint, protocol, and model', () => {
@@ -12,6 +12,24 @@ describe('OpusWeave managed AI provider', () => {
     })
     expect(isManagedProviderBaseUrl('https://ai.xiteng.site/v1/')).toBeTrue()
     expect(isManagedProviderBaseUrl('https://api.deepseek.com')).toBeFalse()
+  })
+
+  test('defaults new and completely empty profiles to managed AI', () => {
+    const expected = {
+      baseUrl: MANAGED_PROVIDER.api,
+      model: MANAGED_PROVIDER.modelId,
+      protocol: MANAGED_PROVIDER.protocol,
+    }
+    expect(defaultManagedConnectionWhenUnset({})).toEqual(expected)
+    expect(defaultManagedConnectionWhenUnset({ baseUrl: '  ', model: '' })).toEqual(expected)
+  })
+
+  test('does not replace an existing provider or model choice', () => {
+    expect(defaultManagedConnectionWhenUnset({
+      baseUrl: 'https://api.openai.com/v1',
+      model: 'gpt-5',
+    })).toEqual({})
+    expect(defaultManagedConnectionWhenUnset({ model: 'local-model' })).toEqual({})
   })
 
   test('parses quota response headers without accepting incomplete values', () => {

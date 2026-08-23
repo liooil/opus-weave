@@ -142,6 +142,9 @@ GUI、CLI 与 MCP 都调用同一个 `OpusWeaveService` —— 领域逻辑只�
 
 - 桌面窗口在 Linux 与 Windows 上都使用 **Chromium 系浏览器 provider**，
   因为产品依赖 WebMIDI；WebKitGTK 与未打补丁的 WebView2 不支持 Web MIDI。
+- macOS 上的 provider 顺序为 **Chromium 系 → Firefox → WKWebView**。未安装的
+  浏览器会被自动跳过，因此无需额外安装浏览器也能通过系统内置 WKWebView
+  启动应用。WKWebView 属于降级模式，不支持硬件 MIDI、音频输出选择和文件导入。
 - `FluidSynth` 是可选的外部工具，仅用于离线 WAV 渲染。GUI 通过浏览器内
   音源播放。OpusWeave 不会自动安装 FluidSynth；缺失时 `doctor` 会打印
   安装指引。

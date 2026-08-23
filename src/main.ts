@@ -4,9 +4,8 @@
  * 1. MCP and application-owned CLI commands are handled before GUI startup.
  * 2. `owt play` compiles OWT and opens the GUI with startup MIDI.
  * 3. BunDesk owns the desktop HTTP server, window and lifecycle.
- * 4. Linux (and Windows) use the Chromium-family browser provider because the
- *    product depends on WebMIDI, which WebKitGTK and WebView2 do not expose
- *    without extra permission plumbing.
+ * 4. Linux and Windows use the Chromium-family browser provider. macOS tries
+ *    Chromium, then Firefox, then its built-in WKWebView as a degraded fallback.
  */
 import { createDesktopApp } from 'bundesk'
 import { dirname, join } from 'node:path'
@@ -19,6 +18,7 @@ import { OpusWeaveError } from './shared/errors.ts'
 import { runOwtCli, type OwtCliResult } from './cli/owt-cli.ts'
 import { runCompositionCli } from './cli/composition-cli.ts'
 import { runServiceCli } from './cli/service-cli.ts'
+import { desktopWindowProviderPolicy } from './window-provider-policy.ts'
 import page from './web/index.html'
 import { readFileSync } from 'node:fs'
 import workletPath from '../node_modules/spessasynth_lib/dist/spessasynth_processor.min.js' with { type: 'file' }
@@ -86,10 +86,8 @@ async function runDesktopApp(startupPlayback?: Extract<OwtCliResult, { kind: 'pl
     },
 
     window: {
+      ...desktopWindowProviderPolicy(process.platform),
       path: '/',
-      // Chromium App Mode is required for WebMIDI on Linux and Windows.
-      // WebKitGTK and unpatched WebView2 do not expose Web MIDI.
-      provider: 'chromium-app',
       title: 'OpusWeave',
       width: 1280,
       height: 860,
@@ -99,7 +97,7 @@ async function runDesktopApp(startupPlayback?: Extract<OwtCliResult, { kind: 'pl
     singleInstance: smokeDataDirectory ? { dataDirectory: smokeDataDirectory } : {},
 
     onReady: (context) => {
-      console.log(`[opus-weave] ${VERSION} ready: ${context.url.href} env=${context.env}`)
+      console.log(`[opus-weave] ${VERSION} ready: ${context.url.href} env=${context.env} provider=${context.windowProvider ?? 'none'}`)
     },
   })
 

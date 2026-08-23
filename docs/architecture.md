@@ -35,9 +35,11 @@ The phase-1 spec mandates five separations, and the code follows them:
 ## Module map
 
 ```
-src/main.ts        BunDesk app: HTTP server (127.0.0.1 only), window (Chromium
-                   provider), CLI dispatch, --smoke. `mcp` argv is handled
+src/main.ts        BunDesk app: HTTP server (127.0.0.1 only), window provider
+                   policy, CLI dispatch, --smoke. `mcp` argv is handled
                    BEFORE any GUI code runs (stdio-only mode).
+src/window-provider-policy.ts
+                   macOS Chromium → Firefox → WKWebView fallback policy.
 src/build.ts       Single-file binary via bundesk; the AudioWorklet processor
                    is embedded with a `with { type: 'file' }` import and
                    served at /spessasynth_processor.min.js.
@@ -145,6 +147,18 @@ manufacturer}`; after a replug the pure `selectPort` logic restores by exact
 id, then by name/manufacturer, then by name only — never by a stale index.
 Virtual routing ports ("Midi Through" etc.) are flagged and only auto-selected
 when nothing physical is present.
+
+### Managed AI uses one anonymous shared quota
+
+The public GitHub Pages client and the open-source desktop client call the
+managed AI endpoint without a token or `Authorization` header. A credential
+embedded in either client would be public and would not provide a meaningful
+security boundary. New and completely empty UI profiles default to the managed
+endpoint and its fixed model; existing BYOK, custom, and local provider settings
+are preserved. The managed service instead enforces one shared daily cost limit
+and reports it through quota response headers; HTTP 429 indicates that the
+shared daily limit is exhausted. BYOK providers continue to use the API key
+entered by the user.
 
 ### Errors are typed
 

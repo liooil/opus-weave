@@ -377,17 +377,19 @@ describe('web workspace structure', () => {
     expect(aiClient).toContain("{ think }")
   })
 
-  test('wires the managed provider without embedding a source credential', () => {
+  test('wires the managed provider without requiring a credential', () => {
     expect(managedProvider).toContain("api: 'https://ai.xiteng.site/v1'")
     expect(managedProvider).toContain("modelId: 'deepseek-v4-flash'")
-    expect(managedProvider).toContain('import.meta.env?.VITE_OPUSWEAVE_MANAGED_TOKEN')
-    expect(managedProvider).not.toContain('Bearer ')
-    expect(webBuild).toContain('process.env.OPUSWEAVE_MANAGED_TOKEN')
-    expect(webBuild).toContain("define: { 'import.meta.env': managedProviderEnv }")
-    expect(desktopBuild).toContain('process.env.OPUSWEAVE_MANAGED_TOKEN')
+    expect(app.indexOf('...defaultManagedConnectionWhenUnset(stored)')).toBeGreaterThan(app.indexOf('...stored'))
+    expect(managedProvider).not.toContain('TOKEN')
+    expect(app).not.toContain('MANAGED_TOKEN')
+    expect(app).toContain("$('ai-api-key-field').hidden = local || managed")
+    expect(webBuild).not.toContain('OPUSWEAVE_MANAGED_TOKEN')
+    expect(desktopBuild).not.toContain('OPUSWEAVE_MANAGED_TOKEN')
     expect(html).toContain('id="ai-managed-provider-hint"')
     expect(html).toContain('id="ai-activity-quota"')
-    expect(i18n).toContain('今日托管额度已用完，可明日再试或使用自己的 API Key（BYOK）')
+    expect(i18n).toContain('无需密钥；服务每日共享 ¥10 免费总额度')
+    expect(i18n).toContain('今日托管共享额度已用完，可明日再试或使用自己的 API Key（BYOK）')
   })
 
   test('keeps contextual motion help inside the focused OWT editor', () => {

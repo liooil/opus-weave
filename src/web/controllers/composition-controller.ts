@@ -27,7 +27,11 @@ export function createFullCompositionWorkflow(
     body = applyAiStreamUsageParameters(body, config, protocol)
     const read = async (bodyToSend: Record<string, unknown>): Promise<string> => {
       const response = await sendAiProviderRequest({ endpoint: aiRequestEndpoint(config), headers: aiRequestHeaders(config, protocol), body: bodyToSend }, { ...options, signal })
-      return readAiTextResponse(response, protocol, onUpdate, onReasoningUpdate, options.onUsage)
+      try {
+        return await readAiTextResponse(response, protocol, onUpdate, onReasoningUpdate, options.onUsage, options.onResponseHeaders)
+      } catch (error) {
+        throw options.mapError?.(error) ?? error
+      }
     }
     return read(body)
   }, onStage, onStream, aiRepairRetryCount(config), config.promptTemplates)

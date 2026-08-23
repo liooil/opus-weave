@@ -174,6 +174,8 @@ export interface OwtAiTransportOptions {
   onUpdate?: (text: string) => void
   onReasoningUpdate?: (text: string) => void
   onUsage?: (usage: AiTokenUsage) => void
+  onResponseHeaders?: (headers: Headers) => void
+  mapError?: (error: unknown) => Error
 }
 
 interface ChatMessage {
@@ -504,7 +506,11 @@ async function postChat(config: OwtAiConfig, body: ChatBody, options: OwtAiTrans
       headers: aiRequestHeaders(config, protocol),
       body: bodyToSend,
     }, options)
-    return readAiTextResponse(response, protocol, options.onUpdate, options.onReasoningUpdate, options.onUsage)
+    try {
+      return await readAiTextResponse(response, protocol, options.onUpdate, options.onReasoningUpdate, options.onUsage, options.onResponseHeaders)
+    } catch (error) {
+      throw options.mapError?.(error) ?? error
+    }
   }
   return read(requestBody)
 }

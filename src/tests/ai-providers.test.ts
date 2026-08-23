@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { aiProviderHint, aiRequestEndpoint, aiRequestHeaders, discoverAiBillingCurrency, discoverAiModels, extractAiTokenUsage, resolvedAiProtocol } from '../domain/ai/providers.ts'
+import { AiProviderHttpError, aiProviderHint, aiRequestEndpoint, aiRequestHeaders, discoverAiBillingCurrency, discoverAiModels, extractAiTokenUsage, resolvedAiProtocol } from '../domain/ai/providers.ts'
 import { createOwtWithAi } from '../domain/ai/owt-ai.ts'
 
 const validOwt = `owt 0.1 score
@@ -21,6 +21,8 @@ describe('AI provider resolution', () => {
     expect(aiProviderHint('https://api.openai.com')).toBe('openai')
     expect(aiProviderHint('https://api.anthropic.com')).toBe('anthropic')
     expect(aiProviderHint('https://api.deepseek.com')).toBe('deepseek')
+    expect(aiProviderHint('https://ai.xiteng.site/v1')).toBe('deepseek')
+    expect(aiProviderHint('https://staging.xiteng.site/v1')).toBe('deepseek')
     expect(aiProviderHint('https://openrouter.ai')).toBe('openrouter')
     expect(aiProviderHint('http://localhost:11434')).toBe('ollama')
     expect(aiProviderHint('http://127.0.0.1:8080')).toBe('llama.cpp')
@@ -31,6 +33,7 @@ describe('AI provider resolution', () => {
     expect(aiRequestEndpoint({ baseUrl: 'https://api.openai.com/v1', protocol: 'openai-responses' })).toBe('https://api.openai.com/v1/responses')
     expect(aiRequestEndpoint({ baseUrl: 'https://api.deepseek.com', protocol: 'openai-chat-completions' })).toBe('https://api.deepseek.com/chat/completions')
     expect(aiRequestEndpoint({ baseUrl: 'https://api.deepseek.com/v1', protocol: 'openai-chat-completions' })).toBe('https://api.deepseek.com/chat/completions')
+    expect(aiRequestEndpoint({ baseUrl: 'https://ai.xiteng.site/v1', protocol: 'openai-chat-completions' })).toBe('https://ai.xiteng.site/v1/chat/completions')
     expect(aiRequestEndpoint({ baseUrl: 'https://openrouter.ai', protocol: 'openai-chat-completions' })).toBe('https://openrouter.ai/api/v1/chat/completions')
     expect(aiRequestEndpoint({ baseUrl: 'http://localhost:11434/v1/chat/completions', protocol: 'openai-chat-completions' })).toBe('http://localhost:11434/v1/chat/completions')
     expect(aiRequestEndpoint({ baseUrl: 'http://localhost:11434', protocol: 'ollama-native' })).toBe('http://localhost:11434/api/chat')
@@ -111,12 +114,57 @@ describe('AI billing currency discovery', () => {
     }) as typeof fetch
     await expect(discoverAiBillingCurrency({ baseUrl: 'https://api.openai.com', apiKey: 'secret' }, { fetcher })).resolves.toBeUndefined()
     expect(calls).toBe(0)
+    await expect(discoverAiBillingCurrency({ baseUrl: 'https://ai.xiteng.site/v1', apiKey: 'managed' }, { fetcher })).resolves.toBeUndefined()
+    expect(calls).toBe(0)
     await expect(discoverAiBillingCurrency({ baseUrl: 'https://api.deepseek.com', apiKey: 'secret' }, { fetcher })).resolves.toBeUndefined()
     expect(calls).toBe(1)
   })
 })
 
 describe('AI protocol adapters', () => {
+  test('uses the managed DeepSeek-compatible endpoint and exposes quota headers', async () => {
+    let quotaHeaders: Headers | undefined
+    const fetcher = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      expect(String(input)).toBe('https://ai.xiteng.site/v1/chat/completions')
+      expect(new Headers(init?.headers).get('authorization')).toBe('Bearer managed-test')
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+      expect(body).toHaveProperty('stream_options.include_usage', true)
+      expect(body).toHaveProperty('thinking.type', 'enabled')
+      return Response.json({ choices: [{ message: { content: validOwt } }] }, {
+        headers: { 'x-quota-spent-cny': '1.25', 'x-quota-limit-cny': '10' },
+      })
+    }) as typeof fetch
+    await expect(createOwtWithAi({
+      baseUrl: 'https://ai.xiteng.site/v1',
+      protocol: 'openai-chat-completions',
+      model: 'deepseek-v4-flash',
+      apiKey: 'managed-test',
+      thinkingMode: 'enabled',
+    }, request, { fetcher, onResponseHeaders: (headers) => { quotaHeaders = headers } })).resolves.toBe(validOwt)
+    expect(quotaHeaders?.get('x-quota-spent-cny')).toBe('1.25')
+    expect(quotaHeaders?.get('x-quota-limit-cny')).toBe('10')
+  })
+
+  test('retains HTTP status and quota headers when the provider rejects a request', async () => {
+    let quotaSpent = ''
+    const fetcher = (async (_input: URL | RequestInfo, _init?: RequestInit) => new Response('quota exceeded', {
+      status: 429,
+      headers: { 'x-quota-spent-cny': '10', 'x-quota-limit-cny': '10', 'retry-after': '3600' },
+    })) as typeof fetch
+    const promise = createOwtWithAi({
+      baseUrl: 'https://ai.xiteng.site/v1',
+      model: 'deepseek-v4-flash',
+    }, request, {
+      fetcher,
+      onResponseHeaders: (headers) => { quotaSpent = headers.get('x-quota-spent-cny') ?? '' },
+    })
+    await expect(promise).rejects.toBeInstanceOf(AiProviderHttpError)
+    expect(quotaSpent).toBe('10')
+    try { await promise } catch (error) {
+      expect(error).toMatchObject({ status: 429, retryAfter: '3600' })
+    }
+  })
+
   test('normalizes usage details from each supported provider protocol', () => {
     expect(extractAiTokenUsage('openai-chat-completions', {
       usage: {

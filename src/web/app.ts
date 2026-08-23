@@ -33,7 +33,7 @@ import { buildPracticePrompts, PracticeSession } from '../domain/owt/practice-se
 import { BUILTIN_OWT_EXAMPLES, builtinOwtExample } from '../domain/owt/builtin-examples.ts'
 import { buildScoreViewModel, type ScoreViewModel } from '../domain/owt/score-views.ts'
 import { renderJianpuScore, renderStaffScore } from './components/score-views.ts'
-import { buildManualOwtPrompt, createOwtWithAi, defaultOwtAiPromptTemplates, DEFAULT_OWT_AI_CONFIG, hasConfiguredAiApi, testOwtAiConnection, validateOwtAiPromptTemplates, type OwtAiConfig, type OwtAiPromptTemplates, type OwtAiRequest } from '../domain/ai/owt-ai.ts'
+import { buildManualOwtPrompt, createOwtWithAi, defaultOwtAiPromptTemplates, DEFAULT_OWT_AI_CONFIG, hasConfiguredAiApi, testOwtAiConnection, validateOwtAiPromptTemplates, type OwtAiConfig, type OwtAiPromptTemplates, type OwtAiRequest, type OwtAiTransportOptions } from '../domain/ai/owt-ai.ts'
 import { aiProviderHint, discoverAiBillingCurrency, discoverAiModels, type AiModelInfo, type AiProtocol, type AiTokenUsage } from '../domain/ai/providers.ts'
 import { AI_BILLING_CURRENCIES, AI_USD_CNY_REFERENCE_DATE, AI_USD_CNY_REFERENCE_RATE, normalizeAiBillingCurrencyPreference, resolveAiBillingCurrency, resolveAiTokenRates, type AiBillingCurrency, type AiBillingCurrencyPreference } from '../domain/ai/pricing.ts'
 import { ConversationalImprovSession } from '../domain/ai/conversational-improv.ts'
@@ -48,7 +48,9 @@ import { attachSourceHover, describeOwtSourceToken, type SourceHoverField } from
 import { computerInputKey, computerKeyLabel, computerKeyWidth, keyboardSectionsForLayout } from './keyboard/layout-view-model.ts'
 import { resolveComputerLayoutPreference } from './keyboard/computer-layout-preference.ts'
 import { AI_CUSTOM_MODEL_VALUE, resolveAiModelChoice, selectedAiModelId } from './ai-model-choice.ts'
-import { appendAiUsageRecord, createAiUsageRecord, emptyAiUsageSession, parseAiUsageSession, type AiUsageRatesByCurrency, type AiUsageSessionStats } from './ai-usage-stats.ts'
+import { findAiDirectoryModel } from './ai-directory-lookup.ts'
+import { appendAiUsageRecord, createAiUsageRecord, emptyAiUsageSession, parseAiUsageSession, repriceSingleAiUsageSession, type AiUsageRatesByCurrency, type AiUsageSessionStats } from './ai-usage-stats.ts'
+import { isManagedProviderBaseUrl, isManagedQuotaExceededError, managedQuotaFromHeaders, MANAGED_PROVIDER, MANAGED_PROVIDER_ID, MANAGED_TOKEN, type ManagedQuota } from './managed-provider.ts'
 import { incrementalTextPatch, shouldFollowScrollEnd } from './rendering/incremental-render.ts'
 import { byId as $, clearStatus, retranslateTrackedCopy, setStatus, setTranslatedStatus, setTranslatedText, showError } from './views/status-view.ts'
 import { WorkspaceStore, type CompositionWorkflowState, type ImprovState, type WorkspaceState } from './state/workspace-store.ts'
@@ -141,6 +143,7 @@ localeButton.addEventListener('click', () => {
   updateConversationalImprovUi()
   renderAiComposeButton()
   renderAiBillingCurrencyControl()
+  renderManagedProviderState()
   applyModelMetadataFromCurrent()
   renderDirectoryDetail()
   renderAiUsageStats()
@@ -2412,6 +2415,7 @@ let detectedAiBillingConfigSignature = ''
 let aiBillingCurrencyDetectionPending = false
 let aiBillingCurrencyDetectionTimer: number | undefined
 let aiBillingCurrencyDetectionSequence = 0
+let managedQuota: ManagedQuota | undefined
 
 function storedAiConfig(): OwtAiConfig {
   const defaults = defaultOwtAiPromptTemplates(getLocale())
@@ -2428,9 +2432,10 @@ function storedAiConfig(): OwtAiConfig {
   }
 }
 
-type AiProviderChoice = 'openai' | 'anthropic' | 'deepseek' | 'openrouter' | 'ollama' | 'llamacpp' | 'custom'
+type AiProviderChoice = 'managed' | 'openai' | 'anthropic' | 'deepseek' | 'openrouter' | 'ollama' | 'llamacpp' | 'custom'
 
 const AI_PROVIDER_DEFAULTS: Record<Exclude<AiProviderChoice, 'custom'>, { baseUrl: string; protocol: AiProtocol }> = {
+  managed: { baseUrl: MANAGED_PROVIDER.api, protocol: MANAGED_PROVIDER.protocol },
   openai: { baseUrl: 'https://api.openai.com/v1', protocol: 'openai-responses' },
   anthropic: { baseUrl: 'https://api.anthropic.com/v1', protocol: 'anthropic-messages' },
   deepseek: { baseUrl: 'https://api.deepseek.com', protocol: 'openai-chat-completions' },
@@ -2441,6 +2446,7 @@ const AI_PROVIDER_DEFAULTS: Record<Exclude<AiProviderChoice, 'custom'>, { baseUr
 
 function inferAiProvider(config: Pick<OwtAiConfig, 'baseUrl' | 'protocol'>): AiProviderChoice {
   const url = config.baseUrl.toLowerCase()
+  if (url.includes('ai.xiteng.site')) return 'managed'
   if (url.includes('api.openai.com')) return 'openai'
   if (url.includes('api.anthropic.com')) return 'anthropic'
   if (url.includes('api.deepseek.com')) return 'deepseek'
@@ -2452,8 +2458,77 @@ function inferAiProvider(config: Pick<OwtAiConfig, 'baseUrl' | 'protocol'>): AiP
 
 function renderAiProviderUi(provider: AiProviderChoice): void {
   const local = provider === 'ollama' || provider === 'llamacpp'
+  const managed = provider === 'managed' || isManagedProviderBaseUrl($<HTMLInputElement>('ai-endpoint').value)
   $('ai-api-key-field').hidden = local
-  $('ai-protocol-field').hidden = provider !== 'custom'
+  $('ai-protocol-field').hidden = managed || provider !== 'custom'
+  $<HTMLButtonElement>('btn-ai-refresh-models').hidden = managed
+  if (managed) $<HTMLSelectElement>('ai-protocol').value = MANAGED_PROVIDER.protocol
+  renderManagedProviderState()
+}
+
+function applyAiProviderPreset(provider: AiProviderChoice): void {
+  const keyInput = $<HTMLInputElement>('ai-api-key')
+  if (provider !== 'custom') {
+    const defaults = AI_PROVIDER_DEFAULTS[provider]
+    $<HTMLInputElement>('ai-endpoint').value = defaults.baseUrl
+    $<HTMLSelectElement>('ai-protocol').value = defaults.protocol
+    if (provider === 'managed') {
+      keyInput.value = MANAGED_TOKEN
+      renderAiModelOptions([{ id: MANAGED_PROVIDER.modelId, name: t('ai.managedModel') }], MANAGED_PROVIDER.modelId)
+    } else if (MANAGED_TOKEN && keyInput.value === MANAGED_TOKEN) {
+      // Never forward the bundled managed credential to a BYOK provider.
+      keyInput.value = ''
+    }
+  }
+  renderAiProviderUi(provider)
+}
+
+function formatManagedQuotaAmount(value: number): string {
+  return new Intl.NumberFormat(getLocale(), { minimumFractionDigits: 0, maximumFractionDigits: 4 }).format(value)
+}
+
+function managedQuotaText(): string | undefined {
+  if (!managedQuota) return undefined
+  return t('ai.managedQuota', {
+    spent: formatManagedQuotaAmount(managedQuota.spentCny),
+    limit: formatManagedQuotaAmount(managedQuota.limitCny),
+  })
+}
+
+function renderManagedProviderState(): void {
+  const managed = isManagedProviderBaseUrl($<HTMLInputElement>('ai-endpoint').value)
+  const hint = $<HTMLDivElement>('ai-managed-provider-hint')
+  const activityQuota = $<HTMLDivElement>('ai-activity-quota')
+  const quotaText = managed ? managedQuotaText() : undefined
+  activityQuota.hidden = !quotaText
+  activityQuota.textContent = quotaText ?? ''
+  hint.hidden = !managed
+  if (!managed) {
+    hint.textContent = ''
+    hint.classList.remove('is-warning')
+    return
+  }
+  const hasToken = Boolean($<HTMLInputElement>('ai-api-key').value.trim())
+  hint.classList.toggle('is-warning', !hasToken)
+  hint.textContent = hasToken
+    ? [quotaText, t('ai.managedHint')].filter(Boolean).join(' · ')
+    : t('ai.managedMissingToken')
+}
+
+function recordManagedQuota(config: OwtAiConfig, headers: Headers): void {
+  if (!isManagedProviderBaseUrl(config.baseUrl)) return
+  const quota = managedQuotaFromHeaders(headers)
+  if (!quota) return
+  managedQuota = quota
+  renderManagedProviderState()
+  if (workspaceStore.state.activity.kind === 'idle') renderAiActivity()
+}
+
+function mapAiTransportError(config: OwtAiConfig, error: unknown): Error {
+  if (isManagedProviderBaseUrl(config.baseUrl) && isManagedQuotaExceededError(error)) {
+    return new Error(t('ai.managedQuotaExceeded'))
+  }
+  return error instanceof Error ? error : new Error(String(error))
 }
 
 function aiModelOption(model: Pick<AiModelInfo, 'id' | 'name'>): HTMLOptionElement {
@@ -2512,13 +2587,14 @@ function currentAiModelId(): string {
 }
 
 function renderAiConfig(config: OwtAiConfig): void {
-  $<HTMLInputElement>('ai-endpoint').value = config.baseUrl
-  setAiModelValue(config.model)
-  $<HTMLInputElement>('ai-api-key').value = config.apiKey ?? ''
-  $<HTMLSelectElement>('ai-protocol').value = config.protocol ?? 'auto'
   const provider = inferAiProvider(config)
+  const managed = isManagedProviderBaseUrl(config.baseUrl)
+  $<HTMLInputElement>('ai-endpoint').value = config.baseUrl
+  if (managed) renderAiModelOptions([{ id: MANAGED_PROVIDER.modelId, name: t('ai.managedModel') }], MANAGED_PROVIDER.modelId)
+  else setAiModelValue(config.model)
+  $<HTMLInputElement>('ai-api-key').value = config.apiKey ?? (managed ? MANAGED_TOKEN : '')
+  $<HTMLSelectElement>('ai-protocol').value = managed ? MANAGED_PROVIDER.protocol : config.protocol ?? 'auto'
   $<HTMLSelectElement>('ai-provider').value = provider
-  renderAiProviderUi(provider)
   $<HTMLSelectElement>('ai-thinking-mode').value = config.thinkingMode ?? ''
   $<HTMLSelectElement>('ai-reasoning-effort').value = config.reasoningEffort ?? ''
   $<HTMLInputElement>('ai-temperature').value = config.temperature === undefined ? '' : String(config.temperature)
@@ -2535,6 +2611,7 @@ function renderAiConfig(config: OwtAiConfig): void {
   $<HTMLTextAreaElement>('ai-template-improvise').value = templates.improvise
   $<HTMLTextAreaElement>('ai-template-full-plan').value = templates.fullCompositionPlan
   $<HTMLTextAreaElement>('ai-template-full-section').value = templates.fullCompositionSection
+  renderAiProviderUi(provider)
   applyModelMetadataFromCurrent()
 }
 
@@ -2611,7 +2688,7 @@ function renderAiBillingCurrencyControl(): void {
 }
 
 function canDetectAiBillingCurrency(config: OwtAiConfig): boolean {
-  if (!config.baseUrl || !config.apiKey || aiBillingCurrencyPreference !== 'auto') return false
+  if (!config.baseUrl || !config.apiKey || aiBillingCurrencyPreference !== 'auto' || isManagedProviderBaseUrl(config.baseUrl)) return false
   try { return aiProviderHint(config.baseUrl) === 'deepseek' } catch { return false }
 }
 
@@ -2672,11 +2749,13 @@ function updateAiSettingsState(): void {
   aiState.classList.toggle('ok', Boolean(config.baseUrl && config.model))
 }
 
-function aiTransport(signal?: AbortSignal, config = currentAiConfig()): { signal: AbortSignal; onUsage: (usage: AiTokenUsage) => void } {
+function aiTransport(signal?: AbortSignal, config = currentAiConfig()): OwtAiTransportOptions & { signal: AbortSignal } {
   const timeout = AbortSignal.timeout(180_000)
   return {
     signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     onUsage: (usage) => recordAiUsage(config, usage),
+    onResponseHeaders: (headers) => recordManagedQuota(config, headers),
+    mapError: (error) => mapAiTransportError(config, error),
   }
 }
 
@@ -2692,6 +2771,18 @@ async function refreshAiModels(): Promise<void> {
     aiDiscoveryController = undefined
     refresh.disabled = false
     model.removeAttribute('aria-busy')
+    return
+  }
+  if (isManagedProviderBaseUrl(config.baseUrl)) {
+    aiDiscoveryController = undefined
+    refresh.disabled = false
+    model.removeAttribute('aria-busy')
+    $<HTMLSelectElement>('ai-protocol').value = MANAGED_PROVIDER.protocol
+    renderAiModelOptions([{ id: MANAGED_PROVIDER.modelId, name: t('ai.managedModel') }], MANAGED_PROVIDER.modelId)
+    persistAiConfig()
+    applyModelMetadataFromCurrent()
+    setTranslatedStatus('ai-status', config.apiKey ? 'ai.managedReady' : 'ai.managedMissingToken', {}, config.apiKey ? 'ok' : 'warn')
+    updateConversationalImprovUi()
     return
   }
   const controller = new AbortController()
@@ -2721,6 +2812,7 @@ async function refreshAiModels(): Promise<void> {
 
 function scheduleAiModelDiscovery(): void {
   window.clearTimeout(aiDiscoveryTimer)
+  if (isManagedProviderBaseUrl(currentAiConfig().baseUrl)) return
   aiDiscoveryTimer = window.setTimeout(() => void refreshAiModels(), 500)
 }
 
@@ -2728,6 +2820,7 @@ function scheduleAiModelDiscovery(): void {
 
 function directoryProviderChoice(providerId: string): AiProviderChoice {
   switch (providerId) {
+    case MANAGED_PROVIDER_ID: return 'managed'
     case 'openai': return 'openai'
     case 'anthropic': return 'anthropic'
     case 'deepseek': return 'deepseek'
@@ -2741,13 +2834,7 @@ function normalizeDirectoryUrl(url: string): string {
 }
 
 function findDirectoryModel(config?: OwtAiConfig): { provider: ModelDirectoryProvider; model: ModelDirectoryModel } | undefined {
-  const current = config ?? currentAiConfig()
-  if (!current.baseUrl || !current.model) return undefined
-  const base = normalizeDirectoryUrl(current.baseUrl)
-  const provider = modelDirectory.find((entry) => normalizeDirectoryUrl(entry.api) === base)
-  if (!provider) return undefined
-  const model = provider.models.find((entry) => entry.id === current.model)
-  return model ? { provider, model } : undefined
+  return findAiDirectoryModel(config ?? currentAiConfig())
 }
 
 function catalogUsdRates(cost: NonNullable<ModelDirectoryModel['cost']>): { input?: number; output?: number; cacheRead?: number; cacheWrite?: number } {
@@ -2868,6 +2955,17 @@ function resetAiUsageStats(): void {
   renderAiActivity()
 }
 
+function repriceAiUsageStats(config: OwtAiConfig): void {
+  const last = aiUsageSession.last
+  const directory = findDirectoryModel(config)
+  if (!last || !directory || last.model !== directory.model.id) return
+  if (last.provider !== directory.provider.id && last.provider !== directory.provider.name) return
+  const repriced = repriceSingleAiUsageSession(aiUsageSession, usageRatesForModel(config))
+  if (repriced === aiUsageSession) return
+  aiUsageSession = repriced
+  try { window.sessionStorage.setItem(AI_USAGE_SESSION_KEY, JSON.stringify(aiUsageSession)) } catch { /* repriced usage remains available in memory */ }
+}
+
 function applyModelMetadata(meta?: ModelDirectoryModel, provider?: ModelDirectoryProvider): void {
   const effort = $<HTMLSelectElement>('ai-reasoning-effort')
   const thinking = $<HTMLSelectElement>('ai-thinking-mode')
@@ -2969,6 +3067,7 @@ function applyModelMetadata(meta?: ModelDirectoryModel, provider?: ModelDirector
 function applyModelMetadataFromCurrent(): void {
   const directory = findDirectoryModel()
   applyModelMetadata(directory?.model, directory?.provider)
+  repriceAiUsageStats(currentAiConfig())
 }
 
 function fillDirectoryProviders(): void {
@@ -2978,6 +3077,10 @@ function fillDirectoryProviders(): void {
   all.value = ''
   all.textContent = t('ai.directoryAllProviders')
   select.appendChild(all)
+  const managed = document.createElement('option')
+  managed.value = MANAGED_PROVIDER_ID
+  managed.textContent = MANAGED_PROVIDER.name
+  select.appendChild(managed)
   for (const provider of modelDirectory) {
     const option = document.createElement('option')
     option.value = provider.id
@@ -2995,6 +3098,17 @@ function renderDirectoryModels(): void {
   detail.hidden = true
   detail.textContent = ''
   let count = 0
+  if (!providerId || providerId === MANAGED_PROVIDER_ID) {
+    const searchable = `${MANAGED_PROVIDER.name} ${MANAGED_PROVIDER.modelName} ${MANAGED_PROVIDER.modelId}`.toLowerCase()
+    if (!search || searchable.includes(search)) {
+      const option = document.createElement('option')
+      option.textContent = `${MANAGED_PROVIDER.name} — ${MANAGED_PROVIDER.modelName} (${MANAGED_PROVIDER.modelId})`
+      option.dataset.provider = MANAGED_PROVIDER_ID
+      option.dataset.model = MANAGED_PROVIDER.modelId
+      select.appendChild(option)
+      count++
+    }
+  }
   for (const provider of modelDirectory) {
     if (providerId && provider.id !== providerId) continue
     for (const model of provider.models) {
@@ -3020,6 +3134,17 @@ function renderDirectoryDetail(): void {
     detail.textContent = ''
     return
   }
+  if (providerId === MANAGED_PROVIDER_ID && modelId === MANAGED_PROVIDER.modelId) {
+    const catalog = findAiDirectoryModel({ baseUrl: MANAGED_PROVIDER.api, model: MANAGED_PROVIDER.modelId })
+    const parts: string[] = [`${MANAGED_PROVIDER.name} · ${MANAGED_PROVIDER.modelName}`]
+    if (catalog?.model.context) parts.push(`Context: ${catalog.model.context.toLocaleString()}`)
+    if (catalog?.model.output) parts.push(`Max output: ${catalog.model.output.toLocaleString()}`)
+    if (catalog?.model.cost) parts.push(...modelRateDetails(catalog.model.cost, catalog.provider.id, catalog.model.id))
+    parts.push(t('ai.managedHint'))
+    detail.hidden = false
+    detail.textContent = parts.join(' · ')
+    return
+  }
   const provider = modelDirectory.find((entry) => entry.id === providerId)
   const model = provider?.models.find((entry) => entry.id === modelId)
   if (!provider || !model) {
@@ -3042,6 +3167,17 @@ function applyDirectorySelection(): void {
   const providerId = option?.dataset.provider
   const modelId = option?.dataset.model
   if (!providerId || !modelId) return
+  if (providerId === MANAGED_PROVIDER_ID && modelId === MANAGED_PROVIDER.modelId) {
+    $<HTMLSelectElement>('ai-provider').value = 'managed'
+    applyAiProviderPreset('managed')
+    persistAiConfig()
+    scheduleAiBillingCurrencyDetection()
+    applyModelMetadataFromCurrent()
+    updateConversationalImprovUi()
+    setTranslatedStatus('ai-status', MANAGED_TOKEN ? 'ai.managedReady' : 'ai.managedMissingToken', {}, MANAGED_TOKEN ? 'ok' : 'warn')
+    $<HTMLDialogElement>('ai-model-directory-dialog').close()
+    return
+  }
   const provider = modelDirectory.find((entry) => entry.id === providerId)
   const model = provider?.models.find((entry) => entry.id === modelId)
   if (!provider || !model) return
@@ -3626,13 +3762,21 @@ for (const id of ['ai-temperature', 'ai-top-p', 'ai-max-tokens', 'ai-thinking-bu
   $(id).addEventListener('input', persistAiConfig)
 }
 for (const id of ['ai-endpoint', 'ai-api-key']) {
-  $(id).addEventListener('input', () => { persistAiConfig(); updateConversationalImprovUi(); scheduleAiModelDiscovery(); scheduleAiBillingCurrencyDetection(); applyModelMetadataFromCurrent() })
+  $(id).addEventListener('input', () => {
+    persistAiConfig()
+    updateConversationalImprovUi()
+    scheduleAiModelDiscovery()
+    scheduleAiBillingCurrencyDetection()
+    renderAiProviderUi($<HTMLSelectElement>('ai-provider').value as AiProviderChoice)
+    applyModelMetadataFromCurrent()
+    renderAiActivity()
+  })
 }
 for (const id of ['ai-template-system', 'ai-template-prompt', 'ai-template-media', 'ai-template-improvise', 'ai-template-full-plan', 'ai-template-full-section']) {
   $(id).addEventListener('input', persistAiConfig)
 }
 
-if (initialAiConfig.baseUrl) {
+if (initialAiConfig.baseUrl && !isManagedProviderBaseUrl(initialAiConfig.baseUrl)) {
   scheduleAiModelDiscovery()
   scheduleAiBillingCurrencyDetection()
 }
@@ -3651,17 +3795,16 @@ $<HTMLSelectElement>('ai-billing-currency').addEventListener('change', (event) =
 
 $<HTMLSelectElement>('ai-provider').addEventListener('change', (event) => {
   const provider = (event.target as HTMLSelectElement).value as AiProviderChoice
-  renderAiProviderUi(provider)
-  if (provider !== 'custom') {
-    const defaults = AI_PROVIDER_DEFAULTS[provider]
-    $<HTMLInputElement>('ai-endpoint').value = defaults.baseUrl
-    $<HTMLSelectElement>('ai-protocol').value = defaults.protocol
-  }
+  applyAiProviderPreset(provider)
   persistAiConfig()
   updateConversationalImprovUi()
-  scheduleAiModelDiscovery()
+  if (provider !== 'managed') scheduleAiModelDiscovery()
   scheduleAiBillingCurrencyDetection()
   applyModelMetadataFromCurrent()
+  renderAiActivity()
+  if (provider === 'managed') {
+    setTranslatedStatus('ai-status', MANAGED_TOKEN ? 'ai.managedReady' : 'ai.managedMissingToken', {}, MANAGED_TOKEN ? 'ok' : 'warn')
+  }
 })
 
 $('btn-ai-key-visibility').addEventListener('click', () => {
@@ -3973,18 +4116,20 @@ function renderAiActivity(): void {
   const status = $('ai-activity-status')
   const stepper = $<HTMLOListElement>('ai-activity-stepper')
   const cancel = $<HTMLButtonElement>('btn-ai-activity-cancel')
+  renderManagedProviderState()
   if (activity.kind === 'idle') {
-    if (!aiUsageSession.last) {
+    const hasManagedQuota = !$<HTMLDivElement>('ai-activity-quota').hidden
+    if (!aiUsageSession.last && !hasManagedQuota) {
       container.hidden = true
       return
     }
     container.hidden = false
-    title.textContent = t('ai.usageSession')
+    title.textContent = aiUsageSession.last ? t('ai.usageSession') : t('ai.managedProvider')
     const currency = currentAiBillingCurrency()
     const sessionStatus = [t('ai.usageRequests', { count: aiUsageSession.requestCount })]
     if (aiUsageSession.pricedRequestCounts[currency] > 0) sessionStatus.push(t('ai.usageEstimatedCost', { cost: formatAiMoney(aiUsageSession.estimatedCosts[currency], currency) }))
     if (aiUsageSession.unpricedRequestCounts[currency] > 0) sessionStatus.push(t('ai.usageUnpriced', { count: aiUsageSession.unpricedRequestCounts[currency] }))
-    status.textContent = sessionStatus.join(' · ')
+    status.textContent = aiUsageSession.last ? sessionStatus.join(' · ') : t('ai.managedReady')
     status.classList.remove('err')
     stepper.hidden = true
     cancel.hidden = true

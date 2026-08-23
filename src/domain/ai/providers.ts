@@ -32,6 +32,18 @@ export interface AiProviderTransportOptions {
   signal?: AbortSignal
 }
 
+export class AiProviderHttpError extends Error {
+  readonly status: number
+  readonly retryAfter?: string
+
+  constructor(status: number, detail: string, retryAfter?: string) {
+    super(`AI request failed (${status}): ${detail.slice(0, 500)}`)
+    this.name = 'AiProviderHttpError'
+    this.status = status
+    this.retryAfter = retryAfter
+  }
+}
+
 export type AiThinkingModeHint = 'adaptive' | 'enabled' | 'disabled'
 
 export interface AiProviderRequest {
@@ -62,6 +74,7 @@ export function aiProviderHint(baseUrl: string): AiProviderHint {
   const host = url.hostname.toLowerCase()
   if (host === 'api.openai.com') return 'openai'
   if (host === 'api.anthropic.com') return 'anthropic'
+  if (host === 'ai.xiteng.site' || host.endsWith('.xiteng.site')) return 'deepseek'
   if (host === 'api.deepseek.com') return 'deepseek'
   if (host === 'openrouter.ai' || host.endsWith('.openrouter.ai')) return 'openrouter'
   if (url.port === '8080') return 'llama.cpp'
@@ -83,7 +96,7 @@ function apiRoot(baseUrl: string, provider = aiProviderHint(baseUrl)): URL {
   if (provider === 'openrouter') {
     if (url.pathname === '' || url.pathname === '/') url.pathname = '/api/v1'
     else if (!url.pathname.endsWith('/api/v1')) url.pathname = url.pathname.replace(/\/v1$/, '/api/v1')
-  } else if (provider === 'deepseek') {
+  } else if (provider === 'deepseek' && url.hostname.toLowerCase() === 'api.deepseek.com') {
     url.pathname = url.pathname.replace(/\/v1$/, '')
   } else if (provider !== 'ollama' && !url.pathname.endsWith('/v1')) {
     url.pathname = `${url.pathname}/v1`.replace(/\/+/g, '/')
@@ -182,7 +195,7 @@ export async function discoverAiBillingCurrency(
   config: AiConnectionConfig,
   options: AiProviderTransportOptions = {},
 ): Promise<AiBillingCurrency | undefined> {
-  if (!config.baseUrl || !config.apiKey || aiProviderHint(config.baseUrl) !== 'deepseek') return undefined
+  if (!config.baseUrl || !config.apiKey || requiredBaseUrl(config.baseUrl).hostname.toLowerCase() !== 'api.deepseek.com') return undefined
   const root = apiRoot(config.baseUrl, 'deepseek')
   const headers = aiRequestHeaders(config, 'openai-chat-completions')
   delete headers['content-type']
@@ -355,10 +368,12 @@ export async function readAiTextResponse(
   onUpdate?: (text: string) => void,
   onReasoningUpdate?: (text: string) => void,
   onUsage?: (usage: AiTokenUsage) => void,
+  onResponseHeaders?: (headers: Headers) => void,
 ): Promise<string> {
+  onResponseHeaders?.(response.headers)
   if (!response.ok) {
     const detail = await response.text()
-    throw new Error(`AI request failed (${response.status}): ${detail.slice(0, 500)}`)
+    throw new AiProviderHttpError(response.status, detail, response.headers.get('retry-after') ?? undefined)
   }
   const contentType = response.headers.get('content-type')?.toLowerCase() ?? ''
   if (!response.body || (contentType.includes('application/json') && !contentType.includes('ndjson'))) {

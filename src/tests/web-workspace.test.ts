@@ -9,6 +9,8 @@ const aiClient = await Bun.file('src/domain/ai/owt-ai.ts').text()
 const owtReference = await Bun.file('src/domain/owt/reference.ts').text()
 const owtDocs = await Bun.file('docs/owt.md').text()
 const webBuild = await Bun.file('src/build-web.ts').text()
+const desktopBuild = await Bun.file('src/build.ts').text()
+const managedProvider = await Bun.file('src/web/managed-provider.ts').text()
 const sourceHover = await Bun.file('src/web/views/source-hover-view.ts').text()
 const keyboardLayout = await Bun.file('src/web/keyboard/layout-view-model.ts').text()
 const computerLayoutPreference = await Bun.file('src/web/keyboard/computer-layout-preference.ts').text()
@@ -347,6 +349,7 @@ describe('web workspace structure', () => {
 
   test('uses provider-first AI configuration with progressive generation parameters', () => {
     expect(html).toContain('id="ai-provider"')
+    expect(html).toContain('<option value="managed" data-i18n="ai.managedProvider">')
     expect(html).toContain('<option value="deepseek">DeepSeek</option>')
     expect(html).toContain('id="ai-billing-currency"')
     expect(html).toContain('<option value="CNY"')
@@ -372,6 +375,19 @@ describe('web workspace structure', () => {
     expect(aiClient).toContain("reasoning: { effort: openAiEffort }")
     expect(aiClient).toContain("output_config: { effort: anthropicEffort }")
     expect(aiClient).toContain("{ think }")
+  })
+
+  test('wires the managed provider without embedding a source credential', () => {
+    expect(managedProvider).toContain("api: 'https://ai.xiteng.site/v1'")
+    expect(managedProvider).toContain("modelId: 'deepseek-v4-flash'")
+    expect(managedProvider).toContain('import.meta.env?.VITE_OPUSWEAVE_MANAGED_TOKEN')
+    expect(managedProvider).not.toContain('Bearer ')
+    expect(webBuild).toContain('process.env.OPUSWEAVE_MANAGED_TOKEN')
+    expect(webBuild).toContain("define: { 'import.meta.env': managedProviderEnv }")
+    expect(desktopBuild).toContain('process.env.OPUSWEAVE_MANAGED_TOKEN')
+    expect(html).toContain('id="ai-managed-provider-hint"')
+    expect(html).toContain('id="ai-activity-quota"')
+    expect(i18n).toContain('今日托管额度已用完，可明日再试或使用自己的 API Key（BYOK）')
   })
 
   test('keeps contextual motion help inside the focused OWT editor', () => {

@@ -77,6 +77,17 @@ export function appendAiUsageRecord(session: AiUsageSessionStats, record: AiUsag
   }
 }
 
+/** Reprice the only request in a session after catalog matching improves. */
+export function repriceSingleAiUsageSession(
+  session: AiUsageSessionStats,
+  ratesByCurrency: AiUsageRatesByCurrency,
+): AiUsageSessionStats {
+  if (session.requestCount !== 1 || !session.last) return session
+  const replacement = createAiUsageRecord(session.last.provider, session.last.model, session.last.usage, ratesByCurrency)
+  const improvesEstimate = AI_BILLING_CURRENCIES.some((currency) => !session.last!.hasCompleteRates[currency] && replacement.hasCompleteRates[currency])
+  return improvesEstimate ? appendAiUsageRecord(emptyAiUsageSession(), replacement) : session
+}
+
 function safeNonNegativeInteger(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined
 }

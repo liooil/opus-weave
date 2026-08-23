@@ -25,6 +25,10 @@ jobs:
       - run: bun run smoke
       # This builds BunDesk and verifies the embedded AudioWorklet/file assets.
       - run: bun run build
+        env:
+          OPUSWEAVE_MANAGED_TOKEN: ${{ secrets.OPUSWEAVE_MANAGED_TOKEN }}
       - name: Build static PWA
         if: runner.os == 'Linux'
         run: bun run build:web
+        env:
+          OPUSWEAVE_MANAGED_TOKEN: ${{ secrets.OPUSWEAVE_MANAGED_TOKEN }}

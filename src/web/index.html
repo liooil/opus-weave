@@ -54,7 +54,7 @@
         <button id="btn-return-to-start" class="topbar-control return-to-start-button" data-shortcut="Ctrl+Home" data-i18n-aria-label="playback.returnToStart" data-i18n-title="playback.returnToStart" aria-label="Return to beginning" title="Return to beginning" disabled><span class="control-icon" aria-hidden="true">|←</span><span class="control-label" data-i18n="playback.returnToStart">Return to beginning</span></button>
         <button id="btn-owt-practice" class="topbar-control performance-button" data-studio-only data-shortcut="Ctrl+P" aria-keyshortcuts="Control+P" aria-pressed="false" data-i18n-aria-label="owt.practice" data-i18n-title="owt.practice" aria-label="Perform" title="Perform"><span class="control-icon" aria-hidden="true">♩</span><span class="control-label" data-i18n="owt.practice">Perform</span></button>
         <button id="btn-ai-compose" class="ai-compose-button topbar-control" data-studio-only data-ai-state="idle" data-shortcut="Ctrl+K" data-i18n-aria-label="ai.compose" data-i18n-title="ai.compose" aria-label="AI composition" title="AI composition"><span class="control-icon" aria-hidden="true">✦</span><span class="control-label" data-i18n="ai.compose">AI composition</span></button>
-        <button id="btn-ai-improvise" class="ai-improv-button topbar-control" data-studio-only data-improv-state="off" data-shortcut="Ctrl+I" aria-pressed="false" data-i18n-aria-label="ai.improviseStart" data-i18n-title="ai.improviseStart" aria-label="Start improv mode" title="Start improv mode"><span class="control-icon" aria-hidden="true">∞</span><span class="control-label" data-i18n="simpleEdit.improvMode">Improv</span></button>
+        <button id="btn-ai-improvise" class="ai-improv-button topbar-control" data-studio-only data-improv-state="off" data-shortcut="Ctrl+I" aria-pressed="false" aria-expanded="false" aria-controls="improv-workspace" data-i18n-aria-label="ai.improviseStart" data-i18n-title="ai.improviseStart" aria-label="Start improv mode" title="Start improv mode"><span class="control-icon" aria-hidden="true">∞</span><span class="control-label" data-i18n="simpleEdit.improvMode">Improv</span></button>
           </nav>
           <div class="topbar-actions">
           <button class="workspace-tab" data-page-target="settings" data-shortcut="Ctrl+," data-i18n-aria-label="nav.settings" data-i18n-title="nav.settings" aria-label="Settings" title="Settings"><span class="control-icon" aria-hidden="true">⚙</span><span class="control-label" data-i18n="nav.settings">Settings</span></button>
@@ -77,6 +77,27 @@
 
     <main class="workspace-pages">
       <section class="workspace-page active" data-workspace-page="studio">
+        <section id="improv-workspace" class="improv-workspace" hidden aria-labelledby="improv-title">
+          <header class="improv-heading">
+            <div><span class="improv-eyebrow" data-i18n="improv.eyebrow">LIVE DUET</span><h2 id="improv-title" data-i18n="improv.title">Find a rhythm together.</h2><p data-i18n="improv.description">Keep playing. Your AI partner listens and plays alongside you.</p></div>
+            <button id="btn-improv-close" type="button" data-shortcut="Ctrl+I" class="quiet" data-i18n="improv.close">Back to score</button>
+          </header>
+          <div class="improv-controls">
+            <label><span data-i18n="improv.tempo">Tempo · BPM</span><input id="improv-bpm" type="number" min="40" max="200" step="1" value="120" /></label>
+            <label><span data-i18n="improv.role">AI role</span><select id="improv-role"><option value="accompany" data-i18n="improv.accompany">Accompaniment</option><option value="bass" data-i18n="improv.bass">Bass</option><option value="counterpoint" data-i18n="improv.counterpoint">Counter-melody</option></select></label>
+            <label class="improv-participation"><span data-i18n="improv.participation">AI volume</span><input id="improv-participation" type="range" min="10" max="100" value="65" /></label>
+            <div class="improv-actions"><button id="btn-improv-save" type="button" data-shortcut="Ctrl+Shift+S" data-i18n="improv.save" disabled>Keep in score</button><button id="btn-improv-toggle" type="button" data-shortcut="Ctrl+Shift+I" class="primary" data-i18n="improv.start">Start duet</button></div>
+          </div>
+          <div class="improv-roll" role="img" data-i18n-aria-label="improv.rollLabel" aria-label="Live piano roll: your notes, AI notes and upcoming plans">
+            <div class="improv-lane-labels"><span data-i18n="improv.you">YOU</span><span data-i18n="improv.ai">AI</span></div>
+            <canvas id="improv-canvas" aria-hidden="true"></canvas>
+            <div id="improv-empty" class="improv-empty"><span aria-hidden="true">∞</span><strong data-i18n="improv.empty">A little melody is all it takes.</strong><p data-i18n="improv.input">Play with your keyboard, the on-screen piano, or MIDI.</p></div>
+          </div>
+          <footer class="improv-footer"><div class="improv-session-state" role="status"><span class="improv-state-dot" aria-hidden="true"></span><span id="improv-state"></span></div><div class="improv-legend"><span class="improv-legend-human" data-i18n="improv.you">YOU</span><span class="improv-legend-ai" data-i18n="improv.ai">AI</span><span class="improv-legend-plan" data-i18n="improv.planned">Upcoming</span></div><span id="improv-position"></span></footer>
+          <div id="improv-status" class="status" role="status" hidden></div>
+          <div class="improv-connection"><span id="improv-model"></span><button id="btn-improv-settings" type="button" data-shortcut="Ctrl+," class="quiet" data-i18n="improv.settings">AI settings ↗</button></div>
+          <details class="improv-diagnostics"><summary data-i18n="improv.diagnostics">Connection details</summary><span id="improv-metrics"></span><p data-i18n="improv.timingHint">Fixed 4/4 pulse. AI plans ahead; late notes are skipped. Cloud response time depends on your connection and model.</p></details>
+        </section>
         <section id="ai-activity" class="ai-activity" hidden aria-live="polite">
           <div class="ai-activity-head">
             <span id="ai-activity-title" class="ai-activity-title"></span>

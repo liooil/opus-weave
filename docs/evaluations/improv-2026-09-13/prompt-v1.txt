@@ -1,0 +1,40 @@
+import type { ImprovPlan, ImprovRole } from './realtime-improv.ts'
+
+export const IMPROV_SYSTEM_PROMPT = `You are a live musical partner playing ONE monophonic piano voice alongside a human.
+Return only N offset duration pitch velocity lines followed by END on its own line. No commentary, markdown or reasoning.
+All numbers are integers. One unit is a sixteenth note; 4 units = one beat; 16 = one 4/4 bar.
+Offsets are relative to TARGET, not to NOW or the bar start. Negative input offsets are history, never output them.
+Bounds: 0 <= offset; 1 <= duration <= 16; offset+duration <= window units; MIDI pitch 36..96; velocity 35..100.
+Output in time order with offset >= previous offset+duration. Do not overlap retained AI notes. Rests are gaps, not events.
+Follow the supplied role, earliest onset and density ceiling. Fewer notes are welcome; END alone is valid when resting is musically appropriate or no space remains.
+Listen to the most recent human phrase and held pitches. Favor a simple compatible harmony on strong beats; do not force a key from one ambiguous note. Follow a recent harmonic change rather than averaging all history.
+Held pitches describe NOW, not guaranteed future notes. Do not assume the human will stop. Avoid sustained close semitone clashes with held notes; brief passing tension may resolve by step.
+Support the human: leave space under busy phrases, use an independent register, modest velocity and mostly small steps. Do not mechanically double the melody or restart the same figure at each request.
+Continue the last retained AI pitch and rhythm smoothly. Use actual bar position for accents; target offset zero is not necessarily a downbeat. Never fill a note quota at the expense of phrasing.
+Write the earliest note first. Check bounds and overlaps silently before emitting each line.
+Format example only (not a melody to copy): N 2 2 57 60
+END`
+
+export function buildImprovPrompt(plan: ImprovPlan, role: ImprovRole): { system: string; prompt: string; earliest: number } {
+  const unit = 60 / plan.bpm / 4
+  const encode = (notes: ImprovPlan['human']) => notes.map(n => [Math.round((n.start - plan.start) / unit), Math.max(1, Math.round(n.duration / unit)), n.pitch, n.velocity].join(' ')).join('\n') || 'none'
+  // Round the END upward independently: rounded start + duration can understate a carried note.
+  const earliest = Math.max(0, ...plan.ai.filter(n => n.start < plan.start).map(n => Math.ceil((n.start + n.duration - plan.start) / unit - 1e-8)))
+  const roles: Record<ImprovRole, string> = {
+    bass: 'Sparse bass, pitches 36..55, mostly roots/fifths of the current harmony. Prefer beat-aligned longer notes; avoid competing with a low human line.',
+    accompany: 'Gentle broken-chord support, usually pitches 48..76. No simultaneous chord tones. Stay softer and less busy than the human.',
+    counterpoint: 'Complementary counter-melody, usually pitches 55..84. Mostly stepwise; use contrary or oblique motion when suitable, with breathing space.',
+  }
+  return { system: IMPROV_SYSTEM_PROMPT, earliest, prompt: `BPM ${plan.bpm}; meter 4/4; window ${plan.beats} beats (${plan.beats * 4} units).
+TARGET bar offset: ${plan.barOffset ?? 'unknown'} units (0=downbeat, 4/8/12=other beats).
+NOW relative to TARGET: ${plan.observedAt === undefined ? 'unknown' : Math.round((plan.observedAt - plan.start) / unit)} units.
+Role: ${roles[role]}
+Earliest allowed onset: ${earliest}. Offsets 0..${plan.beats * 4 - 1}; offset+duration <= ${plan.beats * 4}.
+Density ceiling: ${plan.beats <= 4 ? 6 : 12} notes; bass usually ${plan.beats <= 4 ? '1-3' : '2-6'}, other roles usually ${plan.beats <= 4 ? '2-4' : '4-8'}, fewer under busy input.
+Recent human notes (offset duration pitch velocity):
+${encode(plan.human)}
+Currently held human pitches: ${plan.held.join(' ') || 'none'}
+Retained AI notes (do not repeat; their tails may cross TARGET):
+${encode(plan.ai)}
+Generate the continuation.` }
+}

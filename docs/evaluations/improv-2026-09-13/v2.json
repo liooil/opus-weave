@@ -1,0 +1,1818 @@
+{
+  "model": "deepseek-flash",
+  "results": [
+    {
+      "case": "c-major-bass",
+      "repeat": 0,
+      "variant": "baseline",
+      "firstLineMs": null,
+      "completionMs": 629.6093099999999,
+      "output": "0 4 48 78\n4 4 55 72\n8 2 48 76\n10 2 51 74\n12 4 43 80\nEND",
+      "valid": false,
+      "rejected": 5,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [],
+      "review": {
+        "silent": true,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "c-major-bass",
+      "repeat": 0,
+      "variant": "candidate",
+      "firstLineMs": 802.003257,
+      "completionMs": 833.473378,
+      "output": "N 0 6 36 60\nN 8 4 43 58\nEND",
+      "valid": true,
+      "rejected": 0,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [
+        [
+          0,
+          6,
+          36,
+          60
+        ],
+        [
+          8,
+          4,
+          43,
+          58
+        ]
+      ],
+      "review": {
+        "silent": false,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "c-major-bass",
+      "repeat": 1,
+      "variant": "candidate",
+      "firstLineMs": 534.344572,
+      "completionMs": 763.680218,
+      "output": "N 0 8 48 70\nN 8 4 55 68\nN 12 4 48 70\nEND",
+      "valid": true,
+      "rejected": 0,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [
+        [
+          0,
+          8,
+          48,
+          70
+        ],
+        [
+          8,
+          4,
+          55,
+          68
+        ],
+        [
+          12,
+          4,
+          48,
+          70
+        ]
+      ],
+      "review": {
+        "silent": false,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "c-major-bass",
+      "repeat": 1,
+      "variant": "baseline",
+      "firstLineMs": null,
+      "completionMs": 658.4605310000002,
+      "output": "0 4 48 70\n4 2 52 65\n6 2 55 68\n8 4 48 72\n12 4 43 64\nEND",
+      "valid": false,
+      "rejected": 5,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [],
+      "review": {
+        "silent": true,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "c-major-bass",
+      "repeat": 2,
+      "variant": "baseline",
+      "firstLineMs": null,
+      "completionMs": 607.0621610000003,
+      "output": "0 4 48 74\n4 2 55 70\n6 2 52 68\n8 4 43 72\n12 2 46 66\n14 2 48 64\nEND",
+      "valid": false,
+      "rejected": 6,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [],
+      "review": {
+        "silent": true,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "c-major-bass",
+      "repeat": 2,
+      "variant": "candidate",
+      "firstLineMs": 733.1055629999996,
+      "completionMs": 765.2695980000003,
+      "output": "N 0 4 36 55\nN 8 4 43 50\nN 12 4 36 52\nEND",
+      "valid": true,
+      "rejected": 0,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [
+        [
+          0,
+          4,
+          36,
+          55
+        ],
+        [
+          8,
+          4,
+          43,
+          50
+        ],
+        [
+          12,
+          4,
+          36,
+          52
+        ]
+      ],
+      "review": {
+        "silent": false,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "c-major-bass",
+      "repeat": 3,
+      "variant": "candidate",
+      "firstLineMs": 296.650807,
+      "completionMs": 365.8492210000004,
+      "output": "N 0 6 36 60\nN 8 4 43 58\nN 12 4 48 55\nEND",
+      "valid": true,
+      "rejected": 0,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [
+        [
+          0,
+          6,
+          36,
+          60
+        ],
+        [
+          8,
+          4,
+          43,
+          58
+        ],
+        [
+          12,
+          4,
+          48,
+          55
+        ]
+      ],
+      "review": {
+        "silent": false,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "c-major-bass",
+      "repeat": 3,
+      "variant": "baseline",
+      "firstLineMs": null,
+      "completionMs": 811.9913630000001,
+      "output": "0 4 36 78\n4 2 43 74\n8 4 48 76\n13 3 45 72\nEND",
+      "valid": false,
+      "rejected": 4,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [],
+      "review": {
+        "silent": true,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "c-major-bass",
+      "repeat": 4,
+      "variant": "baseline",
+      "firstLineMs": null,
+      "completionMs": 1064.6643219999996,
+      "output": "0 2 36 80\n4 2 43 75\n8 2 48 75\n12 4 43 70\nEND",
+      "valid": false,
+      "rejected": 4,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [],
+      "review": {
+        "silent": true,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "c-major-bass",
+      "repeat": 4,
+      "variant": "candidate",
+      "firstLineMs": 813.7041240000008,
+      "completionMs": 817.5096110000004,
+      "output": "N 0 8 48 70\nN 12 4 55 65\nEND",
+      "valid": true,
+      "rejected": 0,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [
+        [
+          0,
+          8,
+          48,
+          70
+        ],
+        [
+          12,
+          4,
+          55,
+          65
+        ]
+      ],
+      "review": {
+        "silent": false,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "busy-d-minor",
+      "repeat": 0,
+      "variant": "baseline",
+      "firstLineMs": null,
+      "completionMs": 821.9456220000002,
+      "output": "6 2 62 55\n10 2 69 52\n14 2 74 58\nEND",
+      "valid": false,
+      "rejected": 3,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [],
+      "review": {
+        "silent": true,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "busy-d-minor",
+      "repeat": 0,
+      "variant": "candidate",
+      "firstLineMs": 654.7893619999995,
+      "completionMs": 769.6266749999995,
+      "output": "N 2 2 62 60\nN 5 2 66 58\nN 8 2 69 60\nN 12 2 65 58\nN 14 2 62 56\nEND",
+      "valid": true,
+      "rejected": 0,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [
+        [
+          2,
+          2,
+          62,
+          60
+        ],
+        [
+          5,
+          2,
+          66,
+          58
+        ],
+        [
+          8,
+          2,
+          69,
+          60
+        ],
+        [
+          12,
+          2,
+          65,
+          58
+        ],
+        [
+          14,
+          2,
+          62,
+          56
+        ]
+      ],
+      "review": {
+        "silent": false,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "busy-d-minor",
+      "repeat": 1,
+      "variant": "candidate",
+      "firstLineMs": 859.8626280000008,
+      "completionMs": 937.9086050000005,
+      "output": "N 2 2 71 55\nN 6 2 67 54\nN 10 2 62 53\nN 14 2 67 55\nEND",
+      "valid": true,
+      "rejected": 0,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [
+        [
+          2,
+          2,
+          71,
+          55
+        ],
+        [
+          6,
+          2,
+          67,
+          54
+        ],
+        [
+          10,
+          2,
+          62,
+          53
+        ],
+        [
+          14,
+          2,
+          67,
+          55
+        ]
+      ],
+      "review": {
+        "silent": false,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "busy-d-minor",
+      "repeat": 1,
+      "variant": "baseline",
+      "firstLineMs": null,
+      "completionMs": 781.0304340000002,
+      "output": "8 2 69 60\n10 2 65 55\n14 2 62 50\nEND",
+      "valid": false,
+      "rejected": 3,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [],
+      "review": {
+        "silent": true,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "busy-d-minor",
+      "repeat": 2,
+      "variant": "baseline",
+      "firstLineMs": null,
+      "completionMs": 459.0178300000007,
+      "output": "1 2 50 55\n3 2 57 58\n7 4 62 60\n12 2 65 58\n14 2 62 55\nEND",
+      "valid": false,
+      "rejected": 5,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [],
+      "review": {
+        "silent": true,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "busy-d-minor",
+      "repeat": 2,
+      "variant": "candidate",
+      "firstLineMs": 725.8871680000011,
+      "completionMs": 876.1180290000011,
+      "output": "N 1 2 55 52\nN 4 2 62 54\nN 7 2 57 50\nN 11 2 60 52\nN 14 2 50 48\nEND",
+      "valid": true,
+      "rejected": 0,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [
+        [
+          1,
+          2,
+          55,
+          52
+        ],
+        [
+          4,
+          2,
+          62,
+          54
+        ],
+        [
+          7,
+          2,
+          57,
+          50
+        ],
+        [
+          11,
+          2,
+          60,
+          52
+        ],
+        [
+          14,
+          2,
+          50,
+          48
+        ]
+      ],
+      "review": {
+        "silent": false,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "busy-d-minor",
+      "repeat": 3,
+      "variant": "candidate",
+      "firstLineMs": 771.4707959999996,
+      "completionMs": 863.3451679999998,
+      "output": "N 2 2 50 55\nN 6 2 57 58\nN 10 2 62 56\nN 14 2 57 54\nEND",
+      "valid": true,
+      "rejected": 0,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [
+        [
+          2,
+          2,
+          50,
+          55
+        ],
+        [
+          6,
+          2,
+          57,
+          58
+        ],
+        [
+          10,
+          2,
+          62,
+          56
+        ],
+        [
+          14,
+          2,
+          57,
+          54
+        ]
+      ],
+      "review": {
+        "silent": false,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "busy-d-minor",
+      "repeat": 3,
+      "variant": "baseline",
+      "firstLineMs": null,
+      "completionMs": 790.5196780000006,
+      "output": "3 4 62 55\n7 2 65 60\n10 2 69 65\n13 3 74 62\nEND",
+      "valid": false,
+      "rejected": 4,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [],
+      "review": {
+        "silent": true,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "busy-d-minor",
+      "repeat": 4,
+      "variant": "baseline",
+      "firstLineMs": null,
+      "completionMs": 850.2599550000014,
+      "output": "6 2 62 55\n10 2 65 52\n14 2 69 50\nEND",
+      "valid": false,
+      "rejected": 3,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [],
+      "review": {
+        "silent": true,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "busy-d-minor",
+      "repeat": 4,
+      "variant": "candidate",
+      "firstLineMs": 859.2226769999997,
+      "completionMs": 958.6242220000004,
+      "output": "N 1 3 62 58\nN 5 3 65 58\nN 9 3 69 58\nN 13 3 67 58\nEND",
+      "valid": true,
+      "rejected": 0,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [
+        [
+          1,
+          3,
+          62,
+          58
+        ],
+        [
+          5,
+          3,
+          65,
+          58
+        ],
+        [
+          9,
+          3,
+          69,
+          58
+        ],
+        [
+          13,
+          3,
+          67,
+          58
+        ]
+      ],
+      "review": {
+        "silent": false,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "chromatic-held",
+      "repeat": 0,
+      "variant": "baseline",
+      "firstLineMs": null,
+      "completionMs": 829.6353990000007,
+      "output": "4 2 72 72\n6 4 70 74\n11 2 65 68\n13 3 67 70\nEND",
+      "valid": false,
+      "rejected": 4,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [],
+      "review": {
+        "silent": true,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "chromatic-held",
+      "repeat": 0,
+      "variant": "candidate",
+      "firstLineMs": 768.1133600000012,
+      "completionMs": 832.0523159999993,
+      "output": "N 0 4 80 62\nN 4 4 78 60\nN 8 2 76 58\nN 12 4 73 60\nEND",
+      "valid": true,
+      "rejected": 0,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [
+        [
+          0,
+          4,
+          80,
+          62
+        ],
+        [
+          4,
+          4,
+          78,
+          60
+        ],
+        [
+          8,
+          2,
+          76,
+          58
+        ],
+        [
+          12,
+          4,
+          73,
+          60
+        ]
+      ],
+      "review": {
+        "silent": false,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "chromatic-held",
+      "repeat": 1,
+      "variant": "candidate",
+      "firstLineMs": 1056.274572000002,
+      "completionMs": 1188.3329860000013,
+      "output": "N 0 4 73 62\nN 4 2 72 58\nN 7 3 70 60\nN 12 4 68 56\nEND",
+      "valid": true,
+      "rejected": 0,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [
+        [
+          0,
+          4,
+          73,
+          62
+        ],
+        [
+          4,
+          2,
+          72,
+          58
+        ],
+        [
+          7,
+          3,
+          70,
+          60
+        ],
+        [
+          12,
+          4,
+          68,
+          56
+        ]
+      ],
+      "review": {
+        "silent": false,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "chromatic-held",
+      "repeat": 1,
+      "variant": "baseline",
+      "firstLineMs": null,
+      "completionMs": 846.5273259999994,
+      "output": "9 2 72 78\n12 4 70 80\nEND",
+      "valid": false,
+      "rejected": 2,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [],
+      "review": {
+        "silent": true,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "chromatic-held",
+      "repeat": 2,
+      "variant": "baseline",
+      "firstLineMs": null,
+      "completionMs": 772.6135880000002,
+      "output": "7 2 72 80\n9 2 74 82\n11 3 77 84\n14 2 72 78\nEND",
+      "valid": false,
+      "rejected": 4,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [],
+      "review": {
+        "silent": true,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "chromatic-held",
+      "repeat": 2,
+      "variant": "candidate",
+      "firstLineMs": 590.0998819999986,
+      "completionMs": 714.256648999999,
+      "output": "N 0 4 80 60\nN 4 2 78 58\nN 8 4 75 60\nN 12 4 73 58\nEND",
+      "valid": true,
+      "rejected": 0,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [
+        [
+          0,
+          4,
+          80,
+          60
+        ],
+        [
+          4,
+          2,
+          78,
+          58
+        ],
+        [
+          8,
+          4,
+          75,
+          60
+        ],
+        [
+          12,
+          4,
+          73,
+          58
+        ]
+      ],
+      "review": {
+        "silent": false,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "chromatic-held",
+      "repeat": 3,
+      "variant": "candidate",
+      "firstLineMs": 494.8723370000007,
+      "completionMs": 589.7688400000006,
+      "output": "N 0 4 73 62\nN 4 2 75 60\nN 8 4 72 58\nN 12 4 68 55\nEND",
+      "valid": true,
+      "rejected": 0,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [
+        [
+          0,
+          4,
+          73,
+          62
+        ],
+        [
+          4,
+          2,
+          75,
+          60
+        ],
+        [
+          8,
+          4,
+          72,
+          58
+        ],
+        [
+          12,
+          4,
+          68,
+          55
+        ]
+      ],
+      "review": {
+        "silent": false,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "chromatic-held",
+      "repeat": 3,
+      "variant": "baseline",
+      "firstLineMs": null,
+      "completionMs": 799.8425969999989,
+      "output": "8 2 72 78\n2 2 70 74\n10 2 67 72\n12 2 63 70\n14 2 60 68\nEND",
+      "valid": false,
+      "rejected": 5,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [],
+      "review": {
+        "silent": true,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "chromatic-held",
+      "repeat": 4,
+      "variant": "baseline",
+      "firstLineMs": null,
+      "completionMs": 855.2436840000009,
+      "output": "6 3 76 72\n4 2 79 78\n8 4 81 80\n12 4 77 74\n14 2 72 68\nEND",
+      "valid": false,
+      "rejected": 5,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [],
+      "review": {
+        "silent": true,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "chromatic-held",
+      "repeat": 4,
+      "variant": "candidate",
+      "firstLineMs": 525.9317630000005,
+      "completionMs": 536.7702089999984,
+      "output": "N 0 3 73 62\nN 4 2 75 60\nN 8 2 73 58\nN 12 4 70 56\nEND",
+      "valid": true,
+      "rejected": 0,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [
+        [
+          0,
+          3,
+          73,
+          62
+        ],
+        [
+          4,
+          2,
+          75,
+          60
+        ],
+        [
+          8,
+          2,
+          73,
+          58
+        ],
+        [
+          12,
+          4,
+          70,
+          56
+        ]
+      ],
+      "review": {
+        "silent": false,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "carried-note",
+      "repeat": 0,
+      "variant": "baseline",
+      "firstLineMs": null,
+      "completionMs": 438.72344499999963,
+      "output": "8 2 74 72\n10 2 72 70\n12 4 69 68\nEND",
+      "valid": false,
+      "rejected": 3,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [],
+      "review": {
+        "silent": true,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "carried-note",
+      "repeat": 0,
+      "variant": "candidate",
+      "firstLineMs": 628.821602,
+      "completionMs": 746.6661849999982,
+      "output": "N 6 2 69 58\nN 9 2 67 56\nN 12 2 65 55\nN 15 1 64 54\nEND",
+      "valid": true,
+      "rejected": 0,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [
+        [
+          6,
+          2,
+          69,
+          58
+        ],
+        [
+          9,
+          2,
+          67,
+          56
+        ],
+        [
+          12,
+          2,
+          65,
+          55
+        ],
+        [
+          15,
+          1,
+          64,
+          54
+        ]
+      ],
+      "review": {
+        "silent": false,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "carried-note",
+      "repeat": 1,
+      "variant": "candidate",
+      "firstLineMs": 537.4139819999982,
+      "completionMs": 603.3994439999988,
+      "output": "N 6 2 69 58\nN 9 2 72 60\nN 12 2 71 56\nEND",
+      "valid": true,
+      "rejected": 0,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [
+        [
+          6,
+          2,
+          69,
+          58
+        ],
+        [
+          9,
+          2,
+          72,
+          60
+        ],
+        [
+          12,
+          2,
+          71,
+          56
+        ]
+      ],
+      "review": {
+        "silent": false,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "carried-note",
+      "repeat": 1,
+      "variant": "baseline",
+      "firstLineMs": null,
+      "completionMs": 845.130809000002,
+      "output": "0 3 64 64\n4 3 72 68\n8 2 76 70\n11 3 79 72\n15 1 76 66\nEND",
+      "valid": false,
+      "rejected": 5,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [],
+      "review": {
+        "silent": true,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "carried-note",
+      "repeat": 2,
+      "variant": "baseline",
+      "firstLineMs": null,
+      "completionMs": 846.0364460000019,
+      "output": "4 4 64 60\n8 2 62 56\n10 2 60 52\n12 4 57 58\nEND",
+      "valid": false,
+      "rejected": 4,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [],
+      "review": {
+        "silent": true,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "carried-note",
+      "repeat": 2,
+      "variant": "candidate",
+      "firstLineMs": 1092.668106000001,
+      "completionMs": 1158.804487999998,
+      "output": "N 6 2 64 55\nN 10 2 62 52\nN 13 3 60 50\nEND",
+      "valid": true,
+      "rejected": 0,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [
+        [
+          6,
+          2,
+          64,
+          55
+        ],
+        [
+          10,
+          2,
+          62,
+          52
+        ],
+        [
+          13,
+          3,
+          60,
+          50
+        ]
+      ],
+      "review": {
+        "silent": false,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "carried-note",
+      "repeat": 3,
+      "variant": "candidate",
+      "firstLineMs": 663.0035270000008,
+      "completionMs": 791.3662920000024,
+      "output": "N 6 2 64 58\nN 9 2 65 58\nN 12 4 67 60\nEND",
+      "valid": true,
+      "rejected": 0,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [
+        [
+          6,
+          2,
+          64,
+          58
+        ],
+        [
+          9,
+          2,
+          65,
+          58
+        ],
+        [
+          12,
+          4,
+          67,
+          60
+        ]
+      ],
+      "review": {
+        "silent": false,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "carried-note",
+      "repeat": 3,
+      "variant": "baseline",
+      "firstLineMs": null,
+      "completionMs": 927.7011219999986,
+      "output": "0 2 64 68\n3 2 69 72\n6 4 72 75\n11 2 76 78\n13 3 74 74\nEND",
+      "valid": false,
+      "rejected": 5,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [],
+      "review": {
+        "silent": true,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "carried-note",
+      "repeat": 4,
+      "variant": "baseline",
+      "firstLineMs": null,
+      "completionMs": 765.1897389999976,
+      "output": "6 2 72 62\n8 2 74 64\n10 2 76 62\n12 2 72 60\n14 2 67 58\nEND",
+      "valid": false,
+      "rejected": 5,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [],
+      "review": {
+        "silent": true,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "carried-note",
+      "repeat": 4,
+      "variant": "candidate",
+      "firstLineMs": 416.6232579999996,
+      "completionMs": 498.5766199999998,
+      "output": "N 6 3 64 60\nN 10 2 62 58\nN 13 3 60 56\nEND",
+      "valid": true,
+      "rejected": 0,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [
+        [
+          6,
+          3,
+          64,
+          60
+        ],
+        [
+          10,
+          2,
+          62,
+          58
+        ],
+        [
+          13,
+          3,
+          60,
+          56
+        ]
+      ],
+      "review": {
+        "silent": false,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "no-space",
+      "repeat": 0,
+      "variant": "baseline",
+      "firstLineMs": null,
+      "completionMs": 1584.889565999998,
+      "output": "2 2 43 68\n5 2 43 62\n8 2 46 70\n12 4 48 64\nEND",
+      "valid": false,
+      "rejected": 4,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [],
+      "review": {
+        "silent": true,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "no-space",
+      "repeat": 0,
+      "variant": "candidate",
+      "firstLineMs": null,
+      "completionMs": 637.7174269999996,
+      "output": "END",
+      "valid": true,
+      "rejected": 0,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [],
+      "review": {
+        "silent": true,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "no-space",
+      "repeat": 1,
+      "variant": "candidate",
+      "firstLineMs": null,
+      "completionMs": 535.8989370000054,
+      "output": "END",
+      "valid": true,
+      "rejected": 0,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [],
+      "review": {
+        "silent": true,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "no-space",
+      "repeat": 1,
+      "variant": "baseline",
+      "firstLineMs": null,
+      "completionMs": 964.9727869999988,
+      "output": "4 2 41 66\n6 2 48 62\n10 2 43 64\n12 4 50 58\nEND",
+      "valid": false,
+      "rejected": 4,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [],
+      "review": {
+        "silent": true,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "no-space",
+      "repeat": 2,
+      "variant": "baseline",
+      "firstLineMs": null,
+      "completionMs": 879.4496209999998,
+      "output": "6 2 43 67\n8 4 48 72\n14 2 55 69\nEND",
+      "valid": false,
+      "rejected": 3,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [],
+      "review": {
+        "silent": true,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "no-space",
+      "repeat": 2,
+      "variant": "candidate",
+      "firstLineMs": null,
+      "completionMs": 701.0679170000003,
+      "output": "END",
+      "valid": true,
+      "rejected": 0,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [],
+      "review": {
+        "silent": true,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "no-space",
+      "repeat": 3,
+      "variant": "candidate",
+      "firstLineMs": null,
+      "completionMs": 413.66928299999563,
+      "output": "END",
+      "valid": true,
+      "rejected": 0,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [],
+      "review": {
+        "silent": true,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "no-space",
+      "repeat": 3,
+      "variant": "baseline",
+      "firstLineMs": null,
+      "completionMs": 748.426406999999,
+      "output": "0 4 48 60\n4 4 55 60\n8 4 48 60\n12 4 43 60\nEND",
+      "valid": false,
+      "rejected": 4,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [],
+      "review": {
+        "silent": true,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "no-space",
+      "repeat": 4,
+      "variant": "baseline",
+      "firstLineMs": null,
+      "completionMs": 667.0301590000017,
+      "output": "0 2 43 72\n4 2 50 78\n8 2 48 74\n12 4 45 70\nEND",
+      "valid": false,
+      "rejected": 4,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [],
+      "review": {
+        "silent": true,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "no-space",
+      "repeat": 4,
+      "variant": "candidate",
+      "firstLineMs": null,
+      "completionMs": 753.142187999998,
+      "output": "END",
+      "valid": true,
+      "rejected": 0,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [],
+      "review": {
+        "silent": true,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "harmony-change",
+      "repeat": 0,
+      "variant": "baseline",
+      "firstLineMs": null,
+      "completionMs": 519.7405910000016,
+      "output": "0 2 41 72\n4 2 48 74\n8 4 53 70\n14 2 48 72\n18 2 46 74\n22 4 43 70\n28 2 41 72\n30 2 36 74\nEND",
+      "valid": false,
+      "rejected": 8,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [],
+      "review": {
+        "silent": true,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "harmony-change",
+      "repeat": 0,
+      "variant": "candidate",
+      "firstLineMs": 669.8680370000002,
+      "completionMs": 792.0538289999968,
+      "output": "N 0 8 41 68\nN 12 4 48 62\nN 16 8 36 66\nN 24 4 43 60\nEND",
+      "valid": true,
+      "rejected": 0,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [
+        [
+          0,
+          8,
+          41,
+          68
+        ],
+        [
+          12,
+          4,
+          48,
+          62
+        ],
+        [
+          16,
+          8,
+          36,
+          66
+        ],
+        [
+          24,
+          4,
+          43,
+          60
+        ]
+      ],
+      "review": {
+        "silent": false,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "harmony-change",
+      "repeat": 1,
+      "variant": "candidate",
+      "firstLineMs": 570.4694350000063,
+      "completionMs": 754.5749670000005,
+      "output": "N 0 8 41 58\nN 8 4 48 55\nN 12 4 43 55\nN 16 8 41 58\nN 24 4 48 55\nN 28 4 43 55\nEND",
+      "valid": true,
+      "rejected": 0,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [
+        [
+          0,
+          8,
+          41,
+          58
+        ],
+        [
+          8,
+          4,
+          48,
+          55
+        ],
+        [
+          12,
+          4,
+          43,
+          55
+        ],
+        [
+          16,
+          8,
+          41,
+          58
+        ],
+        [
+          24,
+          4,
+          48,
+          55
+        ],
+        [
+          28,
+          4,
+          43,
+          55
+        ]
+      ],
+      "review": {
+        "silent": false,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "harmony-change",
+      "repeat": 1,
+      "variant": "baseline",
+      "firstLineMs": null,
+      "completionMs": 665.8777489999993,
+      "output": "0 4 41 70\n6 2 48 68\n8 6 41 70\n16 2 53 66\n18 2 50 66\n20 6 41 68\n28 4 48 66\nEND",
+      "valid": false,
+      "rejected": 7,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [],
+      "review": {
+        "silent": true,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "harmony-change",
+      "repeat": 2,
+      "variant": "baseline",
+      "firstLineMs": null,
+      "completionMs": 641.1991659999985,
+      "output": "0 4 41 80\n6 2 48 78\n10 4 45 80\n16 4 41 78\n22 2 48 80\n26 4 43 78\n31 1 36 76\nEND",
+      "valid": false,
+      "rejected": 7,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [],
+      "review": {
+        "silent": true,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "harmony-change",
+      "repeat": 2,
+      "variant": "candidate",
+      "firstLineMs": 381.3501560000004,
+      "completionMs": 502.851803000005,
+      "output": "N 0 8 41 60\nN 8 8 45 58\nN 16 8 48 56\nN 24 8 43 58\nEND",
+      "valid": true,
+      "rejected": 0,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [
+        [
+          0,
+          8,
+          41,
+          60
+        ],
+        [
+          8,
+          8,
+          45,
+          58
+        ],
+        [
+          16,
+          8,
+          48,
+          56
+        ],
+        [
+          24,
+          8,
+          43,
+          58
+        ]
+      ],
+      "review": {
+        "silent": false,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "harmony-change",
+      "repeat": 3,
+      "variant": "candidate",
+      "firstLineMs": 503.2601849999992,
+      "completionMs": 731.6112549999962,
+      "output": "N 0 8 41 58\nN 8 4 48 55\nN 12 4 45 55\nN 16 8 41 58\nN 24 4 48 56\nN 28 4 45 56\nEND",
+      "valid": true,
+      "rejected": 0,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [
+        [
+          0,
+          8,
+          41,
+          58
+        ],
+        [
+          8,
+          4,
+          48,
+          55
+        ],
+        [
+          12,
+          4,
+          45,
+          55
+        ],
+        [
+          16,
+          8,
+          41,
+          58
+        ],
+        [
+          24,
+          4,
+          48,
+          56
+        ],
+        [
+          28,
+          4,
+          45,
+          56
+        ]
+      ],
+      "review": {
+        "silent": false,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "harmony-change",
+      "repeat": 3,
+      "variant": "baseline",
+      "firstLineMs": null,
+      "completionMs": 1044.5041130000027,
+      "output": "0 4 48 88\n4 2 55 84\n6 2 53 82\n8 4 45 88\n12 2 50 82\n14 2 53 82\n16 4 46 88\n20 2 53 82\n22 2 50 80\n24 4 48 88\n28 2 55 82\n30 2 53 82\nEND",
+      "valid": false,
+      "rejected": 12,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [],
+      "review": {
+        "silent": true,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "harmony-change",
+      "repeat": 4,
+      "variant": "baseline",
+      "firstLineMs": null,
+      "completionMs": 748.5842120000016,
+      "output": "0 4 41 78\n6 2 48 72\n8 4 45 76\n14 2 52 70\n16 4 41 78\n22 2 48 72\n24 4 45 76\n30 2 40 70\nEND",
+      "valid": false,
+      "rejected": 8,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [],
+      "review": {
+        "silent": true,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    },
+    {
+      "case": "harmony-change",
+      "repeat": 4,
+      "variant": "candidate",
+      "firstLineMs": 744.031329999998,
+      "completionMs": 831.9759120000017,
+      "output": "N 0 8 41 60\nN 8 8 48 58\nN 16 8 45 58\nEND",
+      "valid": true,
+      "rejected": 0,
+      "ended": true,
+      "carryCollisions": 0,
+      "densityExceeded": false,
+      "notes": [
+        [
+          0,
+          8,
+          41,
+          60
+        ],
+        [
+          8,
+          8,
+          48,
+          58
+        ],
+        [
+          16,
+          8,
+          45,
+          58
+        ]
+      ],
+      "review": {
+        "silent": false,
+        "bassOutsideRegister": 0,
+        "largeLeaps": 0,
+        "sustainedSemitoneClashes": 0
+      }
+    }
+  ],
+  "prompts": {
+    "baseline": {
+      "system": "You are a live musical partner. The human keeps playing while you play ONE monophonic voice.\nOutput ONLY lines: N offset duration pitch velocity, then END. No prose, JSON, markdown, reasoning or full score.\nOffset and duration are integer sixteenth-note units relative to the target start. Output in ascending offset order.\nStay within the target window; durations 1..16; MIDI pitch 36..96; velocity 35..100.\nNo overlapping notes. Use musical rests. Write the earliest notes first.\nDevelop the human's recent harmony and motif; do not copy their whole melody. Continue smoothly from the committed AI notes.\nFollow the role and bounds in the user message.",
+      "cases": {
+        "c-major-bass": "BPM 120, meter 4/4, window 4 beats, target version 1.\nRole: Sparse bass line, mostly pitches 36..55.\nOffsets 0..15; offset+duration <= 16. Use 3-6 notes across the window.\nRecent human notes (offset duration pitch velocity; negative offsets are history):\n-8 4 60 85\n-8 4 64 85\n-8 4 67 85\nCurrently held human pitches: 60 64 67\nAI notes before target (do not repeat or modify):\n\nGenerate the next window now.",
+        "busy-d-minor": "BPM 120, meter 4/4, window 4 beats, target version 1.\nRole: Gentle, sparse accompaniment, leaving room for the human.\nOffsets 0..15; offset+duration <= 16. Use 3-6 notes across the window.\nRecent human notes (offset duration pitch velocity; negative offsets are history):\n-18 2 62 90\n-16 2 65 90\n-14 2 69 90\n-12 2 72 90\n-10 2 74 90\n-8 2 72 90\n-6 2 69 90\n-4 2 74 90\nCurrently held human pitches: 74\nAI notes before target (do not repeat or modify):\n\nGenerate the next window now.",
+        "chromatic-held": "BPM 120, meter 4/4, window 4 beats, target version 1.\nRole: Independent, complementary counter-melody, mostly pitches 55..84.\nOffsets 0..15; offset+duration <= 16. Use 3-6 notes across the window.\nRecent human notes (offset duration pitch velocity; negative offsets are history):\n-8 4 61 75\n-8 4 65 75\n-8 4 68 75\nCurrently held human pitches: 61 65 68\nAI notes before target (do not repeat or modify):\n\nGenerate the next window now.",
+        "carried-note": "BPM 120, meter 4/4, window 4 beats, target version 1.\nRole: Independent, complementary counter-melody, mostly pitches 55..84.\nOffsets 0..15; offset+duration <= 16. Use 3-6 notes across the window.\nRecent human notes (offset duration pitch velocity; negative offsets are history):\n\nCurrently held human pitches: 60\nAI notes before target (do not repeat or modify):\n-2 7 67 60\nGenerate the next window now.",
+        "no-space": "BPM 120, meter 4/4, window 4 beats, target version 1.\nRole: Sparse bass line, mostly pitches 36..55.\nOffsets 0..15; offset+duration <= 16. Use 3-6 notes across the window.\nRecent human notes (offset duration pitch velocity; negative offsets are history):\n\nCurrently held human pitches: 60\nAI notes before target (do not repeat or modify):\n-1 18 48 60\nGenerate the next window now.",
+        "harmony-change": "BPM 120, meter 4/4, window 8 beats, target version 1.\nRole: Sparse bass line, mostly pitches 36..55.\nOffsets 0..31; offset+duration <= 32. Use 6-12 notes across the window.\nRecent human notes (offset duration pitch velocity; negative offsets are history):\n-24 8 60 80\n-24 8 64 80\n-24 8 67 80\n-8 4 65 80\n-8 4 69 80\n-8 4 72 80\nCurrently held human pitches: 65 69 72\nAI notes before target (do not repeat or modify):\n\nGenerate the next window now."
+      }
+    },
+    "candidate": {
+      "system": "You are a live musical partner playing ONE monophonic piano voice alongside a human.\nReturn only N offset duration pitch velocity lines followed by END on its own line. No commentary, markdown or reasoning.\nThe literal letter N is mandatory at the start of EVERY note line, including the first.\nAll numbers are integers. One unit is a sixteenth note; 4 units = one beat; 16 = one 4/4 bar.\nOffsets are relative to TARGET, not to NOW or the bar start. Negative input offsets are history, never output them.\nBounds: 0 <= offset; 1 <= duration <= 16; offset+duration <= window units; MIDI pitch 36..96; velocity 35..100.\nOutput in time order with offset >= previous offset+duration. Do not overlap retained AI notes. Rests are gaps, not events.\nFollow the supplied role, earliest onset and density ceiling. Fewer notes are welcome; END alone is valid when resting is musically appropriate or no space remains.\nListen to the most recent human phrase and held pitches. Favor a simple compatible harmony on strong beats; do not force a key from one ambiguous note. Follow a recent harmonic change rather than averaging all history.\nUse the supplied pitch-class names to interpret MIDI numbers. Anchor phrase beginnings and endings in the recent harmony; do not introduce a new chord or chromatic alteration without evidence. Non-chord passing notes should be brief and resolve by step, not end the phrase unresolved.\nHeld pitches describe NOW, not guaranteed future notes. Do not assume the human will stop. Avoid sustained close semitone clashes with held notes; brief passing tension may resolve by step.\nSupport the human: leave space under busy phrases, use an independent register, modest velocity and mostly small steps. Do not mechanically double the melody or restart the same figure at each request.\nContinue the last retained AI pitch and rhythm smoothly. Use actual bar position for accents; target offset zero is not necessarily a downbeat. Never fill a note quota at the expense of phrasing.\nWrite the earliest note first. Check bounds and overlaps silently before emitting each line.\nFormat example only (not a melody to copy): N 2 2 57 60\nEND",
+      "cases": {
+        "c-major-bass": "BPM 120; meter 4/4; window 4 beats (16 units).\nContinue only in the free space specified below.\nTARGET bar offset: 0 units (0=downbeat, 4/8/12=other beats).\nNOW relative to TARGET: -4 units.\nRole: Sparse bass, pitches 36..55, mostly roots/fifths of the current harmony. Prefer beat-aligned longer notes; avoid competing with a low human line.\nEarliest allowed onset: 0. Offsets 0..15; offset+duration <= 16.\nDensity ceiling: 6 notes; bass usually 1-3, other roles usually 2-4, fewer under busy input.\nRecent human notes (offset duration pitch velocity):\n-8 4 60 85\n-8 4 64 85\n-8 4 67 85\nCurrently held human pitches: 60 64 67\nHeld pitch classes: C E G.\nRecent human pitch classes (last two beats, observations rather than a mandatory scale): C E G.\nRetained AI notes (do not repeat; their tails may cross TARGET):\nnone\nGenerate the continuation; every note line starts with N.",
+        "busy-d-minor": "BPM 120; meter 4/4; window 4 beats (16 units).\nContinue only in the free space specified below.\nTARGET bar offset: 6 units (0=downbeat, 4/8/12=other beats).\nNOW relative to TARGET: -4 units.\nRole: Gentle broken-chord support, usually pitches 48..76. No simultaneous chord tones. Stay softer and less busy than the human.\nEarliest allowed onset: 0. Offsets 0..15; offset+duration <= 16.\nDensity ceiling: 6 notes; bass usually 1-3, other roles usually 2-4, fewer under busy input.\nRecent human notes (offset duration pitch velocity):\n-18 2 62 90\n-16 2 65 90\n-14 2 69 90\n-12 2 72 90\n-10 2 74 90\n-8 2 72 90\n-6 2 69 90\n-4 2 74 90\nCurrently held human pitches: 74\nHeld pitch classes: D.\nRecent human pitch classes (last two beats, observations rather than a mandatory scale): C D A.\nRetained AI notes (do not repeat; their tails may cross TARGET):\nnone\nGenerate the continuation; every note line starts with N.",
+        "chromatic-held": "BPM 120; meter 4/4; window 4 beats (16 units).\nContinue only in the free space specified below.\nTARGET bar offset: 0 units (0=downbeat, 4/8/12=other beats).\nNOW relative to TARGET: -4 units.\nRole: Complementary counter-melody, usually pitches 55..84. Mostly stepwise; use contrary or oblique motion when suitable, with breathing space.\nEarliest allowed onset: 0. Offsets 0..15; offset+duration <= 16.\nDensity ceiling: 6 notes; bass usually 1-3, other roles usually 2-4, fewer under busy input.\nRecent human notes (offset duration pitch velocity):\n-8 4 61 75\n-8 4 65 75\n-8 4 68 75\nCurrently held human pitches: 61 65 68\nHeld pitch classes: C# F G#.\nRecent human pitch classes (last two beats, observations rather than a mandatory scale): C# F G#.\nRetained AI notes (do not repeat; their tails may cross TARGET):\nnone\nGenerate the continuation; every note line starts with N.",
+        "carried-note": "BPM 120; meter 4/4; window 4 beats (16 units).\nContinue only in the free space specified below.\nTARGET bar offset: 0 units (0=downbeat, 4/8/12=other beats).\nNOW relative to TARGET: -4 units.\nRole: Complementary counter-melody, usually pitches 55..84. Mostly stepwise; use contrary or oblique motion when suitable, with breathing space.\nEarliest allowed onset: 6. Offsets 0..15; offset+duration <= 16.\nDensity ceiling: 6 notes; bass usually 1-3, other roles usually 2-4, fewer under busy input.\nRecent human notes (offset duration pitch velocity):\nnone\nCurrently held human pitches: 60\nHeld pitch classes: C.\nRecent human pitch classes (last two beats, observations rather than a mandatory scale): none.\nRetained AI notes (do not repeat; their tails may cross TARGET):\n-2 7 67 60\nGenerate the continuation; every note line starts with N.",
+        "no-space": "BPM 120; meter 4/4; window 4 beats (16 units).\nNO FREE SPACE: the retained AI note covers the entire window. Return exactly END, with no N lines.\nTARGET bar offset: 0 units (0=downbeat, 4/8/12=other beats).\nNOW relative to TARGET: -4 units.\nRole: Sparse bass, pitches 36..55, mostly roots/fifths of the current harmony. Prefer beat-aligned longer notes; avoid competing with a low human line.\nEarliest allowed onset: 17. Offsets 0..15; offset+duration <= 16.\nDensity ceiling: 6 notes; bass usually 1-3, other roles usually 2-4, fewer under busy input.\nRecent human notes (offset duration pitch velocity):\nnone\nCurrently held human pitches: 60\nHeld pitch classes: C.\nRecent human pitch classes (last two beats, observations rather than a mandatory scale): none.\nRetained AI notes (do not repeat; their tails may cross TARGET):\n-1 18 48 60\nAnswer: END only.",
+        "harmony-change": "BPM 120; meter 4/4; window 8 beats (32 units).\nContinue only in the free space specified below.\nTARGET bar offset: 0 units (0=downbeat, 4/8/12=other beats).\nNOW relative to TARGET: -4 units.\nRole: Sparse bass, pitches 36..55, mostly roots/fifths of the current harmony. Prefer beat-aligned longer notes; avoid competing with a low human line.\nEarliest allowed onset: 0. Offsets 0..31; offset+duration <= 32.\nDensity ceiling: 12 notes; bass usually 2-6, other roles usually 4-8, fewer under busy input.\nRecent human notes (offset duration pitch velocity):\n-24 8 60 80\n-24 8 64 80\n-24 8 67 80\n-8 4 65 80\n-8 4 69 80\n-8 4 72 80\nCurrently held human pitches: 65 69 72\nHeld pitch classes: F A C.\nRecent human pitch classes (last two beats, observations rather than a mandatory scale): F A C.\nRetained AI notes (do not repeat; their tails may cross TARGET):\nnone\nGenerate the continuation; every note line starts with N."
+      }
+    }
+  }
+}

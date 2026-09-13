@@ -76,7 +76,7 @@ describe('web workspace structure', () => {
     expect(html).toContain('data-shortcut="Ctrl+L"')
     expect(app).toContain('engine?.setLooping(loopPlayback)')
     expect(app).toContain('player.setLooping(loopPlayback && allowLoop)')
-    expect(app).toContain('playOwtRange(undefined, false)')
+    expect(app).toContain('engine?.scheduleRealtimeNote(pitch, velocity, time)')
     expect(modalEditor).toContain("l: 'loop'")
   })
 
@@ -221,8 +221,7 @@ describe('web workspace structure', () => {
     expect(html).toContain('class="ai-reasoning-stream"')
     expect(app).toContain('onReasoningUpdate')
     expect(aiClient).toContain('onReasoningUpdate')
-    expect(app).toContain("const unavailable = false")
-    expect(app).toContain("button.disabled = unavailable || (aiBusy && !active)")
+    expect(app).toContain("button.disabled = aiBusy && !active")
     expect(css).toContain(".ai-improv-button:disabled")
     expect(css).toContain(".ai-improv-button[data-improv-state='thinking'] { border-color: rgba(198, 165, 246, 0.55)")
     expect(css).toContain('@keyframes ai-improv-pulse')

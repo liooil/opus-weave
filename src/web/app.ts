@@ -7,24 +7,22 @@ import { SpessaSynthEngine } from '../audio/spessa-synth-engine.ts'
 import { renderMidiToWavBlob } from '../audio/offline-wav-renderer.ts'
 import { selectAudioOutputDevice, type AudioOutputDevice, type SavedAudioOutput } from '../audio/audio-output.ts'
 import { WebMidiManager, type MidiManagerState } from '../midi/web-midi-manager.ts'
-import { MidiRecorder, type RecordedTake } from '../domain/midi/midi-recorder.ts'
+import { MidiRecorder } from '../domain/midi/midi-recorder.ts'
 import { MappingEngine, noteName, type BuiltinComputerLayoutId, type ComputerKeyAssignment } from '../domain/devices/mapping-engine.ts'
 import { MidiLearn } from '../domain/midi-learn.ts'
 import { findProfileForPort, overrideControl, type DeviceProfile } from '../domain/devices/device-profile.ts'
 import { midiplusTinyPlusProfile } from '../domain/devices/midiplus-tiny-plus.ts'
 import { VirtualKeyboard } from './components/virtual-keyboard.ts'
 import { isPressureSensitive, pressureToVelocity } from './pointer-pressure.ts'
-import { modelDirectory, type ModelDirectoryModel, type ModelDirectoryProvider } from './models-directory.ts'
+import { modelDirectory, type ModelDirectoryModel, type ModelDirectoryProvider } from './model-catalog.ts'
 import { enableHorizontalPointerScroll } from './components/horizontal-pointer-scroll.ts'
 import { getLocale, resolveLocale, setLocale, t, translateDocument, type TranslationValues } from './i18n.ts'
 import { compileScoreText, extractMelodyFromMidi, extractMelodyFromRecording, type MelodyExtractionResult, type MelodyVoiceStrategy } from '../domain/owt/integration.ts'
 import { parseOwt, parseOwtLoose } from '../domain/owt/parser.ts'
 import { parseRational, rational, rationalToNumber } from '../domain/owt/rational.ts'
 import { serializeOwt } from '../domain/owt/serializer.ts'
-import { appendOwtUserTrack } from '../domain/owt/streaming.ts'
-import { LiveOwtTranscriber } from '../domain/owt/live-transcription.ts'
 import { buildOwt01Reference } from '../domain/owt/reference.ts'
-import type { OwtDiagnostic, OwtDocument, OwtScoreTrack } from '../domain/owt/ast.ts'
+import type { OwtDiagnostic, OwtDocument } from '../domain/owt/ast.ts'
 import { activeOwtPlaybackIds, activeOwtSourceRanges, buildOwtPlaybackMap, cursorOwtPlaybackTokens, playbackStartForSourceRanges, type OwtPlaybackToken, type OwtSourceRange } from '../domain/owt/playback-map.ts'
 import { owtLexicalRanges, renderOwtHighlight, type OwtDecoration, type OwtLexicalRange } from './components/owt-highlighter.ts'
 import { ModalOwtEditor, normalizedSelection, owtMotionDestinations, type ModalEditorViewState, type OwtMotionDestination } from './editor/modal-editor.ts'
@@ -36,7 +34,11 @@ import { renderJianpuScore, renderStaffScore } from './components/score-views.ts
 import { buildManualOwtPrompt, createOwtWithAi, defaultOwtAiPromptTemplates, DEFAULT_OWT_AI_CONFIG, hasConfiguredAiApi, testOwtAiConnection, validateOwtAiPromptTemplates, type OwtAiConfig, type OwtAiPromptTemplates, type OwtAiRequest, type OwtAiTransportOptions } from '../domain/ai/owt-ai.ts'
 import { aiProviderHint, discoverAiBillingCurrency, discoverAiModels, type AiModelInfo, type AiProtocol, type AiTokenUsage } from '../domain/ai/providers.ts'
 import { AI_BILLING_CURRENCIES, AI_USD_CNY_REFERENCE_DATE, AI_USD_CNY_REFERENCE_RATE, normalizeAiBillingCurrencyPreference, resolveAiBillingCurrency, resolveAiTokenRates, type AiBillingCurrency, type AiBillingCurrencyPreference } from '../domain/ai/pricing.ts'
-import { ConversationalImprovSession } from '../domain/ai/conversational-improv.ts'
+import { RealtimeImprovSession, type ImprovRole } from '../domain/ai/realtime-improv.ts'
+import { currentDeepSeekModel, DEEPSEEK_FLASH_MODEL } from '../domain/ai/deepseek-model.ts'
+import { generateImprovPlan } from '../domain/ai/realtime-improv-client.ts'
+import { improvScore } from '../domain/ai/realtime-improv-score.ts'
+import { drawImprovRoll } from './components/improv-roll.ts'
 import { mediaFileToAiAttachments } from './ai-media.ts'
 import { scoreFileKind } from './open-file.ts'
 import { nextThemePreference, normalizeThemePreference, resolveTheme, type ThemePreference } from './theme.ts'
@@ -55,7 +57,6 @@ import { incrementalTextPatch, shouldFollowScrollEnd } from './rendering/increme
 import { byId as $, clearStatus, retranslateTrackedCopy, setStatus, setTranslatedStatus, setTranslatedText, showError } from './views/status-view.ts'
 import { WorkspaceStore, type CompositionWorkflowState, type ImprovState, type WorkspaceState } from './state/workspace-store.ts'
 import { TransportController } from './controllers/transport-controller.ts'
-import { ImprovController } from './controllers/improv-controller.ts'
 import appIconUrl from './assets/app-icon.svg' with { type: 'file' }
 import appIcon32Url from './assets/app-icon-32.png' with { type: 'file' }
 import appIcon256Url from './assets/app-icon-256.png' with { type: 'file' }
@@ -140,7 +141,7 @@ localeButton.addEventListener('click', () => {
   updateComputerMapToggleCopy()
   modalEditor.refresh()
   if (practiceSession) renderPracticeGuide()
-  updateConversationalImprovUi()
+  updateRealtimeImprovUi()
   renderAiComposeButton()
   renderAiBillingCurrencyControl()
   renderManagedProviderState()
@@ -344,10 +345,6 @@ const transportController = new TransportController(workspaceStore, {
   panic: () => engine?.panic(),
   clearPlaybackMapping: clearOwtPlaybackContext,
 })
-const improvController = new ImprovController(workspaceStore, {
-  abortRequest: () => improvAbortController?.abort(),
-  stopPlayback: () => engine?.stop(),
-})
 
 function scheduleOwtValidation(): void {
   window.clearTimeout(owtValidationTimer)
@@ -523,10 +520,14 @@ function renderScoreViewCycleButton(): void {
 }
 
 function cycleScoreView(): void {
+  if (improvOpen) closeRealtimeImprov()
   showScoreView(nextScoreView())
 }
 
-for (const tab of scoreViewTabs) tab.addEventListener('click', () => showScoreView(tab.dataset.scoreViewTarget as ScoreViewId))
+for (const tab of scoreViewTabs) tab.addEventListener('click', () => {
+  if (improvOpen) closeRealtimeImprov()
+  showScoreView(tab.dataset.scoreViewTarget as ScoreViewId)
+})
 scoreViewCycleButton.addEventListener('click', cycleScoreView)
 $('btn-score-view-play').addEventListener('click', () => void Promise.resolve(handleModalCommand('play-pause')).catch((error) => {
   setTranslatedStatus('owt-status', 'owt.error', { error: error instanceof Error ? error.message : String(error) }, 'err')
@@ -535,7 +536,7 @@ $('btn-score-view-play').addEventListener('click', () => void Promise.resolve(ha
 $('btn-loop-playback').addEventListener('click', () => {
   loopPlayback = !loopPlayback
   transportController.setLoop(loopPlayback)
-  if (improvSession.state !== 'responding') engine?.setLooping(loopPlayback)
+  if (!improvSession.active) engine?.setLooping(loopPlayback)
   renderLoopPlaybackUi()
   setTranslatedStatus('owt-status', loopPlayback ? 'playback.loopOn' : 'playback.loopOff', {}, 'ok')
 })
@@ -701,6 +702,7 @@ function syncOwtUrlHash(text: string): void {
 }
 
 function setOwtEditorText(text: string, record = false): void {
+  if (improvSession.active || improvStarting) stopRealtimeImprov(false)
   owtEditor.scrollTop = 0
   owtEditor.scrollLeft = 0
   clearOwtPlaybackContext()
@@ -956,8 +958,37 @@ function handleSemanticPerformanceNote(data: Uint8Array): boolean {
 }
 
 $('btn-ai-improvise').addEventListener('click', () => {
-  if (improvSession.active) stopConversationalImprov()
-  else startConversationalImprov()
+  showWorkspacePage('studio')
+  if (improvOpen) closeRealtimeImprov()
+  else {
+    improvOpen = true
+    updateRealtimeImprovUi()
+    drawImprovRoll($<HTMLCanvasElement>('improv-canvas'), improvSession, improvNow())
+    $('btn-improv-toggle').focus()
+  }
+})
+$('btn-improv-toggle').addEventListener('click', () => {
+  if (improvSession.active || improvStarting) stopRealtimeImprov()
+  else void startRealtimeImprov()
+})
+$('btn-improv-close').addEventListener('click', closeRealtimeImprov)
+$('btn-improv-settings').addEventListener('click', () => { showWorkspacePage('settings'); showSettingsPanel('ai') })
+$('btn-improv-save').addEventListener('click', () => {
+  if (improvSession.active) stopRealtimeImprov(false)
+  const now = improvNow()
+  setOwtEditorText(improvScore(improvSession.human(now), improvSession.played(now), improvSession.origin, improvSession.bpm), true)
+  closeRealtimeImprov()
+  validateEditorOwt()
+})
+$('improv-role').addEventListener('change', () => improvSession.requestUpdate())
+$('improv-participation').addEventListener('input', () => {
+  engine?.setRealtimeVolume(Number($<HTMLInputElement>('improv-participation').value) / 100)
+})
+$('improv-bpm').addEventListener('change', () => {
+  const input = $<HTMLInputElement>('improv-bpm')
+  input.value = String(Math.max(40, Math.min(200, Math.round(Number(input.value) || 120))))
+  if (!improvSession.active && !improvSession.human(improvNow()).length) improvSession.bpm = Number(input.value)
+  drawImprovRoll($<HTMLCanvasElement>('improv-canvas'), improvSession, improvNow())
 })
 $('btn-owt-delete-object').addEventListener('click', deleteSelectedSemanticObject)
 $('btn-owt-replace-play').addEventListener('click', () => armSemanticPerformanceEdit('replace'))
@@ -965,15 +996,15 @@ $('btn-owt-insert-before').addEventListener('click', () => armSemanticPerformanc
 $('btn-owt-insert-after').addEventListener('click', () => armSemanticPerformanceEdit('insert-after'))
 
 const recorder = new MidiRecorder()
-const improvSession = new ConversationalImprovSession()
-const liveOwtTranscriber = new LiveOwtTranscriber()
-let improvPhraseTimer: number | undefined
+const improvSession = new RealtimeImprovSession((pitch, velocity, time) => engine?.scheduleRealtimeNote(pitch, velocity, time))
+let improvOpen = false
+let improvStarting = false
+let improvStartSequence = 0
+let improvTimer: number | undefined
 let improvAbortController: AbortController | undefined
-let improvRequestSequence = 0
-let improvScoreText = ''
-let improvResponseStreaming = false
-let improvLiveFrame: number | undefined
-let improvLivePreviewAt = 0
+let improvLastUi = 0
+let improvLastDraw = 0
+let improvStoppedAt = 0
 const mapping = new MappingEngine()
 let practiceSession: PracticeSession | null = null
 let practiceExpectedNotes: number[] = []
@@ -1033,7 +1064,6 @@ async function ensureEngine(): Promise<SpessaSynthEngine> {
       setPlaybackUi(false)
       setTranslatedStatus('timeline-status', 'playback.finished', {}, 'ok')
       updateTimelinePlayhead(scoreCursorSeconds, engine?.getPlaybackPosition()?.duration ?? 0)
-      handleConversationalImprovPlaybackEnded()
     },
     onPlaybackState: (playing) => {
       clearPlaybackNotes()
@@ -1291,6 +1321,7 @@ function stopPractice(hide = true): void {
 }
 
 function startPractice(): void {
+  if (improvSession.active || improvStarting) stopRealtimeImprov()
   const score = parseEditorOwt()
   if (!score) return
   const prompts = buildPracticePrompts(score)
@@ -1355,7 +1386,7 @@ function handleMidiMessage(data: Uint8Array, timestampMs: number): void {
 
   // Device profile remap (editable CC remaps).
   const remapped = applyProfileRemap(data)
-  if (!handleSemanticPerformanceNote(remapped)) handleConversationalImprovInput(remapped, timestampMs)
+  if (!handleSemanticPerformanceNote(remapped)) handleRealtimeImprovInput(remapped, timestampMs)
 
   handlePracticeNote(remapped)
   // Live play-through to the SoundFont synth.
@@ -1924,6 +1955,7 @@ function updateTimelinePlayhead(time: number, duration: number): void {
 }
 
 function returnToBeginning(): void {
+  if (improvSession.active || improvStarting) stopRealtimeImprov()
   transportController.returnToBeginning()
   setScoreCursor(0)
   $<HTMLProgressElement>('progress').value = 0
@@ -2073,6 +2105,7 @@ function showExtractedMelody(result: MelodyExtractionResult, sourceKey: 'owt.mid
 }
 
 async function playOwtRange(sourceRange?: { start: number; end?: number }, allowLoop = true): Promise<void> {
+  if (improvSession.active || improvStarting) stopRealtimeImprov()
   transportController.beginLoading(sourceRange ? 'selection' : 'owt')
   const document = parseEditorOwt()
   if (!document) return
@@ -2187,6 +2220,8 @@ const GLOBAL_CTRL_SHORTCUTS: Readonly<Record<string, () => void>> = {
   'Shift+P': () => $('btn-practice-stop').click(),
   K: () => $('btn-ai-compose').click(),
   I: () => $('btn-ai-improvise').click(),
+  'Shift+I': () => { if (improvOpen) $('btn-improv-toggle').click() },
+  'Shift+S': () => { if (improvOpen) $('btn-improv-save').click() },
   ',': () => showWorkspacePage('settings'),
   'Shift+L': () => localeButton.click(),
   'Shift+H': () => themeButton.click(),
@@ -2428,6 +2463,7 @@ function storedAiConfig(): OwtAiConfig {
       locale: getLocale(),
       promptTemplates: { ...defaults, ...stored.promptTemplates },
     }
+    config.model = currentDeepSeekModel(config.baseUrl, config.model)
     if (isManagedProviderBaseUrl(config.baseUrl)) {
       config.apiKey = undefined
       if ('apiKey' in stored) {
@@ -2486,6 +2522,9 @@ function applyAiProviderPreset(provider: AiProviderChoice): void {
     const defaults = AI_PROVIDER_DEFAULTS[provider]
     $<HTMLInputElement>('ai-endpoint').value = defaults.baseUrl
     $<HTMLSelectElement>('ai-protocol').value = defaults.protocol
+    if (provider === 'deepseek') {
+      renderAiModelOptions([{ id: DEEPSEEK_FLASH_MODEL, name: 'DeepSeek V4.1 Flash' }], DEEPSEEK_FLASH_MODEL)
+    }
     if (provider === 'managed') {
       keyInput.value = ''
       renderAiModelOptions([{ id: MANAGED_PROVIDER.defaultModelId, name: t('ai.managedModel') }], MANAGED_PROVIDER.defaultModelId)
@@ -2803,7 +2842,7 @@ async function refreshAiModels(): Promise<void> {
       aiDiscoveryController = undefined
       refresh.disabled = false
       model.removeAttribute('aria-busy')
-      updateConversationalImprovUi()
+      updateRealtimeImprovUi()
     }
   }
 }
@@ -3170,7 +3209,7 @@ function applyDirectorySelection(): void {
     persistAiConfig()
     scheduleAiBillingCurrencyDetection()
     applyModelMetadataFromCurrent()
-    updateConversationalImprovUi()
+    updateRealtimeImprovUi()
     setTranslatedStatus('ai-status', 'ai.managedReady', {}, 'ok')
     $<HTMLDialogElement>('ai-model-directory-dialog').close()
     return
@@ -3187,7 +3226,7 @@ function applyDirectorySelection(): void {
   persistAiConfig()
   scheduleAiBillingCurrencyDetection()
   applyModelMetadata(model, provider)
-  updateConversationalImprovUi()
+  updateRealtimeImprovUi()
   $<HTMLDialogElement>('ai-model-directory-dialog').close()
 }
 
@@ -3239,6 +3278,7 @@ function setAiComposeState(state: AiComposeState): void {
 }
 
 function setAiBusy(busy: boolean): void {
+  if (busy && (improvSession.active || improvStarting)) stopRealtimeImprov(false)
   aiBusy = busy
   $<HTMLButtonElement>('btn-ai-test').disabled = busy
   $<HTMLButtonElement>('btn-ai-refresh-models').disabled = busy
@@ -3246,7 +3286,7 @@ function setAiBusy(busy: boolean): void {
   composeButton.disabled = busy
   composeButton.setAttribute('aria-busy', String(busy))
   $<HTMLButtonElement>('btn-ai-test-templates').disabled = busy
-  updateConversationalImprovUi()
+  updateRealtimeImprovUi()
 }
 
 function createAiEditorStream(): { update: (text: string) => void; finish: (text: string) => void; cancel: () => void } {
@@ -3442,7 +3482,7 @@ function clearAiReasoningStream(): void {
 }
 
 async function applyAiRequest(request: OwtAiRequest, statusKey: string, statusValues: TranslationValues = {}): Promise<boolean> {
-  if (improvSession.active) stopConversationalImprov(false)
+  if (improvSession.active) stopRealtimeImprov(false)
   persistAiConfig()
   setAiComposeState('working')
   setAiBusy(true)
@@ -3481,259 +3521,148 @@ async function applyAiRequest(request: OwtAiRequest, statusKey: string, statusVa
   }
 }
 
-function updateConversationalImprovUi(): void {
-  const button = $<HTMLButtonElement>('btn-ai-improvise')
-  const label = button.querySelector<HTMLElement>('.control-label')!
-  const stateKeys = {
-    off: 'ai.improvOff',
-    listening: 'ai.improvListeningState',
-    recording: 'ai.improvRecordingState',
-    thinking: 'ai.improvThinkingState',
-    responding: 'ai.improvRespondingState',
-  } as const
+function improvNow(): number {
+  return improvSession.active ? (engine?.audioTime ?? 0) : improvStoppedAt
+}
+
+function updateRealtimeImprovUi(): void {
   const active = improvSession.active
   const configured = hasConfiguredAiApi(currentAiConfig())
-  const unavailable = false
-  const actionKey = active ? 'ai.improviseStop' : 'ai.improviseStart'
-  workspaceStore.update({ improv: improvSession.state === 'off' ? { kind: 'off' } : { kind: improvSession.state } })
-  const accessibleCopy = unavailable ? t('ai.improviseNeedsModel') : t(actionKey)
-  button.disabled = unavailable || (aiBusy && !active)
-  button.dataset.aiAvailable = String(configured)
+  const button = $<HTMLButtonElement>('btn-ai-improvise')
+  button.disabled = aiBusy && !active
+  button.classList.toggle('active', improvOpen)
+  button.setAttribute('aria-expanded', String(improvOpen))
   button.setAttribute('aria-pressed', String(active))
-  button.classList.toggle('active', active)
-  button.dataset.improvState = improvSession.state
-  button.dataset.i18nAriaLabel = actionKey
-  button.dataset.i18nTitle = actionKey
-  button.setAttribute('aria-label', accessibleCopy)
-  button.title = unavailable ? accessibleCopy : `${accessibleCopy} · ${t(stateKeys[improvSession.state])}`
-  label.removeAttribute('data-i18n')
-  label.textContent = active ? t(stateKeys[improvSession.state]) : t('simpleEdit.improvMode')
+  button.dataset.improvState = active ? 'live' : 'off'
+  button.dataset.i18nAriaLabel = 'simpleEdit.improvMode'
+  button.dataset.i18nTitle = 'simpleEdit.improvMode'
+  button.setAttribute('aria-label', t('simpleEdit.improvMode'))
+  button.title = t('simpleEdit.improvMode')
+  button.querySelector<HTMLElement>('.control-label')!.textContent = t('simpleEdit.improvMode')
+  $('improv-workspace').hidden = !improvOpen
+  document.querySelector<HTMLElement>('[data-workspace-page="studio"]')!.classList.toggle('improv-open', improvOpen)
+  $('improv-workspace').classList.toggle('is-live', active)
+  const toggle = $<HTMLButtonElement>('btn-improv-toggle')
+  toggle.textContent = t(active || improvStarting ? 'improv.stop' : 'improv.start')
+  toggle.disabled = !active && !improvStarting && (aiBusy || !configured)
+  $<HTMLInputElement>('improv-bpm').disabled = active || improvStarting
+  const now = improvNow()
+  const hasNotes = improvSession.human(now).length > 0
+  $<HTMLButtonElement>('btn-improv-save').disabled = !hasNotes || active || improvStarting
+  $('improv-empty').hidden = hasNotes
+  const stateKey = improvStarting ? 'improv.connecting' : active
+    ? improvSession.buffered(now) > 0 ? 'improv.live' : improvSession.generating ? 'improv.planning' : 'improv.listening'
+    : hasNotes ? 'improv.ended' : 'improv.ready'
+  const stateText = t(stateKey)
+  if ($('improv-state').textContent !== stateText) $('improv-state').textContent = stateText
+  $('improv-model').textContent = configured ? currentAiConfig().model : t('ai.improviseNeedsModel')
+  const beats = Math.max(0, Math.floor((now - improvSession.origin) * improvSession.bpm / 60))
+  $('improv-position').textContent = `${Math.floor(beats / 4) + 1} : ${beats % 4 + 1} · ${improvSession.bpm} BPM`
+  $('improv-metrics').textContent = t('improv.metrics', {
+    lead: improvSession.timing.lead.toFixed(2), cadence: improvSession.timing.cadence.toFixed(2),
+    buffer: improvSession.buffered(now).toFixed(1), latency: improvSession.firstEventMs ?? '—', dropped: improvSession.dropped,
+  })
+  workspaceStore.update({ improv: active ? { kind: 'live', generating: improvSession.generating } : { kind: 'off' } })
   renderAiActivity()
 }
 
-function stopConversationalImprov(showStatus = true): void {
-  window.clearTimeout(improvPhraseTimer)
-  if (improvLiveFrame !== undefined) cancelAnimationFrame(improvLiveFrame)
-  improvLiveFrame = undefined
+function closeRealtimeImprov(): void {
+  if (improvSession.active || improvStarting) stopRealtimeImprov()
+  improvOpen = false
+  updateRealtimeImprovUi()
+  $('btn-ai-improvise').focus()
+}
+
+function stopRealtimeImprov(showStatus = true): void {
+  improvStartSequence++
+  improvStarting = false
+  window.clearInterval(improvTimer)
+  improvTimer = undefined
   improvAbortController?.abort()
   improvAbortController = undefined
-  improvRequestSequence++
-  improvResponseStreaming = false
-  clearAiReasoningStream()
-  liveOwtTranscriber.stop(performance.now())
-  improvScoreText = ''
-  if (improvSession.state === 'responding') {
-    engine?.stop()
-    clearOwtPlaybackContext()
+  if (improvSession.active) {
+    improvStoppedAt = engine?.audioTime ?? 0
+    improvSession.stop(improvStoppedAt)
   }
-  improvSession.stop()
+  engine?.stopRealtimeVoice()
   workspaceStore.update({ activity: { kind: 'idle' } })
-  updateConversationalImprovUi()
-  if (showStatus) setTranslatedStatus('ai-status', 'ai.improvStopped')
+  updateRealtimeImprovUi()
+  drawImprovRoll($<HTMLCanvasElement>('improv-canvas'), improvSession, improvNow())
+  if (showStatus) clearStatus('improv-status')
 }
 
-function startConversationalImprov(): void {
+async function startRealtimeImprov(): Promise<void> {
+  if (improvStarting || improvSession.active || aiBusy || !hasConfiguredAiApi(currentAiConfig())) return
+  const sequence = ++improvStartSequence
   persistAiConfig()
-  improvScoreText = emptyImprovScoreText()
-  improvResponseStreaming = false
-  cancelSemanticPerformanceReplacement()
-  engine?.stop()
-  clearOwtPlaybackContext()
-  setOwtEditorText(improvScoreText, true)
-  renderOwtDiagnostics([])
-  liveOwtTranscriber.start(performance.now())
-  improvSession.start()
-  workspaceStore.update({ activity: { kind: 'improv' } })
-  updateConversationalImprovUi()
-  setTranslatedStatus('ai-status', 'ai.improvListening', {}, 'ok')
-  void ensureEngine().catch((error) => {
-    stopConversationalImprov(false)
-    setTranslatedStatus('ai-status', 'ai.error', { error: error instanceof Error ? error.message : String(error) }, 'err')
-  })
-}
-
-function emptyImprovScoreText(): string {
-  return `owt 0.1 score
-
-title "Improvisation"
-ppq 480
-meter 1:1 4/4
-tempo 1:1 120
-key 1:1 C major
-
-track "Human" channel=1 program=0 velocity=88
-
-track "AI Response" channel=2 program=0 velocity=88
-
-end
-`
-}
-
-function improvPhraseDocument(take: RecordedTake): OwtDocument | null {
-  const extraction = extractMelodyFromRecording(take, {
-    title: 'Human',
-    trackName: 'Human',
-    grid: rational(1, 4),
-    voiceStrategy: 'continuous',
-  }).text
-  const repaired = repairCommonOwtErrors(extraction, { splitCrossBoundaryEvents: true })
-  return parseOwtLoose(repaired.valid ? repaired.text : extraction)
-}
-
-function scheduleConversationalImprovTurn(): void {
-  window.clearTimeout(improvPhraseTimer)
-  improvPhraseTimer = window.setTimeout(finishConversationalImprovPhrase, improvSession.silenceMs + 25)
-}
-
-function scheduleConversationalImprovLive(timestampMs: number): void {
-  improvLivePreviewAt = timestampMs
-  if (improvLiveFrame !== undefined) return
-  improvLiveFrame = requestAnimationFrame(() => {
-    improvLiveFrame = undefined
-    const take = improvSession.preview(improvLivePreviewAt)
-    if (!take) return
-    const base = parseOwtLoose(improvScoreText)
-    const phrase = improvPhraseDocument(take)
-    if (!base || !phrase) return
-    const scrollTop = owtEditor.scrollTop
-    const scrollLeft = owtEditor.scrollLeft
-    modalEditor.setText(serializeOwt(appendOwtUserTrack(base, phrase)), false)
-    owtEditor.scrollTop = scrollTop
-    owtEditor.scrollLeft = scrollLeft
-  })
-}
-
-function flushLiveOwtPreview(): void {
-  if (!improvSession.active) return
-  const document = parseOwtLoose(improvScoreText)
-  if (!document || document.tracks.length === 0) return
-  const human = document.tracks[0]!
-  human.events = liveOwtTranscriber.snapshot()
-  const text = serializeOwt(document)
-  improvScoreText = text
-  const scrollTop = owtEditor.scrollTop
-  const scrollLeft = owtEditor.scrollLeft
-  modalEditor.setText(text, false)
-  owtEditor.scrollTop = scrollTop
-  owtEditor.scrollLeft = scrollLeft
-}
-
-function handleConversationalImprovInput(data: Uint8Array, timestampMs: number): void {
-  const result = improvSession.push(data, timestampMs)
-  if (!result.accepted) return
-  liveOwtTranscriber.push(data, timestampMs)
-  flushLiveOwtPreview()
-  if (result.interruptedAi) {
-    improvAbortController?.abort()
-    improvAbortController = undefined
-    improvRequestSequence++
-    improvResponseStreaming = false
-    engine?.stop()
-    clearOwtPlaybackContext()
-    setTranslatedStatus('ai-status', 'ai.improvInterrupted', {}, 'warn')
-  } else if (result.phraseStarted) {
-    setTranslatedStatus('ai-status', 'ai.improvHearing', {}, 'ok')
-  }
-  updateConversationalImprovUi()
-  scheduleConversationalImprovTurn()
-}
-
-function finishConversationalImprovPhrase(): void {
-  const phrase = improvSession.poll(performance.now())
-  if (!phrase) return
-  if (hasConfiguredAiApi(currentAiConfig())) {
-    updateConversationalImprovUi()
-    setTranslatedStatus('ai-status', 'ai.improvThinking', {}, 'warn')
-    void requestConversationalImprovResponse()
-  } else {
-    improvSession.markListening()
-    updateConversationalImprovUi()
-    setTranslatedStatus('ai-status', 'ai.improvListening', {}, 'ok')
-  }
-}
-
-function sameTrackContent(left: OwtScoreTrack, right: OwtScoreTrack): boolean {
-  const signature = (track: OwtScoreTrack): string => JSON.stringify(track.events.map(({ line, column, ...event }) => event))
-  return signature(left) === signature(right)
-}
-
-async function requestConversationalImprovResponse(): Promise<void> {
-  const requestSequence = ++improvRequestSequence
-  const controller = new AbortController()
-  improvAbortController = controller
-  improvResponseStreaming = true
-  const reasoningStream = beginAiReasoningStream()
+  clearStatus('improv-status')
+  improvStarting = true
+  updateRealtimeImprovUi()
   try {
-    const previousDocument = parseOwtLoose(improvScoreText)
-    if (!previousDocument || previousDocument.tracks.length < 2) throw new Error('Improvisation score must contain a human track and an AI track')
-    const turnHumanTrack = previousDocument.tracks[0]!
-    const existingAiTrack = previousDocument.tracks[1]!
-    const turnOwt = improvScoreText
-    const config = currentAiConfig()
-    const text = await createOwtWithAi(config, {
-      task: 'improvise',
-      instruction: '',
-      currentOwt: turnOwt,
-      lenientBars: true,
-    }, {
-      ...aiTransport(controller.signal, config),
-      onReasoningUpdate: (value) => {
-        if (requestSequence === improvRequestSequence) reasoningStream.update(value)
-      },
-    })
-    if (requestSequence !== improvRequestSequence || (improvSession.state !== 'thinking' && improvSession.state !== 'responding')) return
-
-    const responseDocument = parseOwtLoose(text, { lenientBars: true })
-    if (!responseDocument) {
-      setOwtEditorText(text, true)
-      validateEditorOwt()
-      improvSession.markListening()
-      updateConversationalImprovUi()
-      setTranslatedStatus('ai-status', 'ai.improvListening', {}, 'ok')
-      return
-    }
-    if (responseDocument.tracks.length !== 2) throw new Error('AI improvisation must contain exactly two tracks')
-    const humanResponseTrack = responseDocument.tracks[0]!
-    const aiResponseTrack = responseDocument.tracks[1]!
-    if (humanResponseTrack.name !== turnHumanTrack.name || humanResponseTrack.channel !== turnHumanTrack.channel || humanResponseTrack.program !== turnHumanTrack.program || humanResponseTrack.velocity !== turnHumanTrack.velocity || !sameTrackContent(turnHumanTrack, humanResponseTrack)) {
-      throw new Error('AI improvisation must preserve the first human track unchanged')
-    }
-    if (aiResponseTrack.name !== existingAiTrack.name || aiResponseTrack.channel !== existingAiTrack.channel) {
-      throw new Error('AI improvisation must continue the existing second AI track')
-    }
-    if (!aiResponseTrack.events.some((event) => event.kind === 'note')) throw new Error('AI improvisation must write notes to the second track')
-
-    let merged = serializeOwt(responseDocument)
-    if (!parseOwtLoose(merged)) {
-      const repairedMerged = repairCommonOwtErrors(merged, { splitCrossBoundaryEvents: true })
-      if (!repairedMerged.valid) throw new Error('AI OWT validation failed')
-      merged = repairedMerged.text
-    }
-    improvScoreText = merged
-    setOwtEditorText(merged, true)
-    renderOwtDiagnostics([])
-    validateEditorOwt()
-    improvSession.markResponding()
-    updateConversationalImprovUi()
-    setTranslatedStatus('ai-status', 'ai.improvResponding', {}, 'ok')
-    await playOwtRange(undefined, false)
+    const player = await ensureEngine()
+    if (!player.hasSoundFont()) await loadBundledPiano()
+    if (sequence !== improvStartSequence) return
+    if (!player.hasSoundFont()) throw new Error(t('improv.noSound'))
+    if (practiceSession) stopPractice()
+    cancelSemanticPerformanceReplacement()
+    player.stop()
+    clearOwtPlaybackContext()
+    await player.beginRealtimeVoice()
+    player.setRealtimeVolume(Number($<HTMLInputElement>('improv-participation').value) / 100)
+    if (sequence !== improvStartSequence) return
+    improvStarting = false
+    const bpm = Number($<HTMLInputElement>('improv-bpm').value) || 120
+    improvSession.start(player.audioTime, bpm)
+    improvStoppedAt = player.audioTime
+    workspaceStore.update({ activity: { kind: 'improv' } })
+    updateRealtimeImprovUi()
+    // Move focus out of form controls so musical typing works immediately.
+    $<HTMLElement>('btn-improv-toggle').blur()
+    improvTimer = window.setInterval(pumpRealtimeImprov, 25)
   } catch (error) {
-    if (requestSequence !== improvRequestSequence || !improvSession.active || improvSession.state === 'recording') return
-    improvSession.markListening()
-    updateConversationalImprovUi()
-    setTranslatedStatus('ai-status', 'ai.error', { error: error instanceof Error ? error.message : String(error) }, 'err')
-  } finally {
-    if (requestSequence === improvRequestSequence) improvResponseStreaming = false
-    finishAiReasoningStream(reasoningStream)
-    if (requestSequence === improvRequestSequence) improvAbortController = undefined
+    if (sequence !== improvStartSequence) return
+    stopRealtimeImprov(false)
+    setTranslatedStatus('improv-status', 'ai.error', { error: error instanceof Error ? error.message : String(error) }, 'err')
   }
 }
 
-function handleConversationalImprovPlaybackEnded(): void {
-  if (improvResponseStreaming || improvSession.state !== 'responding') return
-  improvSession.markListening()
-  updateConversationalImprovUi()
-  setTranslatedStatus('ai-status', 'ai.improvListening', {}, 'ok')
+function handleRealtimeImprovInput(data: Uint8Array, _timestampMs: number): void {
+  if (improvSession.active) improvSession.input(data, engine?.audioTime ?? 0)
+}
+
+function pumpRealtimeImprov(): void {
+  if (!improvSession.active) return
+  const now = improvNow()
+  improvSession.tick(now)
+  const plan = improvSession.plan(now)
+  if (plan) {
+    const controller = new AbortController()
+    improvAbortController = controller
+    const config = currentAiConfig()
+    let received = false
+    void generateImprovPlan(config, plan, $<HTMLSelectElement>('improv-role').value as ImprovRole, (offset, duration, pitch, velocity) => {
+      const accepted = improvSession.accept(plan, offset, duration, pitch, velocity, improvNow(), 1)
+      if (accepted && !received) { received = true; clearStatus('improv-status') }
+    }, {
+      ...aiTransport(AbortSignal.any([controller.signal, AbortSignal.timeout(8_000)]), config),
+    }).then(() => {
+      improvSession.finish(plan, improvNow())
+    }).catch((error) => {
+      if (plan.version !== improvSession.version || !improvSession.active) return
+      improvSession.finish(plan, improvNow(), true)
+      setTranslatedStatus('improv-status', 'improv.retry', { error: error instanceof Error ? error.message : String(error) }, 'warn')
+    }).finally(() => {
+      if (improvAbortController === controller) improvAbortController = undefined
+    })
+  }
+  if (now - improvLastDraw >= 1 / 30 || now < improvLastDraw) {
+    improvLastDraw = now
+    if (improvOpen) drawImprovRoll($<HTMLCanvasElement>('improv-canvas'), improvSession, now)
+  }
+  if (now - improvLastUi >= 0.25 || now < improvLastUi) {
+    improvLastUi = now
+    updateRealtimeImprovUi()
+  }
 }
 
 const initialAiConfig = storedAiConfig()
@@ -3741,28 +3670,28 @@ renderAiConfig(initialAiConfig)
 if (isManagedProviderBaseUrl(initialAiConfig.baseUrl)) scheduleAiModelDiscovery()
 renderAiBillingCurrencyControl()
 updateAiSettingsState()
-updateConversationalImprovUi()
+updateRealtimeImprovUi()
 renderAiComposeButton()
 for (const id of ['ai-protocol', 'ai-thinking-mode', 'ai-reasoning-effort', 'ai-retry-count']) {
-  $(id).addEventListener('change', () => { persistAiConfig(); updateConversationalImprovUi(); applyModelMetadataFromCurrent() })
+  $(id).addEventListener('change', () => { persistAiConfig(); updateRealtimeImprovUi(); applyModelMetadataFromCurrent() })
 }
 for (const id of ['ai-auto-repair-on', 'ai-auto-repair-off']) {
-  $(id).addEventListener('change', () => { persistAiConfig(); updateConversationalImprovUi(); applyModelMetadataFromCurrent() })
+  $(id).addEventListener('change', () => { persistAiConfig(); updateRealtimeImprovUi(); applyModelMetadataFromCurrent() })
 }
 $('ai-model').addEventListener('change', () => {
   syncAiCustomModelInput(true)
   persistAiConfig()
-  updateConversationalImprovUi()
+  updateRealtimeImprovUi()
   applyModelMetadataFromCurrent()
 })
-$('ai-model-custom').addEventListener('input', () => { persistAiConfig(); updateConversationalImprovUi(); applyModelMetadataFromCurrent() })
+$('ai-model-custom').addEventListener('input', () => { persistAiConfig(); updateRealtimeImprovUi(); applyModelMetadataFromCurrent() })
 for (const id of ['ai-temperature', 'ai-top-p', 'ai-max-tokens', 'ai-thinking-budget']) {
   $(id).addEventListener('input', persistAiConfig)
 }
 for (const id of ['ai-endpoint', 'ai-api-key']) {
   $(id).addEventListener('input', () => {
     persistAiConfig()
-    updateConversationalImprovUi()
+    updateRealtimeImprovUi()
     scheduleAiModelDiscovery()
     scheduleAiBillingCurrencyDetection()
     renderAiProviderUi($<HTMLSelectElement>('ai-provider').value as AiProviderChoice)
@@ -3795,7 +3724,7 @@ $<HTMLSelectElement>('ai-provider').addEventListener('change', (event) => {
   const provider = (event.target as HTMLSelectElement).value as AiProviderChoice
   applyAiProviderPreset(provider)
   persistAiConfig()
-  updateConversationalImprovUi()
+  updateRealtimeImprovUi()
   scheduleAiModelDiscovery()
   scheduleAiBillingCurrencyDetection()
   applyModelMetadataFromCurrent()
@@ -4098,6 +4027,7 @@ function renderFullCompositionStepper(stage: CompositionWorkflowState): void {
 
 function improvStateKey(state: ImprovState): string {
   switch (state.kind) {
+    case 'live': return 'improv.live'
     case 'listening': return 'ai.improvListeningState'
     case 'recording': return 'ai.improvRecordingState'
     case 'thinking': return 'ai.improvThinkingState'
@@ -4148,6 +4078,7 @@ function renderAiActivity(): void {
       renderFullCompositionStepper(workspaceStore.state.composition)
       break
     case 'improv':
+      if (!aiUsageSession.last && $('ai-activity-quota').hidden) container.hidden = true
       $('ai-activity-title').textContent = t('simpleEdit.improvMode')
       $('ai-activity-status').textContent = t(improvStateKey(workspaceStore.state.improv))
       stepper.hidden = true
@@ -4884,6 +4815,7 @@ function renderLearnBindings(): void {
 midiManager.subscribe((state) => {
   if (state.inputs.length === 0) {
     // device disconnected: release everything
+    if (improvSession.active || improvStarting) stopRealtimeImprov()
     recorder.stopHeldNotes(performance.now())
     engine?.panic()
     keyboard.clearAll()
@@ -4891,8 +4823,20 @@ midiManager.subscribe((state) => {
 })
 
 window.addEventListener('beforeunload', () => {
+  if (improvSession.active || improvStarting) stopRealtimeImprov(false)
   recorder.stopHeldNotes(performance.now())
   engine?.panic()
+})
+
+// Background tabs can throttle the planning pump. End safely instead of catching up.
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && (improvSession.active || improvStarting)) {
+    stopRealtimeImprov(false)
+    setTranslatedStatus('improv-status', 'improv.background', {}, 'warn')
+  }
+})
+window.addEventListener('resize', () => {
+  if (improvOpen) drawImprovRoll($<HTMLCanvasElement>('improv-canvas'), improvSession, improvNow())
 })
 
 // ─── Boot ────────────────────────────────────────────────────────────────────

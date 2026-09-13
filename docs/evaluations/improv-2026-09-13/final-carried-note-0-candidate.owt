@@ -1,0 +1,15 @@
+owt 0.1 score
+
+title "Live duet"
+ppq 480
+meter 1:1 4/4
+tempo 1:1 120
+
+track "Human" channel=1 program=0 velocity=80
+
+track "AI" channel=2 program=0 velocity=80
+
+| R:4 |
+| R:7/2 G4:1/2{v=60} | G4:5/4{v=60} R:1/4 C5:1/2{v=60} D5:1/2{v=58} C5:1/2{v=60} A4:1/2{v=58} G4:1/2{v=60} |
+
+end

@@ -1394,3 +1394,62 @@ progress::-moz-progress-bar { background: var(--accent); }
   .prompt-editor-panel textarea { min-height: 54vh; padding: 14px; font-size: 10px; }
   .settings-row-actions.split { align-items: stretch; flex-direction: column-reverse; }
 }
+
+/* Live duet shares the instrument surface while its score remains editable on exit. */
+.improv-open > [data-score-view] { display: none; }
+.improv-workspace { border: 1px solid var(--line-strong); border-radius: 18px; background: var(--surface); overflow: hidden; }
+.improv-workspace[hidden] { display: none; }
+.improv-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; padding: 24px 28px 18px; }
+.improv-eyebrow { color: var(--cyan); font: 10px var(--mono); letter-spacing: 0.2em; }
+.improv-heading h2 { margin: 6px 0; font-size: clamp(22px, 3vw, 32px); font-weight: 600; letter-spacing: -0.04em; }
+.improv-heading p { margin: 0; color: var(--muted); font-size: 12px; }
+.improv-controls { display: flex; gap: 20px; align-items: end; padding: 0 28px 22px; flex-wrap: wrap; }
+.improv-controls label { display: flex; flex-direction: column; gap: 7px; color: var(--muted); font-size: 11px; }
+.improv-controls input[type='number'] { width: 85px; }
+.improv-controls input, .improv-controls select { min-height: 36px; }
+.improv-controls input[type='range'] { width: 110px; accent-color: var(--accent); }
+.improv-actions { margin-left: auto; display: flex; gap: 8px; }
+.improv-actions button { min-height: 38px; }
+.improv-roll { height: 256px; position: relative; border-block: 1px solid var(--line-strong); background: var(--canvas); padding-left: 62px; }
+.improv-roll canvas { display: block; width: 100%; height: 100%; }
+.improv-lane-labels { position: absolute; inset: 0 auto 0 0; width: 62px; display: grid; grid-template-rows: 1fr 1fr; border-right: 1px solid var(--line); }
+.improv-lane-labels span { display: grid; place-items: center; font: 10px var(--mono); letter-spacing: 0.08em; color: var(--cyan); }
+.improv-lane-labels span + span { border-top: 1px solid var(--line); color: var(--accent); }
+.improv-empty { position: absolute; inset: 0 0 0 62px; display: flex; align-items: center; justify-content: center; flex-direction: column; background: color-mix(in srgb, var(--canvas) 80%, transparent); pointer-events: none; }
+.improv-empty[hidden] { display: none; }
+.improv-empty > span { color: var(--cyan); font-size: 44px; line-height: 1.2; margin-bottom: 8px; }
+.improv-empty strong { font-size: 15px; font-weight: 500; }
+.improv-empty p { color: var(--muted); font-size: 11px; text-align: center; padding-inline: 12px; }
+.improv-footer { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; padding: 12px 28px; font-size: 11px; }
+.improv-session-state { display: flex; align-items: center; gap: 7px; }
+.improv-state-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--dim); }
+.is-live .improv-state-dot { background: var(--cyan); box-shadow: 0 0 10px color-mix(in srgb, var(--cyan) 40%, transparent); }
+.improv-legend { display: flex; gap: 12px; margin-left: auto; color: var(--muted); font-size: 10px; }
+.improv-legend span::before { content: ''; display: inline-block; width: 9px; height: 5px; margin-right: 5px; background: var(--cyan); }
+.improv-legend .improv-legend-ai::before { background: var(--accent); }
+.improv-legend .improv-legend-plan::before { background: transparent; border: 1px solid var(--accent); opacity: 0.5; }
+#improv-position { color: var(--muted); font: 10px var(--mono); }
+#improv-status { margin: 0 28px 12px; overflow-wrap: anywhere; }
+.improv-connection { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 0 28px 10px; color: var(--muted); font-size: 11px; }
+#improv-model { overflow-wrap: anywhere; min-width: 0; }
+.improv-connection button { flex-shrink: 0; font-size: 11px; }
+.improv-diagnostics { border-top: 1px solid var(--line); padding: 10px 28px; color: var(--dim); font-size: 10px; }
+.improv-diagnostics summary { cursor: pointer; }
+.improv-diagnostics span { display: block; margin-top: 10px; font-family: var(--mono); }
+.improv-diagnostics p { margin-bottom: 2px; }
+.ai-improv-button[data-improv-state='live'] { border-color: var(--cyan); color: var(--cyan); }
+@media (max-width: 640px) {
+  .improv-heading { padding: 18px 16px; gap: 10px; }
+  .improv-heading > button { font-size: 10px; padding: 5px 8px; flex-shrink: 0; }
+  .improv-controls { padding: 0 16px 16px; gap: 12px; }
+  .improv-actions { width: 100%; margin: 0; }
+  .improv-actions button { flex: 1; }
+  .improv-footer, .improv-connection { padding-inline: 16px; }
+  .improv-footer { gap: 10px; }
+  .improv-legend { margin-left: 0; }
+  .improv-roll { height: 220px; padding-left: 40px; }
+  .improv-lane-labels { width: 40px; }
+  .improv-empty { left: 40px; }
+  .improv-empty strong { font-size: 13px; }
+  .improv-diagnostics { padding-inline: 16px; }
+}

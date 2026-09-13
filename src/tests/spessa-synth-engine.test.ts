@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { BasicMIDI } from 'spessasynth_core'
+import { BasicMIDI, SoundBankLoader, SpessaSynthProcessor, type SynthMethodOptions } from 'spessasynth_core'
 import { SpessaSynthEngine } from '../audio/spessa-synth-engine.ts'
 import { buildMidi } from '../domain/midi/midi-export.ts'
 
@@ -209,4 +209,93 @@ describe('SpessaSynthEngine live MIDI delivery', () => {
     preserveProgramOverride.preserveProgramOverride(1, 48)
     expect(programChanges).toEqual([73])
   })
+})
+
+test('schedules a dedicated live voice on the audio clock and mutes pending onsets on stop', async () => {
+  const context = {
+    state: 'running', destination: {}, currentTime: 10,
+    createGain: () => ({ gain: { value: 0 }, connect: () => {} }),
+  } as unknown as AudioContext
+  const calls: Array<[string, ...unknown[]]> = []
+  const synth = {
+    midiChannels: Array.from({ length: 16 }, () => ({ setDrums: (value: boolean) => calls.push(['drums', value]), setSystemParameter: (...args: unknown[]) => calls.push(['channel', ...args]) })),
+    addNewChannel() { this.midiChannels.push({ setDrums: (value: boolean) => calls.push(['ai-drums', value]), setSystemParameter: (...args: unknown[]) => calls.push(['ai-channel', ...args]) }) },
+    programChange: (...args: unknown[]) => calls.push(['program', ...args]),
+    pitchWheel: (...args: unknown[]) => calls.push(['pitch', ...args]),
+    noteOn: (...args: unknown[]) => calls.push(['on', ...args]),
+    noteOff: (...args: unknown[]) => calls.push(['off', ...args]),
+    controllerChange: (...args: unknown[]) => calls.push(['cc', ...args]),
+  }
+  const engine = new SpessaSynthEngine(context)
+  ;(engine as unknown as { synth: typeof synth }).synth = synth
+  await engine.beginRealtimeVoice()
+  expect(engine.audioTime).toBe(10)
+  expect(synth.midiChannels).toHaveLength(17)
+  expect(calls).toContainEqual(['ai-drums', false])
+  expect(calls).toContainEqual(['cc', 16, 7, 100])
+  expect(calls).toContainEqual(['cc', 16, 11, 127])
+  engine.scheduleRealtimeNote(48, 70, 10.1)
+  engine.scheduleRealtimeNote(48, 0, 10.15)
+  expect(calls).toContainEqual(['on', 16, 48, 70, { time: 10.1 }])
+  expect(calls).toContainEqual(['off', 16, 48, { time: 10.15 }])
+  engine.stopRealtimeVoice()
+  expect(calls.slice(-2)).toEqual([['ai-channel', 'isMuted', true], ['cc', 16, 120, 0]])
+  const restarting = engine.beginRealtimeVoice()
+  await Promise.resolve()
+  engine.stopRealtimeVoice()
+  await restarting
+  expect(calls.at(-2)).toEqual(['ai-channel', 'isMuted', true])
+  expect(synth.midiChannels).toHaveLength(17)
+})
+
+
+test('the initialized extra channel produces audible scheduled piano samples', async () => {
+  const core = new SpessaSynthProcessor(44_100, { effectsEnabled: false })
+  await core.processorInitialized
+  core.soundBankManager.addSoundBank(SoundBankLoader.fromArrayBuffer(await Bun.file('src/web/assets/freepiano-mda-piano.sf2').arrayBuffer()), 'piano')
+  const context = {
+    state: 'running', destination: {}, get currentTime() { return core.currentTime },
+    createGain: () => ({ gain: { value: 0 }, connect: () => {} }),
+  } as unknown as AudioContext
+  const bridge = {
+    get midiChannels() { return core.midiChannels },
+    addNewChannel: () => core.createMIDIChannel(),
+    programChange: core.programChange,
+    controllerChange: core.controllerChange,
+    pitchWheel: (channel: number, value: number) => core.pitchWheel(channel, value + 8192),
+    noteOn: (channel: number, pitch: number, velocity: number, options: SynthMethodOptions) => core.processMessage(new Uint8Array([0x90 | channel % 16, pitch, velocity]), channel - channel % 16, options),
+    noteOff: (channel: number, pitch: number, options: SynthMethodOptions) => core.processMessage(new Uint8Array([0x80 | channel % 16, pitch, 0]), channel - channel % 16, options),
+  }
+  const engine = new SpessaSynthEngine(context)
+  ;(engine as unknown as { synth: typeof bridge }).synth = bridge
+  try {
+    await engine.beginRealtimeVoice()
+    engine.setRealtimeVolume(0.65)
+    engine.scheduleRealtimeNote(60, 90, 0.1)
+    let peak = 0
+    let earlyPeak = 0
+    while (core.currentTime < 0.25) {
+      const time = core.currentTime
+      const left = new Float32Array(128)
+      const right = new Float32Array(128)
+      core.process(left, right)
+      const blockPeak = Math.max(...left.map(Math.abs), ...right.map(Math.abs))
+      if (time < 0.09) earlyPeak = Math.max(earlyPeak, blockPeak)
+      peak = Math.max(peak, blockPeak)
+    }
+    expect(earlyPeak).toBe(0)
+    expect(peak).toBeGreaterThan(0.001)
+    engine.scheduleRealtimeNote(64, 90, core.currentTime + 0.1)
+    engine.stopRealtimeVoice()
+    let stoppedPeak = 0
+    for (let i = 0; i < 100; i++) {
+      const left = new Float32Array(128)
+      const right = new Float32Array(128)
+      core.process(left, right)
+      stoppedPeak = Math.max(stoppedPeak, ...left.map(Math.abs), ...right.map(Math.abs))
+    }
+    expect(stoppedPeak).toBe(0)
+  } finally {
+    core.destroySynthProcessor()
+  }
 })

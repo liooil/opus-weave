@@ -50,6 +50,9 @@ function convertRates(rates: AiTokenRatesPerMillion, multiplier: number): AiToke
  */
 function deepSeekCnyRates(modelId: string): AiTokenRatesPerMillion | undefined {
   switch (modelId.trim().toLowerCase()) {
+    // V4.1 Flash: published peak CNY tariff (off-peak is half).
+    case 'deepseek-flash':
+      return { input: 2, cacheRead: 0.04, output: 8 }
     case 'deepseek-v4-pro':
       return { input: 3, cacheRead: 0.025, output: 6 }
     case 'deepseek-v4-flash':

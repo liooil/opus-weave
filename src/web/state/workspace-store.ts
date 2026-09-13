@@ -8,6 +8,7 @@ export type TransportState =
   | { kind: 'error'; message: string; loop: boolean }
 
 export type ImprovState =
+  | { kind: 'live'; generating: boolean }
   | { kind: 'off' }
   | { kind: 'listening' }
   | { kind: 'recording' }

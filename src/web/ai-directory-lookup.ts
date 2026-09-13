@@ -1,5 +1,5 @@
 import { aiProviderHint } from '../domain/ai/providers.ts'
-import { modelDirectory, type ModelDirectoryModel, type ModelDirectoryProvider } from './models-directory.ts'
+import { modelDirectory, type ModelDirectoryModel, type ModelDirectoryProvider } from './model-catalog.ts'
 
 export interface AiDirectoryLookupConfig {
   baseUrl: string

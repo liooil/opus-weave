@@ -7,7 +7,7 @@
  * a GainNode; panic sends all-notes-off + controller reset.
  */
 import { WorkletSynthesizer, Sequencer } from 'spessasynth_lib'
-import { BasicMIDI, MIDIMessage, type MIDIController } from 'spessasynth_core'
+import { BasicMIDI, DEFAULT_MIDI_CONTROLLERS, MIDIMessage, type MIDIController } from 'spessasynth_core'
 import { SynthEngineError, type SoundFontInfo, type SynthEngine } from './synth-engine.ts'
 
 interface EngineCallbacks {
@@ -37,6 +37,9 @@ export class SpessaSynthEngine implements SynthEngine {
   private soundBankEventSequence = 0
   private playbackActive = false
   private looping = false
+  private realtimeChannel: number | null = null
+  private realtimeScheduledUntil = 0
+  private realtimeGeneration = 0
   private readonly programOverrides = new Map<number, number>()
 
   constructor(
@@ -173,6 +176,55 @@ export class SpessaSynthEngine implements SynthEngine {
     this.deliverMessage(message)
   }
 
+  /** The clock shared by live input, plans and worklet event scheduling. */
+  get audioTime(): number { return this.ctx.currentTime }
+
+  async beginRealtimeVoice(): Promise<void> {
+    const generation = ++this.realtimeGeneration
+    await this.ensureReady()
+    if (this.ctx.state === 'suspended') await this.ctx.resume()
+    if (generation !== this.realtimeGeneration) return
+    const synth = this.synth!
+    if (this.realtimeChannel === null) {
+      // Extra synth channel keeps all 16 hardware MIDI channels independent.
+      this.realtimeChannel = synth.midiChannels.length
+      synth.addNewChannel()
+    }
+    // Let the previous session's short scheduling horizon drain while muted.
+    const delay = Math.max(0, (this.realtimeScheduledUntil - this.ctx.currentTime) * 1000 + 30)
+    if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay))
+    if (generation !== this.realtimeGeneration) return
+    // SpessaSynth creates added channels as percussion; select a pitched voice explicitly.
+    synth.midiChannels[this.realtimeChannel]!.setDrums(false)
+    // Added channels also start with a zeroed controller table (including volume
+    // and expression). Initialize this channel without resetting human MIDI.
+    for (let cc = 0; cc < 120; cc++) {
+      const value = DEFAULT_MIDI_CONTROLLERS[cc]! >> 7
+      if (value) synth.controllerChange(this.realtimeChannel, cc as MIDIController, value)
+    }
+    synth.pitchWheel(this.realtimeChannel, 0)
+    synth.programChange(this.realtimeChannel, 0)
+    synth.midiChannels[this.realtimeChannel]!.setSystemParameter('isMuted', false)
+  }
+
+  setRealtimeVolume(value: number): void {
+    if (this.realtimeChannel !== null) this.synth?.midiChannels[this.realtimeChannel]?.setSystemParameter('gain', Math.max(0, Math.min(1, value)))
+  }
+
+  scheduleRealtimeNote(pitch: number, velocity: number, time: number): void {
+    if (this.realtimeChannel === null || !this.synth) return
+    this.realtimeScheduledUntil = Math.max(this.realtimeScheduledUntil, time)
+    if (velocity > 0) this.synth.noteOn(this.realtimeChannel, pitch, velocity, { time })
+    else this.synth.noteOff(this.realtimeChannel, pitch, { time })
+  }
+
+  stopRealtimeVoice(): void {
+    this.realtimeGeneration++
+    if (this.realtimeChannel === null || !this.synth) return
+    this.synth.midiChannels[this.realtimeChannel]!.setSystemParameter('isMuted', true)
+    this.synth.controllerChange(this.realtimeChannel, 120, 0)
+  }
+
   private deliverMessage(message: Uint8Array): void {
     const synth = this.synth
     if (!synth) return
@@ -284,6 +336,7 @@ export class SpessaSynthEngine implements SynthEngine {
   }
 
   panic(): void {
+    this.stopRealtimeVoice()
     const synth = this.synth
     if (!synth) return
     for (let ch = 0; ch < 16; ch++) {

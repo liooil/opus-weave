@@ -516,6 +516,19 @@ async function postChat(config: OwtAiConfig, body: ChatBody, options: OwtAiTrans
 }
 
 
+/** Shared provider transport for bounded, incremental text protocols. */
+export function streamAiText(config: OwtAiConfig, system: string, prompt: string, options: OwtAiTransportOptions = {}): Promise<string> {
+  if (!config.model.trim()) throw new Error('AI model is required')
+  return postChat(config, {
+    model: config.model.trim(),
+    messages: [{ role: 'system', content: system }, { role: 'user', content: prompt }],
+    temperature: config.temperature,
+    top_p: config.topP,
+    max_tokens: config.maxTokens ?? 384,
+    stream: true,
+  }, options)
+}
+
 export async function createOwtWithAi(config: OwtAiConfig, request: OwtAiRequest, options: OwtAiTransportOptions = {}): Promise<string> {
   const messages = buildOwtAiMessages(request, config)
   const body: ChatBody = {
